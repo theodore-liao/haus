@@ -1,26 +1,118 @@
 @import "tailwindcss";
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --background: #0b1320;
+  --foreground: #eef3f9;
+  --card: #152033;
+  --card-elevated: #1c2a42;
+  --sidebar: #08101a;
+  --secondary: #1e2c44;
+  --muted: #8fa0b8;
+  --muted-foreground: #8fa0b8;
+  --primary: #b7d0e8;
+  --primary-foreground: #071018;
+  --accent: #cbb892;
+  --accent-foreground: #14110c;
+  --border: rgba(196, 210, 228, 0.12);
+  --input: rgba(196, 210, 228, 0.2);
+  --ring: #b7d0e8;
+  --positive: #6fc4b0;
+  --negative: #d48992;
 }
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-elevated: var(--card-elevated);
+  --color-sidebar: var(--sidebar);
+  --color-secondary: var(--secondary);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-positive: var(--positive);
+  --color-negative: var(--negative);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
-}
-
+html,
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  min-height: 100%;
+}
+
+body {
+  font-family: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
+  letter-spacing: -0.011em;
+  background-color: var(--background);
+  background-image:
+    radial-gradient(ellipse 80% 50% at 8% -10%, rgba(183, 208, 232, 0.16), transparent 52%),
+    radial-gradient(ellipse 55% 40% at 100% 0%, rgba(203, 184, 146, 0.1), transparent 46%),
+    radial-gradient(ellipse 70% 45% at 90% 110%, rgba(111, 196, 176, 0.08), transparent 50%),
+    radial-gradient(ellipse 50% 30% at 0% 100%, rgba(20, 40, 70, 0.55), transparent 55%);
+  background-attachment: fixed;
+}
+
+::selection {
+  background: rgba(168, 197, 226, 0.22);
+}
+
+input[type="password"],
+input[type="text"],
+input[type="number"],
+input[type="date"] {
+  font-variant-numeric: tabular-nums;
+}
+
+input[type="date"] {
+  color-scheme: dark;
+  cursor: pointer;
+}
+
+input[type="date"]::-webkit-calendar-picker-indicator {
+  cursor: pointer;
+  opacity: 1;
+  filter: invert(0.85);
+}
+
+.tabular {
+  font-variant-numeric: tabular-nums;
+}
+
+.recharts-wrapper svg:focus,
+.recharts-wrapper svg:focus-visible,
+.recharts-wrapper *:focus,
+.recharts-wrapper *:focus-visible,
+.recharts-sector,
+.recharts-pie-sector,
+.recharts-active-shape,
+.recharts-layer:focus {
+  outline: none !important;
+  box-shadow: none !important;
+}
+
+.recharts-surface,
+.recharts-wrapper svg {
+  overflow: visible;
+}
+
+.recharts-pie-label-text {
+  paint-order: normal;
+  stroke: none;
+}
+
+.haus-empty-pattern {
+  background-image:
+    radial-gradient(ellipse 70% 80% at 50% 0%, rgba(168, 197, 226, 0.07), transparent 60%),
+    linear-gradient(rgba(168, 197, 226, 0.05) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(168, 197, 226, 0.05) 1px, transparent 1px);
+  background-size: auto, 28px 28px, 28px 28px;
 }

@@ -1,0 +1,345 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model Household {
+  id          String   @id @default("haus")
+  nameA       String   @default("One")
+  nameB       String   @default("Two")
+  quoteApiKey String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model Child {
+  id        String   @id @default(cuid())
+  name      String
+  createdAt DateTime @default(now())
+}
+
+model PlaidItem {
+  id                   String    @id @default(cuid())
+  itemId               String    @unique
+  accessToken          String
+  institutionId        String?
+  institutionName      String?
+  status               String    @default("good")
+  errorCode            String?
+  errorMessage         String?
+  products             String    @default("[]")
+  defaultOwner         String    @default("joint")
+  transactionsCursor   String?
+  lastSyncedAt         DateTime?
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
+  accounts             Account[]
+}
+
+model Account {
+  id                String              @id @default(cuid())
+  plaidAccountId    String              @unique
+  itemId            String
+  item              PlaidItem           @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  name              String
+  officialName      String?
+  mask              String?
+  type              String
+  subtype           String?
+  hausType          String
+  owner             String              @default("joint")
+  isRetirement      Boolean             @default(false)
+  retirementKind    String?
+  currentBalance    Float?
+  availableBalance  Float?
+  limitAmount       Float?
+  isoCurrency       String              @default("USD")
+  previousBalance   Float?
+  interestRate      Float?
+  liabilityJson     String?
+  lastSyncedAt      DateTime?
+  createdAt         DateTime            @default(now())
+  updatedAt         DateTime            @updatedAt
+  transactions      Txn[]
+  holdings          Holding[]
+  investmentTxns    InvestmentTxn[]
+  snapshots         BalanceSnapshot[]
+
+  @@index([owner])
+  @@index([hausType])
+}
+
+model Txn {
+  id                   String    @id @default(cuid())
+  plaidTransactionId   String    @unique
+  accountId            String
+  account              Account   @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  date                 DateTime
+  authorizedDate       DateTime?
+  name                 String
+  merchantName         String?
+  amount               Float
+  pending              Boolean   @default(false)
+  categoryPrimary      String?
+  categoryDetailed     String?
+  userCategory         String?
+  userMerchant         String?
+  isoCurrency          String    @default("USD")
+  isTransfer           Boolean   @default(false)
+  isCcPayment          Boolean   @default(false)
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
+
+  @@index([date])
+  @@index([accountId])
+}
+
+model MerchantRule {
+  merchantKey String  @id
+  category    String?
+  displayName String?
+  hidden      Boolean @default(false)
+}
+
+model Security {
+  id               String           @id @default(cuid())
+  plaidSecurityId  String           @unique
+  symbol           String?
+  name             String
+  type             String?
+  closePrice       Float?
+  closePriceAsOf   DateTime?
+  holdings         Holding[]
+  investmentTxns   InvestmentTxn[]
+}
+
+model Holding {
+  id                String    @id @default(cuid())
+  sourceKey         String    @unique
+  accountId         String
+  account           Account   @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  securityId        String?
+  security          Security? @relation(fields: [securityId], references: [id])
+  symbol            String?
+  name              String
+  type              String?
+  quantity          Float
+  costBasis         Float?
+  institutionValue  Float?
+  institutionPrice  Float?
+  quotePrice        Float?
+  quoteChange       Float?
+  quoteChangePct    Float?
+  quoteAsOf         DateTime?
+  updatedAt         DateTime  @updatedAt
+
+  @@index([accountId])
+  @@index([symbol])
+}
+
+model InvestmentTxn {
+  id                     String    @id @default(cuid())
+  plaidInvestmentTxnId   String    @unique
+  accountId              String
+  account                Account   @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  securityId             String?
+  security               Security? @relation(fields: [securityId], references: [id])
+  date                   DateTime
+  name                   String
+  type                   String
+  subtype                String?
+  quantity               Float?
+  amount                 Float
+  price                  Float?
+  fees                   Float?
+  isoCurrency            String    @default("USD")
+
+  @@index([date])
+  @@index([accountId])
+}
+
+model BalanceSnapshot {
+  id        String   @id @default(cuid())
+  accountId String
+  account   Account  @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  date      DateTime
+  current   Float
+  available Float?
+
+  @@unique([accountId, date])
+}
+
+model NetWorthSnapshot {
+  id           String   @id @default(cuid())
+  date         DateTime
+  ownerKey     String   @default("all")
+  cash         Float
+  investments  Float
+  realEstate   Float
+  vehicles     Float
+  otherAssets  Float
+  liabilities  Float
+  netWorth     Float
+
+  @@unique([date, ownerKey])
+}
+
+model Property {
+  id                 String   @id @default(cuid())
+  label              String
+  address            String?
+  estimate           Float
+  asOfDate           DateTime
+  owner              String   @default("joint")
+  mortgageAccountId  String?
+  mortgageBalance    Float?
+  rate               Float?
+  termMonths         Int?
+  piti               Float?
+  rent               Float?
+  notes              String?
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+}
+
+model Vehicle {
+  id             String   @id @default(cuid())
+  label          String
+  year           Int?
+  make           String?
+  model          String?
+  estimate       Float
+  asOfDate       DateTime
+  owner          String   @default("joint")
+  loanAccountId  String?
+  loanBalance    Float?
+  notes          String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+}
+
+model InsurancePolicy {
+  id               String               @id @default(cuid())
+  type             String
+  carrier          String
+  policyNumber     String?
+  namedInsured     String               @default("joint")
+  owner            String               @default("joint")
+  coverageJson     String               @default("{}")
+  premium          Float?
+  billingFrequency String?
+  effectiveDate    DateTime?
+  renewalDate      DateTime?
+  propertyId       String?
+  vehicleId        String?
+  hsaEligible      Boolean              @default(false)
+  coveredMembers   String               @default("[]")
+  notes            String?
+  createdAt        DateTime             @default(now())
+  updatedAt        DateTime             @updatedAt
+  documents        InsuranceDocument[]
+}
+
+model InsuranceDocument {
+  id        String           @id @default(cuid())
+  policyId  String
+  policy    InsurancePolicy  @relation(fields: [policyId], references: [id], onDelete: Cascade)
+  filename  String
+  mimeType  String
+  path      String
+  ocrText   String?
+  createdAt DateTime         @default(now())
+}
+
+model ManualAccount {
+  id          String   @id @default(cuid())
+  hausType    String
+  name        String
+  owner       String
+  beneficiary String?
+  balance     Float
+  asOfDate    DateTime
+  notes       String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model ManualHolding {
+  id             String    @id @default(cuid())
+  kind           String    @default("crypto")
+  symbol         String
+  coingeckoId    String?
+  name           String
+  quantity       Float
+  costBasis      Float?
+  owner          String    @default("joint")
+  notes          String?
+  quotePrice     Float?
+  quoteChange    Float?
+  quoteChangePct Float?
+  quoteAsOf      DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  @@index([symbol])
+  @@index([owner])
+}
+
+model PricePoint {
+  id     String   @id @default(cuid())
+  symbol String
+  date   DateTime
+  close  Float
+  source String   @default("unknown")
+
+  @@unique([symbol, date])
+  @@index([symbol])
+}
+
+model CryptoWallet {
+  id           String              @id @default(cuid())
+  address      String
+  addressType  String
+  label        String?
+  owner        String              @default("joint")
+  lastSyncedAt DateTime?
+  lastError    String?
+  createdAt    DateTime            @default(now())
+  updatedAt    DateTime            @updatedAt
+  assets       CryptoWalletAsset[]
+
+  @@unique([address])
+  @@index([owner])
+}
+
+model CryptoWalletAsset {
+  id              String       @id @default(cuid())
+  walletId        String
+  wallet          CryptoWallet @relation(fields: [walletId], references: [id], onDelete: Cascade)
+  chain           String
+  tokenKey        String
+  symbol          String
+  name            String
+  contractAddress String?
+  decimals        Int          @default(18)
+  quantity        Float
+  coingeckoId     String?
+  quotePrice      Float?
+  quoteChange     Float?
+  quoteChangePct  Float?
+  quoteAsOf       DateTime?
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+
+  @@unique([walletId, chain, tokenKey])
+  @@index([symbol])
+}
+
+model Setting {
+  key   String @id
+  value String
+}

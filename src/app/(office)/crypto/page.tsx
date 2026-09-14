@@ -2,7 +2,7 @@ import { PageHeader } from "@/components/page-header";
 import { EmptyLedger } from "@/components/states";
 import { Money } from "@/components/money";
 import { prisma } from "@/lib/db";
-import { getNames } from "@/lib/queries";
+import { getBrokerageCrypto, getNames } from "@/lib/queries";
 import { getOwnerFilter } from "@/lib/request";
 import { matchesOwner, ownerLabel } from "@/lib/owners";
 import { CHAIN_META, collapseDuplicateSpot, isDefiAsset, shortAddress } from "@/lib/onchain";
@@ -22,7 +22,10 @@ export default async function CryptoPage() {
   const wallets = (await prisma.cryptoWallet.findMany({ include: { assets: true }, orderBy: { createdAt: "asc" } })).filter(
     (w) => matchesOwner(w.owner, owner),
   );
-  const manuals = (await prisma.manualHolding.findMany()).filter((c) => matchesOwner(c.owner, owner));
+  const manuals = (await prisma.manualHolding.findMany({ where: { kind: "crypto" } })).filter((c) =>
+    matchesOwner(c.owner, owner),
+  );
+  const brokerage = await getBrokerageCrypto(owner);
 
   const rows: HoldingRow[] = [];
   for (const w of wallets) {
@@ -66,6 +69,29 @@ export default async function CryptoPage() {
       });
     }
   }
+  for (const g of brokerage) {
+    for (const a of g.assets) {
+      rows.push({
+        id: a.id,
+        symbol: a.symbol,
+        name: a.name,
+        class: g.institution,
+        account: g.institution,
+        institution: g.institution,
+        ownerLabel: g.ownerLabel,
+        qty: a.quantity,
+        last: a.quotePrice,
+        value: a.value,
+        costBasis: null,
+        dayPl: null,
+        totalPl: null,
+        dayPct: null,
+        weight: 0,
+        manual: false,
+        brandKind: "crypto",
+      });
+    }
+  }
   for (const c of manuals) {
     const value = lotValue(c);
     rows.push({
@@ -102,7 +128,7 @@ export default async function CryptoPage() {
           </>
         }
       />
-      {wallets.length === 0 && manuals.length === 0 ? (
+      {wallets.length === 0 && manuals.length === 0 && brokerage.length === 0 ? (
         <EmptyLedger
           showConnect={false}
           title="No wallets yet"
@@ -116,9 +142,33 @@ export default async function CryptoPage() {
           </div>
         </div>
       )}
+      {rows.length > 0 ? (
+        <div className="mb-4">
+          <InvestmentsBoard rows={rows} hideHero hideTable minValue={10} classMode="asset" />
+        </div>
+      ) : null}
       <WalletGrid
         names={names}
-        wallets={wallets.map((w) => {
+        wallets={[
+          ...brokerage.map((g) => ({
+            id: g.id,
+            address: "",
+            addressType: "brokerage",
+            label: g.institution,
+            ownerLabel: g.ownerLabel,
+            lastSyncedAt: null,
+            lastError: null,
+            brokerage: true,
+            assets: g.assets.map((a) => ({
+              id: a.id,
+              chain: g.institution,
+              symbol: a.symbol,
+              name: a.name,
+              quantity: a.quantity,
+              quotePrice: a.quotePrice,
+            })),
+          })),
+          ...wallets.map((w) => {
           const keep = new Set(
             collapseDuplicateSpot(
               w.assets.map((a) => ({
@@ -154,7 +204,8 @@ export default async function CryptoPage() {
                 quotePrice: a.quotePrice,
               })),
           };
-        })}
+        }),
+        ]}
         manuals={manuals.map((c) => ({
           id: c.id,
           symbol: c.symbol,
@@ -164,7 +215,7 @@ export default async function CryptoPage() {
           notes: c.notes,
         }))}
       />
-      {rows.length > 0 ? <InvestmentsBoard rows={rows} hideHero minValue={10} /> : null}
+      {rows.length > 0 ? <InvestmentsBoard rows={rows} hideHero hideDonuts minValue={10} /> : null}
     </>
   );
 }

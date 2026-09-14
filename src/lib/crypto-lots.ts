@@ -20,7 +20,7 @@ export function lotValue(c: { quotePrice: number | null; quantity: number }) {
 
 export async function loadCryptoLots(): Promise<CryptoLot[]> {
   const [manual, wallets] = await Promise.all([
-    prisma.manualHolding.findMany(),
+    prisma.manualHolding.findMany({ where: { kind: "crypto" } }),
     prisma.cryptoWallet.findMany({ include: { assets: true } }),
   ]);
   const lots: CryptoLot[] = manual.map((c) => ({

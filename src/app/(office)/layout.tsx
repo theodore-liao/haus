@@ -1,6 +1,7 @@
 import { AppShell } from "@/components/app-shell";
 import { getNames } from "@/lib/queries";
 import { prisma } from "@/lib/db";
+import { givenName } from "@/lib/owners";
 
 export const dynamic = "force-dynamic";
 
@@ -12,8 +13,8 @@ export default async function OfficeLayout({ children }: { children: React.React
   });
   return (
     <AppShell
-      nameA={names.nameA}
-      nameB={names.nameB}
+      nameA={givenName(names.nameA) || names.nameA}
+      nameB={givenName(names.nameB) || names.nameB}
       lastSynced={latest?.lastSyncedAt?.toISOString() ?? null}
     >
       {children}

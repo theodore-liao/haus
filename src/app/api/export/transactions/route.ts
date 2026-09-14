@@ -11,7 +11,7 @@ export async function GET() {
   await requireSession();
   const owner = await getOwnerFilter();
   const rows = await getTransactions(owner);
-  const header = ["Date", "Merchant", "Account", "Owner", "Category", "Amount", "Pending"];
+  const header = ["Date", "Merchant", "Account", "Holder", "Category", "Amount", "Pending"];
   const lines = [
     header.join(","),
     ...rows.map((r) =>

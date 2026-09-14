@@ -39,25 +39,45 @@ type SortKey = "symbol" | "name" | "class" | "account" | "ownerLabel" | "qty" | 
 
 export function InvestmentsBoard({
   rows,
+  tableRows,
+  beforeTable,
   hideHero,
+  hideDonuts,
+  hideTable,
+  classMode = "class",
+  accountOnly,
+  besideAccount,
+  headerAction,
   minValue = 10,
 }: {
   rows: HoldingRow[];
+  tableRows?: HoldingRow[];
+  beforeTable?: ReactNode;
   hideHero?: boolean;
+  hideDonuts?: boolean;
+  hideTable?: boolean;
+  classMode?: "class" | "asset";
+  accountOnly?: boolean;
+  besideAccount?: ReactNode;
+  headerAction?: ReactNode;
   minValue?: number;
 }) {
   const material = useMemo(() => rows.filter((r) => Math.abs(r.value) >= minValue), [rows, minValue]);
+  const tableMaterial = useMemo(
+    () => (tableRows ?? rows).filter((r) => Math.abs(r.value) >= minValue),
+    [tableRows, rows, minValue],
+  );
   const [classSel, setClassSel] = useState<Set<string> | null>(null);
   const [acctSel, setAcctSel] = useState<Set<string> | null>(null);
   const [ownerSel, setOwnerSel] = useState<Set<string> | null>(null);
-  const [sort, setSort] = useState<{ key: SortKey; dir: SortDir }>({ key: "value", dir: null });
+  const [sort, setSort] = useState<{ key: SortKey; dir: SortDir }>({ key: "value", dir: "desc" });
 
-  const classOpts = useMemo(() => [...new Set(material.map((r) => r.class || "other"))].sort(), [material]);
-  const acctOpts = useMemo(() => [...new Set(material.map((r) => r.account))].sort(), [material]);
-  const ownerOpts = useMemo(() => [...new Set(material.map((r) => r.ownerLabel))].sort(), [material]);
+  const classOpts = useMemo(() => [...new Set(tableMaterial.map((r) => r.class || "other"))].sort(), [tableMaterial]);
+  const acctOpts = useMemo(() => [...new Set(tableMaterial.map((r) => r.account))].sort(), [tableMaterial]);
+  const ownerOpts = useMemo(() => [...new Set(tableMaterial.map((r) => r.ownerLabel))].sort(), [tableMaterial]);
 
   const visible = useMemo(() => {
-    let list = material.filter((r) => {
+    let list = tableMaterial.filter((r) => {
       if (classSel && !classSel.has(r.class || "other")) return false;
       if (acctSel && !acctSel.has(r.account)) return false;
       if (ownerSel && !ownerSel.has(r.ownerLabel)) return false;
@@ -77,10 +97,13 @@ export function InvestmentsBoard({
     }
     const total = list.reduce((s, r) => s + r.value, 0);
     return list.map((r) => ({ ...r, weight: total > 0 ? r.value / total : 0 }));
-  }, [material, classSel, acctSel, ownerSel, sort]);
+  }, [tableMaterial, classSel, acctSel, ownerSel, sort]);
 
   const total = material.reduce((s, r) => s + r.value, 0);
-  const byClass = rollup(material, (r) => formatHoldingClass(r.class || "other"), undefined, minValue);
+  const byClass =
+    classMode === "asset"
+      ? rollupByAsset(material, minValue)
+      : rollup(material, (r) => formatHoldingClass(r.class || "other"), undefined, minValue);
   const byAccount = rollup(material, (r) => r.account, (r) => r.accounts ?? [r.account], minValue);
   const byOwner = rollup(material, (r) => r.ownerLabel, undefined, minValue);
   const filtersOn = classSel != null || acctSel != null || ownerSel != null;
@@ -118,16 +141,9 @@ export function InvestmentsBoard({
           </div>
         </div>
       )}
-      <div className="grid gap-4 lg:grid-cols-3">
-        <Card>
-          <CardHeader>
-            <CardTitle>By class</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <AllocationChart data={byClass} />
-          </CardContent>
-        </Card>
-        <Card>
+      {hideDonuts ? null : accountOnly ? (
+      <div className="relative z-0 mb-4 grid gap-4 lg:grid-cols-2">
+        <Card className="overflow-hidden">
           <CardHeader>
             <CardTitle>By account</CardTitle>
           </CardHeader>
@@ -135,7 +151,27 @@ export function InvestmentsBoard({
             <AllocationChart data={byAccount} />
           </CardContent>
         </Card>
-        <Card>
+        {besideAccount}
+      </div>
+      ) : (
+      <div className="relative z-0 mb-0 grid gap-4 lg:grid-cols-3">
+        <Card className="overflow-hidden">
+          <CardHeader>
+            <CardTitle>{classMode === "asset" ? "By asset" : "By class"}</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <AllocationChart data={byClass} />
+          </CardContent>
+        </Card>
+        <Card className="overflow-hidden">
+          <CardHeader>
+            <CardTitle>By account</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <AllocationChart data={byAccount} />
+          </CardContent>
+        </Card>
+        <Card className="overflow-hidden">
           <CardHeader>
             <CardTitle>By account holder</CardTitle>
           </CardHeader>
@@ -144,9 +180,14 @@ export function InvestmentsBoard({
           </CardContent>
         </Card>
       </div>
+      )}
+      {beforeTable ? <div className={cn("relative z-0", !hideDonuts && "mt-6")}>{beforeTable}</div> : null}
+      {hideTable ? null : (
       <Card className="mt-4">
         <CardHeader className="flex flex-row items-center justify-between space-y-0">
           <CardTitle>Holdings</CardTitle>
+          <div className="flex items-center gap-2">
+            {headerAction}
           <ResetFilters
             dirty={filtersOn}
             onReset={() => {
@@ -155,24 +196,25 @@ export function InvestmentsBoard({
               setOwnerSel(null);
             }}
           />
+          </div>
         </CardHeader>
-        <CardContent className="min-h-[28rem] overflow-hidden px-0 pb-0">
-          <Table className="table-fixed">
+        <CardContent className="px-0 pb-0">
+          <Table className="table-fixed" containerClassName="max-h-[min(28rem,calc(100dvh-18rem))] overscroll-contain">
             <colgroup>
-              <col className="w-[8%]" />
-              <col className="w-[16%]" />
-              <col className="w-[8%]" />
-              <col className="w-[16%]" />
-              <col className="w-[8%]" />
-              <col className="w-[7%]" />
-              <col className="w-[8%]" />
-              <col className="w-[8%]" />
-              <col className="w-[7%]" />
-              <col className="w-[7%]" />
-              <col className="w-[7%]" />
-              <col className="w-[5%]" />
+              <col key="c0" className="w-[8%]" />
+              <col key="c1" className="w-[16%]" />
+              <col key="c2" className="w-[8%]" />
+              <col key="c3" className="w-[16%]" />
+              <col key="c4" className="w-[8%]" />
+              <col key="c5" className="w-[7%]" />
+              <col key="c6" className="w-[8%]" />
+              <col key="c7" className="w-[8%]" />
+              <col key="c8" className="w-[7%]" />
+              <col key="c9" className="w-[7%]" />
+              <col key="c10" className="w-[7%]" />
+              <col key="c11" className="w-[5%]" />
             </colgroup>
-            <TableHeader>
+            <TableHeader className="sticky top-0 z-10 bg-card [&_th]:bg-card">
               <TableRow>
                 {head("symbol", "Symbol")}
                 {head("name", "Name")}
@@ -194,8 +236,8 @@ export function InvestmentsBoard({
                 )}
                 {head(
                   "ownerLabel",
-                  "Owner",
-                  <DiscreteFilter label="Owner" options={ownerOpts} selected={ownerSel} onChange={setOwnerSel} />,
+                  "Holder",
+                  <DiscreteFilter label="Holder" options={ownerOpts} selected={ownerSel} onChange={setOwnerSel} />,
                 )}
                 {head("qty", "Qty", undefined, true)}
                 {head("last", "Last", undefined, true)}
@@ -215,7 +257,10 @@ export function InvestmentsBoard({
                 </TableRow>
               ) : (
                 visible.map((r) => (
-                  <TableRow key={r.id}>
+                  <TableRow
+                    key={`${r.id}:${r.symbol ?? ""}:${r.account}`}
+                    className={cn(r.manual && "bg-secondary/40")}
+                  >
                     <ClipCell title={r.symbol ?? undefined}>
                       {r.symbol ? (
                         <Link href={`/investments/${encodeURIComponent(r.symbol)}`} className="block min-w-0 text-primary">
@@ -280,6 +325,7 @@ export function InvestmentsBoard({
           </Table>
         </CardContent>
       </Card>
+      )}
     </>
   );
 }
@@ -328,21 +374,93 @@ function rollup(
     for (const m of members ? members(r) : []) row.members.add(m);
     map[k] = row;
   }
-  return Object.entries(map).map(([k, v]) => ({
-    key: k,
-    value: v.value,
-    members: v.members.size ? [...v.members] : undefined,
-    items: v.items
-      .filter((h) => Math.abs(h.value) >= minItem)
-      .map((h) => ({
-        label: h.symbol ? `${h.symbol} · ${h.name}` : h.name,
-        value: h.value,
-        symbol: h.symbol,
-        name: h.name,
-        kind:
-          h.brandKind ??
-          (h.class === "crypto" || h.class === "cryptocurrency" ? "crypto" : "security"),
-      }))
-      .sort((a, b) => b.value - a.value),
-  }));
+  return Object.entries(map)
+    .map(([k, v]) => ({
+      key: k,
+      value: v.value,
+      members: v.members.size ? [...v.members] : undefined,
+      items: v.items
+        .filter((h) => Math.abs(h.value) >= minItem)
+        .map((h) => ({
+          label: h.symbol ? `${h.symbol} · ${h.name}` : h.name,
+          value: h.value,
+          symbol: h.symbol,
+          name: h.name,
+          kind:
+            h.brandKind ??
+            (h.class === "crypto" || h.class === "cryptocurrency" ? "crypto" : "security"),
+        }))
+        .sort((a, b) => b.value - a.value),
+    }))
+    .sort((a, b) => b.value - a.value);
+}
+
+function rollupByAsset(rows: HoldingRow[], minItem = 10) {
+  type Agg = { value: number; symbol: string | null; name: string; items: HoldingRow[] };
+  const map = new Map<string, Agg>();
+  for (const r of rows) {
+    const symbol = r.symbol?.trim() || null;
+    const key = (symbol || r.name).trim().toUpperCase() || r.id;
+    const cur = map.get(key);
+    if (!cur) {
+      map.set(key, { value: r.value, symbol, name: r.name, items: [r] });
+      continue;
+    }
+    cur.value += r.value;
+    cur.items.push(r);
+    if (!cur.symbol && symbol) cur.symbol = symbol;
+    const biggest = cur.items.reduce((a, b) => (Math.abs(b.value) > Math.abs(a.value) ? b : a));
+    cur.name = biggest.name;
+  }
+  const total = [...map.values()].reduce((s, v) => s + v.value, 0);
+  const ranked = [...map.values()].sort((a, b) => b.value - a.value);
+  const slices: {
+    key: string;
+    value: number;
+    items: {
+      label: string;
+      value: number;
+      symbol: string | null;
+      name: string;
+      kind: BrandKind;
+    }[];
+  }[] = [];
+  const otherItems: (typeof slices)[number]["items"] = [];
+  let otherVal = 0;
+  for (const v of ranked) {
+    const token = {
+      label: v.symbol ? `${v.symbol} · ${v.name}` : v.name,
+      value: v.value,
+      symbol: v.symbol,
+      name: v.name,
+      kind: "crypto" as const,
+    };
+    if (total > 0 && v.value / total < 0.01) {
+      otherVal += v.value;
+      otherItems.push(token);
+      continue;
+    }
+    slices.push({
+      key: v.symbol || v.name,
+      value: v.value,
+      items: v.items
+        .filter((h) => Math.abs(h.value) >= minItem)
+        .map((h) => ({
+          label: h.account ? `${h.symbol ?? h.name} · ${h.account}` : h.symbol ? `${h.symbol} · ${h.name}` : h.name,
+          value: h.value,
+          symbol: h.symbol,
+          name: h.name,
+          kind: (h.brandKind ?? "crypto") as BrandKind,
+        }))
+        .sort((a, b) => b.value - a.value),
+    });
+  }
+  if (otherVal > 0) {
+    slices.push({
+      key: "Other",
+      value: otherVal,
+      items: otherItems.sort((a, b) => b.value - a.value),
+    });
+  }
+  return slices.sort((a, b) => b.value - a.value);
 }

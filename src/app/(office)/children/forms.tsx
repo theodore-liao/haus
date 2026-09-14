@@ -47,7 +47,7 @@ export function ChildrenForms({
         </>
       )}
       <Dialog open={childOpen} onOpenChange={setChildOpen}>
-        <DialogContent>
+        <DialogContent persist>
           <DialogHeader>
             <DialogTitle>Add child</DialogTitle>
           </DialogHeader>
@@ -77,7 +77,7 @@ export function ChildrenForms({
         </DialogContent>
       </Dialog>
       <Dialog open={acctOpen} onOpenChange={setAcctOpen}>
-        <DialogContent>
+        <DialogContent persist>
           <DialogHeader>
             <DialogTitle>{existing ? "Update account" : "Manual child account"}</DialogTitle>
           </DialogHeader>
@@ -127,7 +127,7 @@ export function ChildrenForms({
               <Input className="mt-1" name="name" defaultValue={existing?.name} required />
             </div>
             <div>
-              <Label>Owner</Label>
+              <Label>Holder</Label>
               <select
                 name="owner"
                 defaultValue={existing?.owner}

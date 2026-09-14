@@ -2,6 +2,7 @@ import { prisma } from "./db";
 import { finnhubKey } from "./env";
 import { startOfDay } from "./format";
 import { COINGECKO_IDS } from "./crypto-assets";
+import { FIXED_USD_ID } from "./constants";
 import { fetchDexScreenerPrices, fetchJupiterPrices, fetchSpotUsd } from "./token-prices";
 
 type Quote = { price: number; change: number; changePct: number; asOf: Date };
@@ -11,6 +12,44 @@ const TTL_MS = 15 * 60 * 1000;
 
 function sleep(ms: number) {
   return new Promise((r) => setTimeout(r, ms));
+}
+
+async function fetchYahooQuote(symbol: string): Promise<(Quote & { name?: string }) | null> {
+  const cached = quoteCache.get(`eq:${symbol}`);
+  if (cached && Date.now() - cached.at < TTL_MS) return cached.quote;
+  const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?range=5d&interval=1d`;
+  const res = await fetch(url, {
+    cache: "no-store",
+    headers: { accept: "application/json", "user-agent": "Haus/1.0" },
+    signal: AbortSignal.timeout(8000),
+  });
+  if (!res.ok) return null;
+  const data = (await res.json()) as {
+    chart?: {
+      result?: {
+        meta?: { regularMarketPrice?: number; chartPreviousClose?: number; shortName?: string; symbol?: string };
+      }[];
+    };
+  };
+  const meta = data.chart?.result?.[0]?.meta;
+  const price = Number(meta?.regularMarketPrice ?? 0);
+  if (!(price > 0)) return null;
+  const prev = Number(meta?.chartPreviousClose ?? 0);
+  const change = prev > 0 ? price - prev : 0;
+  const changePct = prev > 0 ? (change / prev) * 100 : 0;
+  const quote: Quote = { price, change, changePct, asOf: new Date() };
+  quoteCache.set(`eq:${symbol}`, { quote, at: Date.now() });
+  return { ...quote, name: meta?.shortName };
+}
+
+export async function fetchEquitySpot(symbol: string): Promise<(Quote & { name?: string }) | null> {
+  const household = await prisma.household.findUnique({ where: { id: "haus" } });
+  const token = finnhubKey(household?.quoteApiKey);
+  if (token) {
+    const q = await fetchFinnhubQuote(symbol, token);
+    if (q) return q;
+  }
+  return fetchYahooQuote(symbol);
 }
 
 async function fetchFinnhubQuote(symbol: string, token: string): Promise<Quote | null> {
@@ -93,6 +132,32 @@ export async function enrichHoldingsQuotes() {
         /* keep last good quote */
       }
       await sleep(180);
+    }
+  }
+
+  const manuals = await prisma.manualHolding.findMany({
+    where: { kind: "security", NOT: { coingeckoId: FIXED_USD_ID } },
+    select: { id: true, symbol: true },
+  });
+  for (const row of manuals) {
+    const symbol = row.symbol.trim().toUpperCase();
+    if (!/^[A-Z0-9.\-]{1,8}$/.test(symbol)) continue;
+    try {
+      const quote = await fetchEquitySpot(symbol);
+      if (!quote) continue;
+      await prisma.manualHolding.update({
+        where: { id: row.id },
+        data: {
+          quotePrice: quote.price,
+          quoteChange: quote.change,
+          quoteChangePct: quote.changePct,
+          quoteAsOf: quote.asOf,
+          name: quote.name || undefined,
+        },
+      });
+      enriched += 1;
+    } catch {
+      /* keep last good quote */
     }
   }
 

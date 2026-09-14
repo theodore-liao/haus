@@ -17,7 +17,14 @@ export function DialogOverlay({ className, ...props }: React.ComponentProps<type
   );
 }
 
-export function DialogContent({ className, children, ...props }: React.ComponentProps<typeof DialogPrimitive.Content>) {
+export function DialogContent({
+  className,
+  children,
+  persist,
+  onPointerDownOutside,
+  onInteractOutside,
+  ...props
+}: React.ComponentProps<typeof DialogPrimitive.Content> & { persist?: boolean }) {
   return (
     <DialogPrimitive.Portal>
       <DialogOverlay />
@@ -27,6 +34,14 @@ export function DialogContent({ className, children, ...props }: React.Component
             "pointer-events-auto relative w-full max-w-lg max-h-[min(90vh,760px)] overflow-y-auto rounded-lg border border-border bg-card-elevated p-6 shadow-none outline-none",
             className,
           )}
+          onPointerDownOutside={(e) => {
+            if (persist) e.preventDefault();
+            onPointerDownOutside?.(e);
+          }}
+          onInteractOutside={(e) => {
+            if (persist) e.preventDefault();
+            onInteractOutside?.(e);
+          }}
           {...props}
         >
           {children}

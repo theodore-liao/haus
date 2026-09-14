@@ -87,7 +87,7 @@ export function VehicleForm({
         )}
       </div>
       <Dialog open={open} onOpenChange={setOpen}>
-        <DialogContent>
+        <DialogContent persist>
           <DialogHeader>
             <DialogTitle>{existing ? "Edit vehicle" : "Add vehicle"}</DialogTitle>
           </DialogHeader>
@@ -125,7 +125,7 @@ export function VehicleForm({
               <Input className="mt-1" name="asOfDate" type="date" required defaultValue={existing?.asOfDate} />
             </div>
             <div>
-              <Label>Owner</Label>
+              <Label>Holder</Label>
               <select
                 name="owner"
                 defaultValue={existing?.owner ?? "joint"}

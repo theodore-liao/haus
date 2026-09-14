@@ -24,7 +24,7 @@ export function AddWallet({
         Add wallet
       </Button>
       <Dialog open={open} onOpenChange={setOpen}>
-        <DialogContent>
+        <DialogContent persist>
           <DialogHeader>
             <DialogTitle>Add wallet</DialogTitle>
           </DialogHeader>
@@ -74,7 +74,7 @@ export function AddWallet({
               <Input className="mt-1" name="label" placeholder="Cold wallet" />
             </div>
             <div>
-              <Label>Owner</Label>
+              <Label>Holder</Label>
               <select name="owner" className="mt-1 flex h-9 w-full rounded-md border border-border bg-card px-3 text-sm">
                 {ownerOptions(names).map((o) => (
                   <option key={o.value} value={o.value}>

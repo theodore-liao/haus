@@ -93,6 +93,24 @@ export function isCreditCardPayment(t: {
   return false;
 }
 
+export function isInvestFunding(t: {
+  isTransfer?: boolean;
+  isCcPayment?: boolean;
+  userCategory?: string | null;
+  categoryPrimary?: string | null;
+  categoryDetailed?: string | null;
+  merchant?: string | null;
+  merchantName?: string | null;
+  userMerchant?: string | null;
+  name?: string | null;
+}) {
+  const blob = `${t.merchantName ?? ""} ${t.userMerchant ?? ""} ${t.name ?? ""} ${t.merchant ?? ""}`.toLowerCase();
+  if (!/robinhood|fidelity|vanguard|schwab|wealthfront|betterment|e-?trade|m1 finance|sofi invest|acorns|public\.com|coinbase/.test(blob)) {
+    return false;
+  }
+  return isInternalMove(t) || effectiveCategory(t) === "TRANSFER_OUT";
+}
+
 export function isInternalMove(t: {
   isTransfer?: boolean;
   isCcPayment?: boolean;

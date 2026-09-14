@@ -22,6 +22,7 @@ export type WalletCard = {
   ownerLabel: string;
   lastSyncedAt: Date | string | null;
   lastError: string | null;
+  brokerage?: boolean;
   assets: {
     id: string;
     chain: string;
@@ -62,7 +63,9 @@ export function WalletGrid({
         const chains = [...new Set(w.assets.map((a) => a.chain))];
         const chainLabels = [...new Set(chains.map((c) => CHAIN_META[c]?.label ?? c))];
         const explorer = CHAIN_META[w.addressType === "evm" ? "ethereum" : w.addressType]?.explorer(w.address);
-        const brand = chainBrand(w.addressType, chains);
+        const brand = w.brokerage
+          ? { kind: "institution" as const, symbol: null as string | null, src: undefined as string | undefined, name: w.label || "Brokerage" }
+          : chainBrand(w.addressType, chains);
         const holdings = w.assets
           .filter((a) => lotValue(a) >= 10)
           .slice()
@@ -81,7 +84,7 @@ export function WalletGrid({
                 <div className="mt-1 text-sm text-muted-foreground">{w.ownerLabel}</div>
               </div>
               <div className="flex shrink-0 items-start gap-1">
-                <WalletActions id={w.id} />
+                {w.brokerage ? null : <WalletActions id={w.id} />}
                 {handle}
               </div>
             </CardHeader>
@@ -89,29 +92,35 @@ export function WalletGrid({
               <div className="text-lg font-medium font-mono tabular-nums">
                 <Money value={shownValue} />
               </div>
-              <div className="mt-2 flex items-center gap-2 font-mono text-[12px] text-muted-foreground">
-                <span className="min-w-0 break-all">
-                  {revealed[w.id] ? w.address : shortAddress(w.address)}
-                </span>
-                <button
-                  type="button"
-                  className="shrink-0 cursor-pointer text-muted-foreground hover:text-foreground"
-                  aria-label={revealed[w.id] ? "Hide address" : "Show address"}
-                  onClick={() => setRevealed((s) => ({ ...s, [w.id]: !s[w.id] }))}
-                >
-                  {revealed[w.id] ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
-                </button>
-              </div>
-              {revealed[w.id] && explorer ? (
-                <a href={explorer} target="_blank" rel="noreferrer" className="mt-1 inline-block text-[12px] text-primary">
-                  Open explorer
-                </a>
-              ) : null}
-              <div className="mt-3 grid grid-cols-2 gap-2 text-sm">
-                <Field k="Chains" v={chainLabels.length ? chainLabels.join(", ") : "—"} />
-                <Field k="Last sync" v={formatDateTime(w.lastSyncedAt)} />
-              </div>
-              {w.lastError ? <p className="mt-2 text-sm text-negative">{w.lastError}</p> : null}
+              {w.brokerage ? (
+                <div className="mt-2 text-[12px] text-muted-foreground">Brokerage custody</div>
+              ) : (
+                <>
+                  <div className="mt-2 flex items-center gap-2 font-mono text-[12px] text-muted-foreground">
+                    <span className="min-w-0 break-all">
+                      {revealed[w.id] ? w.address : shortAddress(w.address)}
+                    </span>
+                    <button
+                      type="button"
+                      className="shrink-0 cursor-pointer text-muted-foreground hover:text-foreground"
+                      aria-label={revealed[w.id] ? "Hide address" : "Show address"}
+                      onClick={() => setRevealed((s) => ({ ...s, [w.id]: !s[w.id] }))}
+                    >
+                      {revealed[w.id] ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+                    </button>
+                  </div>
+                  {revealed[w.id] && explorer ? (
+                    <a href={explorer} target="_blank" rel="noreferrer" className="mt-1 inline-block text-[12px] text-primary">
+                      Open explorer
+                    </a>
+                  ) : null}
+                  <div className="mt-3 grid grid-cols-2 gap-2 text-sm">
+                    <Field k="Chains" v={chainLabels.length ? chainLabels.join(", ") : "—"} />
+                    <Field k="Last sync" v={formatDateTime(w.lastSyncedAt)} />
+                  </div>
+                  {w.lastError ? <p className="mt-2 text-sm text-negative">{w.lastError}</p> : null}
+                </>
+              )}
               {tokens.length || defi.length ? (
                 defi.length ? (
                   <Tabs defaultValue="tokens" className="mt-3">

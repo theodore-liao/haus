@@ -18,6 +18,8 @@ export const STALE_CONNECTION_HOURS = 48;
 export const INSURANCE_RENEWAL_DAYS = 60;
 export const CONCENTRATION_FLAG = 0.15;
 export const HIGH_UTILIZATION = 0.3;
+/** Manual stock lots stored as a dollar amount, not a live ticker. */
+export const FIXED_USD_ID = "usd-fixed";
 
 export const PFC_LABELS: Record<string, string> = {
   INCOME: "Income",

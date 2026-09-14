@@ -5,7 +5,6 @@ import {
   flexRender,
   getCoreRowModel,
   getFilteredRowModel,
-  getPaginationRowModel,
   getSortedRowModel,
   useReactTable,
   type ColumnDef,
@@ -25,7 +24,16 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { toast } from "sonner";
-import { AmountFilter, DiscreteFilter, ResetFilters, amountPasses, emptyAmountRule, type AmountRule } from "@/components/excel-filter";
+import {
+  AmountFilter,
+  DateFilter,
+  DiscreteFilter,
+  ResetFilters,
+  amountPasses,
+  dateMonthKey,
+  emptyAmountRule,
+  type AmountRule,
+} from "@/components/excel-filter";
 import { BrandLabel } from "@/components/brand-mark";
 import { CategoryIcon, CategoryName } from "@/lib/category-icons";
 import { ArrowDown, ArrowUp } from "lucide-react";
@@ -58,6 +66,7 @@ export function TransactionsTable({ rows }: { rows: TxnRow[] }) {
   const [ownerSel, setOwnerSel] = useState<Set<string> | null>(null);
   const [catSel, setCatSel] = useState<Set<string> | null>(null);
   const [amountRule, setAmountRule] = useState<AmountRule>(emptyAmountRule());
+  const [dateSel, setDateSel] = useState<Set<string> | null>(null);
   const [open, setOpen] = useState<TxnRow | null>(null);
   const [merchant, setMerchant] = useState("");
   const [category, setCategory] = useState("");
@@ -70,8 +79,10 @@ export function TransactionsTable({ rows }: { rows: TxnRow[] }) {
     () => [...new Set(rows.map((r) => categoryLabel(r.category)))].sort(),
     [rows],
   );
+  const dateOpts = useMemo(() => rows.map((r) => r.date), [rows]);
   const filteredRows = useMemo(() => {
     return rows.filter((r) => {
+      if (dateSel && !dateSel.has(dateMonthKey(r.date))) return false;
       if (merchantSel && !merchantSel.has(r.merchant)) return false;
       if (accountSel && !accountSel.has(r.account)) return false;
       if (ownerSel && !ownerSel.has(r.ownerLabel)) return false;
@@ -79,13 +90,18 @@ export function TransactionsTable({ rows }: { rows: TxnRow[] }) {
       if (!amountPasses(-r.amount, amountRule)) return false;
       return true;
     });
-  }, [rows, merchantSel, accountSel, ownerSel, catSel, amountRule]);
+  }, [rows, dateSel, merchantSel, accountSel, ownerSel, catSel, amountRule]);
 
   const columns = useMemo<ColumnDef<TxnRow>[]>(
     () => [
       {
         accessorKey: "date",
-        header: "Date",
+        header: () => (
+          <span className="inline-flex items-center">
+            Date
+            <DateFilter dates={dateOpts} selected={dateSel} onChange={setDateSel} />
+          </span>
+        ),
         cell: ({ getValue }) => (
           <span className="font-mono tabular-nums text-muted-foreground">{formatDate(getValue() as string)}</span>
         ),
@@ -137,8 +153,8 @@ export function TransactionsTable({ rows }: { rows: TxnRow[] }) {
         accessorKey: "ownerLabel",
         header: () => (
           <span className="inline-flex items-center">
-            Owner
-            <DiscreteFilter label="Owner" options={ownerOpts} selected={ownerSel} onChange={setOwnerSel} />
+            Holder
+            <DiscreteFilter label="Holder" options={ownerOpts} selected={ownerSel} onChange={setOwnerSel} />
           </span>
         ),
       },
@@ -172,7 +188,7 @@ export function TransactionsTable({ rows }: { rows: TxnRow[] }) {
         ),
       },
     ],
-    [merchantOpts, merchantSel, accountOpts, accountSel, ownerOpts, ownerSel, catOpts, catSel, amountRule],
+    [dateOpts, dateSel, merchantOpts, merchantSel, accountOpts, accountSel, ownerOpts, ownerSel, catOpts, catSel, amountRule],
   );
 
   const table = useReactTable({
@@ -184,10 +200,8 @@ export function TransactionsTable({ rows }: { rows: TxnRow[] }) {
     getCoreRowModel: getCoreRowModel(),
     getSortedRowModel: getSortedRowModel(),
     getFilteredRowModel: getFilteredRowModel(),
-    getPaginationRowModel: getPaginationRowModel(),
     enableSortingRemoval: true,
     sortDescFirst: false,
-    initialState: { pagination: { pageSize: 50 } },
   });
 
   async function save() {
@@ -223,6 +237,7 @@ export function TransactionsTable({ rows }: { rows: TxnRow[] }) {
         <ResetFilters
           dirty={
             Boolean(q) ||
+            dateSel != null ||
             merchantSel != null ||
             accountSel != null ||
             ownerSel != null ||
@@ -231,6 +246,7 @@ export function TransactionsTable({ rows }: { rows: TxnRow[] }) {
           }
           onReset={() => {
             setQ("");
+            setDateSel(null);
             setMerchantSel(null);
             setAccountSel(null);
             setOwnerSel(null);
@@ -240,8 +256,8 @@ export function TransactionsTable({ rows }: { rows: TxnRow[] }) {
         />
       </div>
       <div className="rounded-lg border border-border bg-card">
-        <Table>
-          <TableHeader>
+        <Table containerClassName="max-h-[calc(100dvh-17rem)] overscroll-contain md:max-h-[calc(100dvh-14.5rem)]">
+          <TableHeader className="sticky top-0 z-10 bg-card [&_th]:bg-card">
             {table.getHeaderGroups().map((hg) => (
               <TableRow key={hg.id}>
                 {hg.headers.map((h) => (
@@ -289,14 +305,6 @@ export function TransactionsTable({ rows }: { rows: TxnRow[] }) {
             )}
           </TableBody>
         </Table>
-      </div>
-      <div className="mt-3 flex items-center justify-end gap-2">
-        <Button variant="outline" size="sm" onClick={() => table.previousPage()} disabled={!table.getCanPreviousPage()}>
-          Previous
-        </Button>
-        <Button variant="outline" size="sm" onClick={() => table.nextPage()} disabled={!table.getCanNextPage()}>
-          Next
-        </Button>
       </div>
 
       <Sheet open={!!open} onOpenChange={(v) => !v && setOpen(null)}>

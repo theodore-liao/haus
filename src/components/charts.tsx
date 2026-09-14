@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useId, useMemo, useState } from "react";
 import {
   Area,
   AreaChart,
@@ -72,10 +72,13 @@ export function NetWorthChart({ data }: { data: { date: string; netWorth: number
       </p>
     );
   }
+  const tickFmt =
+    range === "1m" ? "d MMM" : range === "3m" || range === "6m" ? "MMM" : range === "1y" ? "MMM yyyy" : "yyyy";
   const rows = sliced.map((d) => ({
     ...d,
-    label: format(new Date(d.date), "d MMM"),
+    label: format(new Date(d.date), tickFmt),
   }));
+  const tickEvery = Math.max(1, Math.ceil(rows.length / (range === "all" || range === "1y" ? 6 : 8)));
   return (
     <div>
       <div className="mb-2 flex justify-end">
@@ -91,7 +94,7 @@ export function NetWorthChart({ data }: { data: { date: string; netWorth: number
             </linearGradient>
           </defs>
           <CartesianGrid stroke={GRID} vertical={false} />
-          <XAxis dataKey="label" tick={AXIS} axisLine={false} tickLine={false} />
+          <XAxis dataKey="label" tick={AXIS} axisLine={false} tickLine={false} interval={tickEvery - 1} minTickGap={28} />
           <YAxis
             tick={AXIS}
             axisLine={false}
@@ -130,9 +133,17 @@ export function AllocationChart({
   onToggle?: (key: string) => void;
 }) {
   const [openKey, setOpenKey] = useState<string | null>(null);
-  const all = data.filter((d) => d.value > 0);
-  const rows =
-    selected == null ? all : all.filter((d) => selected.has(d.key));
+  const chartId = useId();
+  const all = data
+    .filter((d) => d.value > 0)
+    .slice()
+    .sort((a, b) => {
+      const ao = isOtherSlice(a.key);
+      const bo = isOtherSlice(b.key);
+      if (ao !== bo) return ao ? 1 : -1;
+      return b.value - a.value;
+    });
+  const rows = selected == null ? all : all.filter((d) => selected.has(d.key));
   const total = rows.reduce((s, r) => s + r.value, 0);
   const openSlice = all.find((r) => r.key === openKey);
   if (!all.length) {
@@ -143,8 +154,8 @@ export function AllocationChart({
       <div>
         <p className="py-6 text-sm text-muted-foreground">No categories selected.</p>
         <ul className="min-w-0 space-y-1.5 text-sm">
-          {all.map((r) => (
-            <li key={r.key} className="flex min-w-0 items-center gap-2">
+          {all.map((r, i) => (
+            <li key={`${r.key}-${i}`} className="flex min-w-0 items-center gap-2">
               <input type="checkbox" className="cursor-pointer" checked={false} onChange={() => onToggle?.(r.key)} />
               <span className="min-w-0 truncate capitalize text-muted-foreground">{r.key.replaceAll("_", " ")}</span>
             </li>
@@ -159,6 +170,7 @@ export function AllocationChart({
       <div className={large ? "h-[28rem] w-full min-w-0 shrink-0 lg:w-[58%]" : "h-full w-[58%] min-w-[12rem] shrink-0"}>
         <ResponsiveContainer>
           <PieChart
+            id={chartId}
             margin={{ top: 2, right: 2, bottom: 2, left: 2 }}
             style={{ shapeRendering: "geometricPrecision", outline: "none" }}
             tabIndex={-1}
@@ -178,7 +190,8 @@ export function AllocationChart({
                 showPercent
                   ? (props) => {
                       const p = props as {
-                        key?: string | number;
+                        index?: number;
+                        payload?: { key?: string };
                         cx?: number;
                         cy?: number;
                         midAngle?: number;
@@ -188,7 +201,7 @@ export function AllocationChart({
                       };
                       return (
                         <PercentLabel
-                          key={p.key}
+                          key={`pct-${p.payload?.key ?? p.index ?? 0}`}
                           cx={p.cx}
                           cy={p.cy}
                           midAngle={p.midAngle}
@@ -211,7 +224,7 @@ export function AllocationChart({
               style={{ outline: "none" }}
             >
               {rows.map((r, i) => (
-                <Cell key={r.key} fill={PALETTE[i % PALETTE.length]} stroke="none" />
+                <Cell key={`${r.key}-${i}`} fill={PALETTE[i % PALETTE.length]} stroke="none" />
               ))}
             </Pie>
             <Tooltip content={<DonutTip total={total} />} />
@@ -222,7 +235,7 @@ export function AllocationChart({
         {all.map((r, i) => {
           const on = selected == null || selected.has(r.key);
           return (
-            <li key={r.key} className="flex min-w-0 items-center gap-2">
+            <li key={`${r.key}-${i}`} className="flex min-w-0 items-center gap-2">
               {selectable ? (
                 <input
                   type="checkbox"
@@ -371,7 +384,16 @@ export function CategoryBars({
       ) : null}
     <div className="w-full" style={{ height }}>
       <ResponsiveContainer>
-        <BarChart data={sliced} layout="vertical" margin={{ left: 4, right: 16, top: 4, bottom: 4 }}>
+        <BarChart
+          data={sliced}
+          layout="vertical"
+          margin={{ left: 4, right: 16, top: 4, bottom: 4 }}
+          style={onBarClick ? { cursor: "pointer" } : undefined}
+          onClick={(state) => {
+            const label = (state as { activeLabel?: string } | null)?.activeLabel;
+            if (label && onBarClick) onBarClick(label);
+          }}
+        >
           <CartesianGrid stroke={GRID} horizontal={false} />
           <XAxis type="number" tick={AXIS} axisLine={false} tickLine={false} tickFormatter={(v) => `$${v}`} />
           <YAxis
@@ -383,7 +405,7 @@ export function CategoryBars({
             axisLine={false}
             tickLine={false}
           />
-          <Tooltip content={<Tip />} />
+          <Tooltip content={<Tip />} cursor={false} />
           <Bar
             dataKey="value"
             name="Amount"
@@ -391,6 +413,7 @@ export function CategoryBars({
             radius={[0, 2, 2, 0]}
             barSize={14}
             cursor={onBarClick ? "pointer" : undefined}
+            activeBar={false}
             onClick={(d) => {
               const label = (d as { payload?: { label?: string } })?.payload?.label ?? (d as { label?: string }).label;
               if (label && onBarClick) onBarClick(label);
@@ -440,27 +463,43 @@ export const OTHER_CATEGORIES = "Other categories";
 export const FROM_SAVINGS = "From savings";
 export const TO_SAVINGS = "To savings";
 
+export function isOtherSlice(key: string) {
+  const n = key.trim().toLowerCase().replaceAll("_", " ");
+  return n === "other" || n === "other categories";
+}
+
+function keepNamed(label: string) {
+  return /cash.?back|rewards|rebate/i.test(label);
+}
+
 function topSlices(rows: { label: string; value: number }[], limit = 8) {
   const sorted = [...rows].filter((r) => r.value > 0).sort((a, b) => b.value - a.value);
-  if (sorted.length <= limit) return sorted;
-  const head = sorted.slice(0, limit - 1);
-  const rest = sorted.slice(limit - 1).reduce((s, r) => s + r.value, 0);
-  if (rest > 0) head.push({ label: OTHER_CATEGORIES, value: rest });
+  const pinned = sorted.filter((r) => keepNamed(r.label));
+  const rest = sorted.filter((r) => !keepNamed(r.label));
+  if (pinned.length + rest.length <= limit) return sorted;
+  const room = Math.max(1, limit - 1 - pinned.length);
+  const head = [...rest.slice(0, room), ...pinned].sort((a, b) => b.value - a.value);
+  const leftover = rest.slice(room).reduce((s, r) => s + r.value, 0);
+  if (leftover > 0) head.push({ label: OTHER_CATEGORIES, value: leftover });
   return head;
 }
+
+export const TO_INVESTMENTS = "To investments";
 
 export function CashflowSankey({
   income,
   spend,
+  invest = 0,
   onSpendClick,
   onIncomeClick,
   onBalanceClick,
 }: {
   income: { label: string; value: number }[];
   spend: { label: string; value: number }[];
+  invest?: number;
   onSpendClick?: (label: string) => void;
   onIncomeClick?: (label: string) => void;
-  onBalanceClick?: (kind: "from-savings" | "to-savings") => void;
+  onBalanceClick?: (kind: "from-savings" | "to-savings" | "to-investments") => void;
 }) {
   const sources = topSlices(income, 7).map((r) => ({
     ...r,
@@ -473,26 +512,31 @@ export function CashflowSankey({
     return <p className="py-10 text-sm text-muted-foreground">No cashflow in this window.</p>;
   }
 
-  const nodes: { name: string }[] = [];
-  const idx = (name: string) => {
-    const found = nodes.findIndex((n) => n.name === name);
+  const keys: string[] = [];
+  const nodes: { name: string; label: string }[] = [];
+  const idx = (key: string, label: string) => {
+    const found = keys.indexOf(key);
     if (found >= 0) return found;
-    nodes.push({ name });
-    return nodes.length - 1;
+    keys.push(key);
+    nodes.push({ name: key, label });
+    return keys.length - 1;
   };
   const links: { source: number; target: number; value: number }[] = [];
-  const hub = idx("Income");
+  const hub = idx("hub", "Income");
   for (const s of sources) {
-    if (s.value < 1) continue;
-    links.push({ source: idx(s.label), target: hub, value: s.value });
+    if (!(s.value >= 1) || !Number.isFinite(s.value)) continue;
+    links.push({ source: idx(`in:${s.label}`, s.label), target: hub, value: s.value });
   }
   for (const s of outflows) {
-    if (s.value < 1) continue;
-    links.push({ source: hub, target: idx(s.label), value: s.value });
+    if (!(s.value >= 1) || !Number.isFinite(s.value)) continue;
+    links.push({ source: hub, target: idx(`out:${s.label}`, s.label), value: s.value });
   }
-  const saved = inTotal - outTotal;
-  if (saved > 1) links.push({ source: hub, target: idx(TO_SAVINGS), value: saved });
-  else if (saved < -1) links.push({ source: idx(FROM_SAVINGS), target: hub, value: -saved });
+  if (invest >= 1 && Number.isFinite(invest)) {
+    links.push({ source: hub, target: idx("save:invest", TO_INVESTMENTS), value: invest });
+  }
+  const saved = inTotal - outTotal - Math.max(0, invest);
+  if (saved > 1) links.push({ source: hub, target: idx("save:to", TO_SAVINGS), value: saved });
+  else if (saved < -1) links.push({ source: idx("save:from", FROM_SAVINGS), target: hub, value: -saved });
 
   if (!links.length) {
     return <p className="py-10 text-sm text-muted-foreground">No cashflow in this window.</p>;
@@ -503,14 +547,19 @@ export function CashflowSankey({
       <ResponsiveContainer>
         <Sankey
           data={{ nodes, links }}
+          nameKey="name"
           nodeWidth={12}
           nodePadding={18}
           linkCurvature={0.5}
-          iterations={32}
+          iterations={16}
           margin={{ left: 108, right: 124, top: 16, bottom: 16 }}
           node={(props) => (
             <SankeyNode
-              {...props}
+              x={props.x}
+              y={props.y}
+              width={props.width}
+              height={props.height}
+              payload={props.payload}
               onSpendClick={onSpendClick}
               onIncomeClick={onIncomeClick}
               onBalanceClick={onBalanceClick}
@@ -520,7 +569,14 @@ export function CashflowSankey({
           )}
           link={(props) => (
             <RainbowLink
-              {...props}
+              sourceX={props.sourceX}
+              targetX={props.targetX}
+              sourceY={props.sourceY}
+              targetY={props.targetY}
+              sourceControlX={props.sourceControlX}
+              targetControlX={props.targetControlX}
+              linkWidth={props.linkWidth}
+              payload={props.payload}
               onSpendClick={onSpendClick}
               onIncomeClick={onIncomeClick}
               onBalanceClick={onBalanceClick}
@@ -532,8 +588,18 @@ export function CashflowSankey({
           <Tooltip
             content={({ payload }) => {
               if (!payload?.length) return null;
-              const row = payload[0].payload as { name?: string; value?: number; source?: { name?: string }; target?: { name?: string } };
-              const label = row.name ?? (row.source && row.target ? `${row.source.name} → ${row.target.name}` : "");
+              const entry = payload[0];
+              const row = entry.payload as {
+                name?: string;
+                label?: string;
+                value?: number;
+                source?: { name?: string; label?: string };
+                target?: { name?: string; label?: string };
+              };
+              const src = sankeyLabel(row?.source);
+              const tgt = sankeyLabel(row?.target);
+              const raw = src && tgt ? (tgt !== "Income" ? tgt : src) : sankeyLabel(row) || String(entry.name ?? "");
+              const label = raw.replace(/^Income\s*[-–:]\s*/i, "");
               const value = typeof row.value === "number" ? row.value : Number(payload[0].value);
               return (
                 <div className="rounded-md border border-border bg-card-elevated px-3 py-2 text-xs">
@@ -547,6 +613,11 @@ export function CashflowSankey({
       </ResponsiveContainer>
     </div>
   );
+}
+
+function sankeyLabel(n: { name?: string; label?: string } | undefined | null): string {
+  if (!n) return "";
+  return String(n.label || n.name || "").replace(/^(in|out|save|hub):/i, "");
 }
 
 function RainbowLink({
@@ -563,21 +634,25 @@ function RainbowLink({
   onBalanceClick,
   spendNames,
   incomeNames,
-}: SankeyLinkProps & {
+}: Pick<
+  SankeyLinkProps,
+  "sourceX" | "targetX" | "sourceY" | "targetY" | "sourceControlX" | "targetControlX" | "linkWidth" | "payload"
+> & {
   onSpendClick?: (label: string) => void;
   onIncomeClick?: (label: string) => void;
-  onBalanceClick?: (kind: "from-savings" | "to-savings") => void;
+  onBalanceClick?: (kind: "from-savings" | "to-savings" | "to-investments") => void;
   spendNames?: Set<string>;
   incomeNames?: Set<string>;
 }) {
-  const srcName = String(payload?.source?.name ?? "");
-  const tgtName = String(payload?.target?.name ?? "");
+  const srcName = sankeyLabel(payload?.source);
+  const tgtName = sankeyLabel(payload?.target);
   const d = `M${sourceX},${sourceY} C${sourceControlX},${sourceY} ${targetControlX},${targetY} ${targetX},${targetY}`;
   const clickable =
     (onSpendClick && spendNames?.has(tgtName)) ||
     (onIncomeClick && incomeNames?.has(srcName)) ||
     srcName === FROM_SAVINGS ||
-    tgtName === TO_SAVINGS;
+    tgtName === TO_SAVINGS ||
+    tgtName === TO_INVESTMENTS;
   return (
     <path
       d={d}
@@ -589,6 +664,7 @@ function RainbowLink({
       onClick={() => {
         if (srcName === FROM_SAVINGS) onBalanceClick?.("from-savings");
         else if (tgtName === TO_SAVINGS) onBalanceClick?.("to-savings");
+        else if (tgtName === TO_INVESTMENTS) onBalanceClick?.("to-investments");
         else if (onSpendClick && spendNames?.has(tgtName)) onSpendClick(tgtName);
         else if (onIncomeClick && incomeNames?.has(srcName)) onIncomeClick(srcName);
       }}
@@ -607,22 +683,25 @@ function SankeyNode({
   onBalanceClick,
   spendNames,
   incomeNames,
-}: SankeyNodeProps & {
+}: Pick<SankeyNodeProps, "x" | "y" | "width" | "height" | "payload"> & {
   onSpendClick?: (label: string) => void;
   onIncomeClick?: (label: string) => void;
-  onBalanceClick?: (kind: "from-savings" | "to-savings") => void;
+  onBalanceClick?: (kind: "from-savings" | "to-savings" | "to-investments") => void;
   spendNames?: Set<string>;
   incomeNames?: Set<string>;
 }) {
-  const name = String((payload as { name?: string })?.name ?? "");
-  const right = (payload as { depth?: number })?.depth === 2;
+  const rawName = sankeyLabel(payload as { name?: string; label?: string });
+  const outgoing = ((payload as { targetNodes?: number[] })?.targetNodes ?? []).length > 0;
+  const incoming = ((payload as { sourceNodes?: number[] })?.sourceNodes ?? []).length > 0;
+  const right = incoming && !outgoing;
+  const name = right ? rawName.replace(/^Income\s*[-–:]\s*/i, "") : rawName;
   const cx = Number(x ?? 0);
   const cy = Number(y ?? 0);
   const w = Number(width ?? 0);
   const h = Number(height ?? 0);
   const spend = Boolean(onSpendClick && spendNames?.has(name));
   const income = Boolean(onIncomeClick && incomeNames?.has(name));
-  const balance = name === FROM_SAVINGS || name === TO_SAVINGS;
+  const balance = name === FROM_SAVINGS || name === TO_SAVINGS || name === TO_INVESTMENTS;
   const clickable = spend || income || balance;
   const lines = wrapLabel(name, 13);
   const labelW = 108;
@@ -637,6 +716,7 @@ function SankeyNode({
       onClick={() => {
         if (name === FROM_SAVINGS) onBalanceClick?.("from-savings");
         else if (name === TO_SAVINGS) onBalanceClick?.("to-savings");
+        else if (name === TO_INVESTMENTS) onBalanceClick?.("to-investments");
         else if (spend && onSpendClick) onSpendClick(name);
         else if (income && onIncomeClick) onIncomeClick(name);
       }}
@@ -653,7 +733,7 @@ function SankeyNode({
         fontFamily="var(--font-geist-sans)"
       >
         {lines.map((ln, i) => (
-          <tspan key={ln} x={textX} dy={i === 0 ? 0 : 12}>
+          <tspan key={i} x={textX} dy={i === 0 ? 0 : 12}>
             {ln}
           </tspan>
         ))}

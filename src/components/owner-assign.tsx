@@ -87,7 +87,7 @@ export function OwnerAssign({ item, onDone }: { item: Item; onDone: () => void }
                 </div>
               </div>
               <div className="w-40">
-                <Label className="sr-only">Owner</Label>
+                <Label className="sr-only">Holder</Label>
                 <Select value={owners[a.id]} onValueChange={(v) => setOwners((s) => ({ ...s, [a.id]: v }))}>
                   <SelectTrigger>
                     <SelectValue />

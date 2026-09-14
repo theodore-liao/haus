@@ -1,12 +1,14 @@
 import { PageHeader } from "@/components/page-header";
 import { EmptyLedger } from "@/components/states";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { ConnectPlaid } from "@/components/connect-plaid";
 import { Money } from "@/components/money";
 import { NetWorthHero } from "@/components/net-worth-hero";
 import { AllocationChart, NetWorthChart } from "@/components/charts";
-import { getOverview, hasAnyLedger } from "@/lib/queries";
+import { CashFlowBlock } from "@/components/cash-flow-block";
+import { getOverview, getReports, hasAnyLedger } from "@/lib/queries";
 import { getOwnerFilter } from "@/lib/request";
+import { defaultReportWindow, inWindow } from "@/lib/range";
+import { applyMerchantRefunds, aggregateFlows } from "@/lib/spend-net";
 
 export const dynamic = "force-dynamic";
 
@@ -26,6 +28,12 @@ export default async function OverviewPage() {
   }
 
   const data = await getOverview(owner);
+  const reports = await getReports(owner);
+  const win = defaultReportWindow();
+  const heroFlows = applyMerchantRefunds(reports.flows.filter((f) => inWindow(f.date, win)));
+  const hero = aggregateFlows(heroFlows);
+  const heroSpend = hero.spendRows.reduce((s, r) => s + r.value, 0);
+  const heroIncome = hero.incomeRows.reduce((s, r) => s + r.value, 0);
   const alloc = Object.entries(data.allocation).map(([key, value]) => ({
     key,
     value,
@@ -33,7 +41,7 @@ export default async function OverviewPage() {
   }));
   return (
     <>
-      <PageHeader title="Overview" actions={<ConnectPlaid label="Add institution" />} />
+      <PageHeader title="Overview" />
 
       <NetWorthHero
         netWorth={data.netWorth}
@@ -42,7 +50,9 @@ export default async function OverviewPage() {
         dayChange={data.dayChange}
         weekChange={data.weekChange}
         monthChange={data.monthChange}
-        movers={data.movers}
+        income={heroIncome}
+        spend={heroSpend}
+        saved={heroIncome - heroSpend - hero.invest}
       />
 
       <div className="mt-4 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
@@ -70,6 +80,7 @@ export default async function OverviewPage() {
           </CardContent>
         </Card>
       </div>
+      {reports.flows.length > 0 ? <CashFlowBlock flows={reports.flows} /> : null}
     </>
   );
 }

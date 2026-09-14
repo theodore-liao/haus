@@ -24,7 +24,7 @@ export function AddCrypto({
         Add crypto
       </Button>
       <Dialog open={open} onOpenChange={setOpen}>
-        <DialogContent>
+        <DialogContent persist>
           <DialogHeader>
             <DialogTitle>Self-custody crypto</DialogTitle>
           </DialogHeader>
@@ -74,7 +74,7 @@ export function AddCrypto({
               <Input className="mt-1" name="costBasis" type="number" step="any" />
             </div>
             <div>
-              <Label>Owner</Label>
+              <Label>Holder</Label>
               <select name="owner" className="mt-1 flex h-9 w-full rounded-md border border-border bg-card px-3 text-sm">
                 {ownerOptions(names).map((o) => (
                   <option key={o.value} value={o.value}>

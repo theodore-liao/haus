@@ -4,7 +4,6 @@ import { Money } from "@/components/money";
 import { getConnectionCount, getRetirement } from "@/lib/queries";
 import { getOwnerFilter } from "@/lib/request";
 import { IRS_LIMITS_YEAR } from "@/lib/constants";
-import { Illustration } from "./illustration";
 import { RetirementBoard } from "./board";
 import { AddHsa } from "./hsa-form";
 
@@ -17,7 +16,7 @@ export default async function RetirementPage() {
   if (!connections && data.rows.length === 0) {
     return (
       <>
-        <PageHeader title="Retirement" actions={<AddHsa names={data.names} />} />
+        <PageHeader title="Retirement accounts" actions={<AddHsa names={data.names} />} />
         <EmptyLedger
           title="No retirement accounts"
           body="Link 401(k), IRA, Roth, 403(b), or HSA institutions. YTD contributions are summed from investment cashflows labeled as contributions."
@@ -30,7 +29,7 @@ export default async function RetirementPage() {
 
   return (
     <>
-      <PageHeader title="Retirement" actions={<AddHsa names={data.names} />} />
+      <PageHeader title="Retirement accounts" actions={<AddHsa names={data.names} />} />
       <div className="mb-4 text-3xl font-medium">
         <Money value={total} />
         <span className="ml-2 text-sm font-normal text-muted-foreground">combined balances in this filter</span>
@@ -40,7 +39,7 @@ export default async function RetirementPage() {
           <EmptyLedger
             showConnect={false}
             title="Nothing classified as retirement"
-            body="Open Settings → Connections and mark the account as IRA, Roth, 401(k), 403(b), or HSA."
+            body="Open Manage connections and mark the account as IRA, Roth, 401(k), 403(b), or HSA."
           />
         ) : (
           <div className="md:col-span-2">
@@ -48,7 +47,6 @@ export default async function RetirementPage() {
           </div>
         )}
       </div>
-      <Illustration starting={total} />
       <p className="mt-4 text-xs text-muted-foreground">
         {IRS_LIMITS_YEAR} catch-up (not applied automatically): IRA +$1,100 (50+); 401(k)/403(b) +$8,000 (50+) or +$11,250
         (60–63); HSA +$1,000 (55+). Family HSA limit shown for HSA accounts.

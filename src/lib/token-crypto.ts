@@ -2,15 +2,25 @@ import { createCipheriv, createDecipheriv, randomBytes, scryptSync } from "crypt
 
 const PREFIX = "enc:v1:";
 const SALT = "haus-plaid-token-v1";
+/** Tokens were sealed with this .env placeholder before a real HAUS_TOKEN_KEY was written. */
+const LEGACY_TOKEN_KEYS = ["replace-me-run-node-crypto-randomBytes-32-hex"];
 
 function deriveKey(secret: string) {
   return scryptSync(secret, SALT, 32);
 }
 
+function normalizeSecret(s: string | undefined) {
+  if (!s) return "";
+  let v = s.trim();
+  if ((v.startsWith('"') && v.endsWith('"')) || (v.startsWith("'") && v.endsWith("'"))) v = v.slice(1, -1);
+  return v.trim();
+}
+
 function secretsToTry() {
   const out: string[] = [];
-  for (const s of [process.env.HAUS_TOKEN_KEY, process.env.HAUS_SESSION_SECRET]) {
-    if (s && s.length >= 16 && !out.includes(s)) out.push(s);
+  for (const s of [process.env.HAUS_TOKEN_KEY, process.env.HAUS_SESSION_SECRET, ...LEGACY_TOKEN_KEYS]) {
+    const v = normalizeSecret(s);
+    if (v.length >= 16 && !out.includes(v)) out.push(v);
   }
   return out;
 }
@@ -60,6 +70,13 @@ export function decryptSecret(stored: string) {
     } catch (e) {
       last = e;
     }
+  }
+  const raw = last instanceof Error ? last.message : "";
+  // Node AES-GCM: auth tag mismatch when HAUS_TOKEN_KEY is not the key that encrypted the token.
+  if (/unsupported state or unable to authenticate data/i.test(raw)) {
+    throw new Error(
+      "Cannot decrypt Plaid token. HAUS_TOKEN_KEY does not match the key used when this connection was saved. Relink the same Item (does not use a new Trial slot) or restore the original HAUS_TOKEN_KEY.",
+    );
   }
   throw last instanceof Error
     ? last

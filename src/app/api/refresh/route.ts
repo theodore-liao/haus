@@ -51,12 +51,14 @@ export async function POST(req: Request) {
           spot: h.quotePrice,
           kind: (h.type === "cryptocurrency" ? "crypto" : "equity") as "crypto" | "equity",
         })),
-      ...coins.map((c) => ({
-        symbol: c.symbol,
-        coingeckoId: c.coingeckoId,
-        spot: c.quotePrice,
-        kind: "crypto" as const,
-      })),
+      ...coins
+        .filter((c) => c.coingeckoId !== "usd-fixed")
+        .map((c) => ({
+          symbol: c.symbol,
+          coingeckoId: c.coingeckoId,
+          spot: c.quotePrice,
+          kind: (c.coingeckoId ? "crypto" : "equity") as "crypto" | "equity",
+        })),
       ...walletAssets.map((c) => ({
         symbol: c.symbol,
         coingeckoId: c.coingeckoId,

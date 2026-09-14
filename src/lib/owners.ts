@@ -21,23 +21,30 @@ export function matchesOwner(owner: string, filter: OwnerFilter): boolean {
   return true;
 }
 
+/** First token only — surnames stay in Settings storage, never in the UI. */
+export function givenName(name: string | null | undefined): string {
+  const t = (name ?? "").trim();
+  if (!t) return "";
+  return t.split(/\s+/)[0] ?? t;
+}
+
 export function ownerLabel(owner: string, names: HouseholdNames): string {
-  if (owner === "a") return names.nameA;
-  if (owner === "b") return names.nameB;
+  if (owner === "a") return givenName(names.nameA) || names.nameA;
+  if (owner === "b") return givenName(names.nameB) || names.nameB;
   if (owner === "joint") return "Joint";
   if (owner.startsWith("child:")) {
     const id = owner.slice("child:".length);
     const child = names.children.find((c) => c.id === id || c.name === id);
-    return child?.name ?? id;
+    return child ? givenName(child.name) || child.name : id;
   }
   return owner;
 }
 
 export function ownerOptions(names: HouseholdNames) {
   return [
-    { value: "a", label: names.nameA },
-    { value: "b", label: names.nameB },
+    { value: "a", label: givenName(names.nameA) || names.nameA },
+    { value: "b", label: givenName(names.nameB) || names.nameB },
     { value: "joint", label: "Joint" },
-    ...names.children.map((c) => ({ value: `child:${c.id}`, label: c.name })),
+    ...names.children.map((c) => ({ value: `child:${c.id}`, label: givenName(c.name) || c.name })),
   ];
 }

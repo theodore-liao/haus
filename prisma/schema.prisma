@@ -199,6 +199,13 @@ model Property {
   mortgageBalance    Float?
   rate               Float?
   termMonths         Int?
+  originalTermMonths Int?
+  originationDate    DateTime?
+  extraPrincipal     Float?
+  taxAnnual          Float?
+  insuranceAnnual    Float?
+  escrowMonthly      Float?
+  pmiMonthly         Float?
   piti               Float?
   rent               Float?
   notes              String?
@@ -278,6 +285,8 @@ model ManualHolding {
   costBasis      Float?
   owner          String    @default("joint")
   notes          String?
+  assetClass     String    @default("equity")
+  accountName    String    @default("")
   quotePrice     Float?
   quoteChange    Float?
   quoteChangePct Float?

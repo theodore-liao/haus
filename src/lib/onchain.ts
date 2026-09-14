@@ -273,7 +273,7 @@ export const CHAIN_META: Record<
   defi: { label: "DeFi", explorer: (a) => `https://debank.com/profile/${a}`, nativeGecko: "ethereum" },
   bsc: { label: "BNB Chain", explorer: (a) => `https://bscscan.com/address/${a}`, nativeGecko: "binancecoin" },
   avalanche: { label: "Avalanche", explorer: (a) => `https://snowtrace.io/address/${a}`, nativeGecko: "avalanche-2" },
-  hood: { label: "Robinhood Chain", explorer: (a) => `https://debank.com/profile/${a}`, nativeGecko: "ethereum" },
+  hood: { label: "Robinhood Chain", explorer: (a) => `https://robinhoodchain.blockscout.com/address/${a}`, nativeGecko: "ethereum" },
   opbnb: { label: "opBNB", explorer: (a) => `https://opbnbscan.com/address/${a}`, nativeGecko: "binancecoin" },
   blast: { label: "Blast", explorer: (a) => `https://blastscan.io/address/${a}`, nativeGecko: "ethereum" },
   linea: { label: "Linea", explorer: (a) => `https://lineascan.build/address/${a}`, nativeGecko: "ethereum" },
@@ -289,6 +289,7 @@ const EVM_EXPLORERS = [
   { chain: "optimism", host: "https://optimism.blockscout.com", symbol: "ETH", name: "Ether", gecko: "ethereum", platform: "optimistic-ethereum" },
   { chain: "gnosis", host: "https://gnosis.blockscout.com", symbol: "xDAI", name: "xDAI", gecko: "xdai", platform: "xdai" },
   { chain: "scroll", host: "https://scroll.blockscout.com", symbol: "ETH", name: "Ether", gecko: "ethereum", platform: "scroll" },
+  { chain: "hood", host: "https://robinhoodchain.blockscout.com", symbol: "ETH", name: "Ether", gecko: "ethereum", platform: "ethereum" },
 ] as const;
 
 const SOL_TOKEN = "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA";
@@ -472,6 +473,78 @@ function mergeAssets(into: OnchainAsset[], extra: OnchainAsset[]) {
   return into;
 }
 
+/** Circle-issued USDC only. Explorers list dozens of “USDC Join-…” phishing tokens. */
+const CANONICAL_USDC: Record<string, string[]> = {
+  ethereum: ["0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48"],
+  eth: ["0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48"],
+  base: ["0x833589fcd6edb6e08f4c7c32d4f71b54bda02913"],
+  polygon: ["0x3c499c542cef5e3811e1192ce70d8cc03d5c3359"],
+  arbitrum: ["0xaf88d065e77c8cc2239327c5edb3a432268e5831"],
+  optimism: ["0x0b2c639c533813f4aa9d7837caf62653d097ff85"],
+  avalanche: ["0xb97ef9ef8734c71904d8002f8b6bc66dd9c48a6e"],
+  bsc: ["0x8ac76a51cc950d9822d68b83fe1ad97b32cd580d"],
+  linea: ["0x176211869ca2b568f2a7d4ee941e073a821ee1ff"],
+  zksync: ["0x1d17cbcf0d6d143135ae902365d2e5e2a16538d4"],
+  solana: ["EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"],
+  sui: ["0xdba34672e30cb065b1f93e3ab55318768fd6fef66c15942c9f7cb846e2f900e7::usdc::USDC"],
+  noble: ["uusdc"],
+};
+
+/** Tether-issued USDT. No Sui native USDT — bridged “USDT” on Sui is dropped. */
+const CANONICAL_USDT: Record<string, string[]> = {
+  ethereum: ["0xdac17f958d2ee523a2206206994597c13d831ec7"],
+  eth: ["0xdac17f958d2ee523a2206206994597c13d831ec7"],
+  tron: ["TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t"],
+  solana: ["Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB"],
+  avalanche: ["0x9702230a8ea53601f5cd2dc00fdbc13d4df4a8c7"],
+  bsc: ["0x55d398326f99059ff775485246999027b3197955"],
+  polygon: ["0xc2132d05d31c914a87c6611c10748aeb04b58e8f"],
+  arbitrum: ["0xfd086bc7cd5c481dcc9c85ebe478a1c0b69fcbb9"],
+  optimism: ["0x01bff41798a0bcf287b996046ca68b395dbc1071", "0x94b008aa00579c1307b0ef2c499ad98a8ce58e58"],
+  base: ["0xfde4c96c8593536e31f229ea8f37b2ada2699bb2"],
+};
+
+function normTokenId(chain: string, id: string | null | undefined): string {
+  if (!id) return "";
+  if (chain === "sui" || id.includes("::")) return normalizeSuiType(id).toLowerCase();
+  if (chain === "solana" || chain === "tron") return id;
+  return id.toLowerCase();
+}
+
+function looksLikeStable(symbol: string, name: string): "usdc" | "usdt" | null {
+  const blob = `${symbol} ${name}`.toUpperCase();
+  const compact = blob.replace(/[^A-Z0-9]/g, "");
+  const sym = symbol.toUpperCase().replace(/[^A-Z0-9]/g, "");
+  if (/USDCOM|JOIN[\s-]*USD/i.test(blob)) return /USDT/.test(compact) ? "usdt" : "usdc";
+  if (sym === "USDT" || sym === "TETHER" || compact === "TETHER" || compact === "USDT") return "usdt";
+  if (sym === "USDC" || sym === "USDBC" || sym === "USDCOIN") return "usdc";
+  if (/^USDT/.test(sym) && sym.length <= 24) return "usdt";
+  if (/^USDC/.test(sym) && sym.length <= 24) return "usdc";
+  if (/\bUSDT\b/.test(blob) || compact.includes("TETHER")) return "usdt";
+  if (/\bUSDC\b/.test(blob) || compact.includes("USDCOIN")) return "usdc";
+  return null;
+}
+
+function isCanonicalStable(kind: "usdc" | "usdt", chain: string, contract: string | null, tokenKey?: string): boolean {
+  if (kind === "usdc" && chain === "noble" && (tokenKey === "native" || !contract)) return true;
+  const list = (kind === "usdc" ? CANONICAL_USDC : CANONICAL_USDT)[chain];
+  if (!list?.length) return false;
+  const id = normTokenId(chain, contract);
+  if (!id) return false;
+  return list.some((c) => normTokenId(chain, c) === id);
+}
+
+export function dropFakeStables(assets: OnchainAsset[]): OnchainAsset[] {
+  return assets.filter((a) => {
+    if (a.tokenKey.startsWith("defi:")) return true;
+    const blob = `${a.symbol} ${a.name}`;
+    if (/join[\s-]/i.test(blob) || /usdcom/i.test(blob)) return false;
+    const kind = looksLikeStable(a.symbol, a.name);
+    if (!kind) return true;
+    return isCanonicalStable(kind, a.chain, a.contractAddress, a.tokenKey);
+  });
+}
+
 export function collapseDuplicateSpot(assets: OnchainAsset[]): OnchainAsset[] {
   const defi: OnchainAsset[] = [];
   const groups = new Map<string, OnchainAsset[]>();
@@ -532,12 +605,14 @@ async function scanRabbyTokens(address: string): Promise<OnchainAsset[]> {
       | null;
     chains = (total?.chain_list ?? []).filter((c) => c.id && (c.usd_value ?? 0) > 0);
   }
+  // Rabby drops chains the address has not "used" recently. Robinhood Chain is easy to lose that way.
+  if (!chains.some((c) => c.id === "hood")) chains = [...chains, { id: "hood", name: "Robinhood Chain" }];
   if (!chains.length) return [];
   const batches = await Promise.allSettled(
     chains.map(async (c) => {
       const chainId = c.id!;
       const tokens = (await getJson(
-        `https://api.rabby.io/v1/user/token_list?id=${encodeURIComponent(address)}&chain_id=${encodeURIComponent(chainId)}&is_all=true`,
+        `https://api.rabby.io/v1/user/token_list?id=${encodeURIComponent(address)}&chain_id=${encodeURIComponent(chainId)}&is_all=false`,
         12000,
       )) as
         | {
@@ -1515,6 +1590,7 @@ export async function scanAddress(raw: string): Promise<{
     mergeAssets(assets, solDefi);
   }
   assets = collapseDuplicateSpot(assets);
+  assets = dropFakeStables(assets);
   assets = significantOnly(await attachPrices(assets));
   return { type, address, assets };
 }

@@ -58,6 +58,9 @@ export const SOFT_PLAID_CODES = new Set([
 
 export const PLAID_COUNTRY = [CountryCode.Us];
 
+/** Max Plaid will fetch on a new Item. Default without this is 90 days. */
+export const PLAID_TXN_HISTORY_DAYS = 730;
+
 export function plaidErr(e: unknown): { code: string; message: string } {
   const err = e as {
     response?: { data?: { error_code?: string; error_message?: string } };

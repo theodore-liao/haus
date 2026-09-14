@@ -6,7 +6,7 @@ import { getChildrenView } from "@/lib/queries";
 import { hausTypeLabel } from "@/lib/account-types";
 import { accountLabel } from "@/lib/account-label";
 import { formatDate } from "@/lib/format";
-import { ownerLabel } from "@/lib/owners";
+import { givenName, ownerLabel } from "@/lib/owners";
 import { BrandLabel } from "@/components/brand-mark";
 import { ChildrenForms } from "./forms";
 
@@ -33,13 +33,11 @@ export default async function ChildrenPage() {
         />
       ) : (
         <div className="space-y-4">
-          <div className="flex flex-wrap gap-2">
-            {data.names.children.map((c) => (
-              <span key={c.id} className="rounded-md border border-border px-3 py-1 text-sm">
-                {c.name}
-              </span>
-            ))}
-          </div>
+          {data.names.children.length > 0 ? (
+            <p className="text-sm text-muted-foreground">
+              {data.names.children.map((c) => givenName(c.name) || c.name).join(" · ")}
+            </p>
+          ) : null}
           <div className="grid gap-4 md:grid-cols-2">
             {data.accounts.map((a) => (
               <Card key={a.id}>
@@ -65,7 +63,7 @@ export default async function ChildrenPage() {
             {data.manuals.map((m) => (
               <Card key={m.id}>
                 <CardHeader>
-                  <CardTitle>Manual {hausTypeLabel(m.hausType)}</CardTitle>
+                  <CardTitle>{hausTypeLabel(m.hausType)} (manual add)</CardTitle>
                 </CardHeader>
                 <CardContent>
                   <div className="text-lg">{m.name}</div>

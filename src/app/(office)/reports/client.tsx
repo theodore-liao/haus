@@ -3,71 +3,104 @@
 import { useMemo, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Money } from "@/components/money";
-import { AllocationChart, CashflowSankey, CategoryBars, FROM_SAVINGS, OTHER_CATEGORIES, TO_SAVINGS } from "@/components/charts";
+import { AllocationChart, CashflowSankey, FROM_SAVINGS, OTHER_CATEGORIES, TO_SAVINGS } from "@/components/charts";
 import { formatDate } from "@/lib/format";
-import { ChartRange } from "@/components/chart-range";
+import { ReportRange } from "@/components/chart-range";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { DEFAULT_RANGE, inRange, type RangeKey } from "@/lib/range";
+import { asLocalDate, defaultReportWindow, inWindow, ymKey, type WindowKey } from "@/lib/range";
+import { format } from "date-fns";
 import { formatPct } from "@/lib/format";
 import { Delta } from "@/components/money";
 import { cn } from "@/lib/utils";
 import { CategoryMerchantDialog, aggregateMerchants, type MerchantLine } from "@/components/category-merchants";
 import { BrandLabel } from "@/components/brand-mark";
 
-type MonthRow = {
+type FlowRow = {
+  date: string;
   month: string;
-  income: number;
-  spend: number;
-  savings: number;
-  cats: { key: string; label: string; value: number }[];
-  incomeCats?: { label: string; value: number }[];
-  merchants: { label: string; value: number }[];
-  spendMerchants?: MerchantLine[];
-  incomeMerchants?: MerchantLine[];
+  kind: "spend" | "income";
+  category: string;
+  merchant: string;
+  amount: number;
 };
 
 type RecurringRow = { label: string; amount: number; cadence: string; lastDate: string; annual: number };
 
 export function ReportsClient({
-  months,
+  flows,
   recurring,
 }: {
-  months: MonthRow[];
+  flows: FlowRow[];
   recurring: RecurringRow[];
 }) {
-  const [range, setRange] = useState<RangeKey>(DEFAULT_RANGE);
+  const [range, setRange] = useState<WindowKey>(defaultReportWindow());
   const [spendSel, setSpendSel] = useState<Set<string> | null>(null);
   const [incomeSel, setIncomeSel] = useState<Set<string> | null>(null);
-  const [popup, setPopup] = useState<{ title: string; lines: MerchantLine[]; note?: string } | null>(null);
+  const [popup, setPopup] = useState<
+    | { kind: "spend" | "income"; title: string; from: "tabs" | "cash" }
+    | { kind: "note"; title: string; note: string; lines: MerchantLine[] }
+    | null
+  >(null);
+  const [netRefunds, setNetRefunds] = useState(true);
 
-  const sliced = useMemo(
-    () => months.filter((m) => inRange(`${m.month}-01`, range)),
-    [months, range],
+  const slicedFlows = useMemo(
+    () => flows.filter((f) => inWindow(f.date, range)),
+    [flows, range],
   );
-  const spendCats: Record<string, number> = {};
-  const incomeCats: Record<string, number> = {};
-  const spendMerch: MerchantLine[] = [];
-  const incomeMerch: MerchantLine[] = [];
-  for (const m of sliced) {
-    for (const c of m.cats) spendCats[c.label] = (spendCats[c.label] ?? 0) + c.value;
-    for (const c of m.incomeCats ?? []) incomeCats[c.label] = (incomeCats[c.label] ?? 0) + c.value;
-    spendMerch.push(...(m.spendMerchants ?? []));
-    incomeMerch.push(...(m.incomeMerchants ?? []));
-  }
-  const spendRows = Object.entries(spendCats)
-    .map(([label, value]) => ({ label, value }))
-    .sort((a, b) => b.value - a.value);
-  const incomeRows = Object.entries(incomeCats)
-    .map(([label, value]) => ({ label, value }))
-    .sort((a, b) => b.value - a.value);
+  const tabFlows = useMemo(
+    () => (netRefunds ? applyMerchantRefunds(slicedFlows) : slicedFlows),
+    [slicedFlows, netRefunds],
+  );
+  const months = useMemo(() => {
+    const byMonth: Record<string, { income: number; spend: number }> = {};
+    let min: string | null = null;
+    let max = ymKey(new Date());
+    for (const f of flows) {
+      const row = byMonth[f.month] ?? { income: 0, spend: 0 };
+      if (f.kind === "spend") row.spend += f.amount;
+      else row.income += f.amount;
+      byMonth[f.month] = row;
+      if (!min || f.month < min) min = f.month;
+      if (f.month > max) max = f.month;
+    }
+    if (!min) return [];
+    const out: { month: string; label: string; income: number; spend: number; savings: number }[] = [];
+    const [ys, ms] = min.split("-").map(Number);
+    const [ye, me] = max.split("-").map(Number);
+    let y = ye;
+    let m = me;
+    while (y > ys || (y === ys && m >= ms)) {
+      const month = `${y}-${String(m).padStart(2, "0")}`;
+      const v = byMonth[month] ?? { income: 0, spend: 0 };
+      out.push({
+        month,
+        label: format(asLocalDate(`${month}-01`), "MMM yyyy"),
+        income: v.income,
+        spend: v.spend,
+        savings: v.income - v.spend,
+      });
+      m -= 1;
+      if (m === 0) {
+        m = 12;
+        y -= 1;
+      }
+    }
+    return out;
+  }, [flows]);
+  const cash = useMemo(() => aggregateFlows(slicedFlows), [slicedFlows]);
+  const tabs = useMemo(() => aggregateFlows(tabFlows), [tabFlows]);
+  const spendRows = tabs.spendRows;
+  const incomeRows = tabs.incomeRows;
+  const spendMerch = tabs.spendMerch;
+  const incomeMerch = tabs.incomeMerch;
   const spendKeys = spendRows.map((r) => r.label);
   const incomeKeys = incomeRows.map((r) => r.label);
   const spendVisible = spendSel == null ? spendRows : spendRows.filter((r) => spendSel.has(r.label));
   const incomeVisible = incomeSel == null ? incomeRows : incomeRows.filter((r) => incomeSel.has(r.label));
   const spend = spendVisible.reduce((s, r) => s + r.value, 0);
   const income = incomeVisible.reduce((s, r) => s + r.value, 0);
-  const spendAll = spendRows.reduce((s, r) => s + r.value, 0);
-  const incomeAll = incomeRows.reduce((s, r) => s + r.value, 0);
+  const spendAll = cash.spendRows.reduce((s, r) => s + r.value, 0);
+  const incomeAll = cash.incomeRows.reduce((s, r) => s + r.value, 0);
   const savings = incomeAll - spendAll;
 
   function toggle(current: Set<string> | null, key: string, allKeys: string[], set: (n: Set<string> | null) => void) {
@@ -86,33 +119,48 @@ export function ReportsClient({
       if (!rest.has(l.category)) continue;
       map[l.merchant] = (map[l.merchant] ?? 0) + l.amount;
     }
-    return Object.entries(map).map(([merchant, amount]) => ({
-      category: OTHER_CATEGORIES,
-      merchant,
-      amount,
-    }));
+    return Object.entries(map)
+      .filter(([, amount]) => Math.abs(amount) > 0.005)
+      .map(([merchant, amount]) => ({
+        category: OTHER_CATEGORIES,
+        merchant,
+        amount,
+      }));
   }
 
-  function openSpend(label: string) {
-    if (label === OTHER_CATEGORIES) {
-      setPopup({
-        title: OTHER_CATEGORIES,
-        lines: leftoverMerchants(spendMerch, spendRows, 8),
-      });
-      return;
-    }
-    setPopup({ title: label, lines: aggregateMerchants(spendMerch, label) });
+  function spendPopupLines(title: string, merch: MerchantLine[], ranked: { label: string }[], credits: MerchantLine[]) {
+    const base =
+      title === OTHER_CATEGORIES ? leftoverMerchants(merch, ranked, 8) : aggregateMerchants(merch, title);
+    if (netRefunds) return base.filter((l) => Math.abs(l.amount) > 0.005);
+    const names = base.map((l) => l.merchant);
+    return [...base, ...refundLinesForMerchants(names, credits)].filter((l) => Math.abs(l.amount) > 0.005);
   }
 
-  function openIncome(label: string) {
-    if (label === OTHER_CATEGORIES) {
-      setPopup({
-        title: OTHER_CATEGORIES,
-        lines: leftoverMerchants(incomeMerch, incomeRows, 6),
-      });
-      return;
+  function incomePopupLines(title: string, merch: MerchantLine[], ranked: { label: string }[]) {
+    const base =
+      title === OTHER_CATEGORIES ? leftoverMerchants(merch, ranked, 6) : aggregateMerchants(merch, title);
+    return base.filter((l) => Math.abs(l.amount) > 0.005);
+  }
+
+  const popupLines: MerchantLine[] = (() => {
+    if (!popup) return [];
+    if (popup.kind === "note") return popup.lines;
+    if (popup.kind === "spend") {
+      const merch = popup.from === "cash" ? cash.spendMerch : spendMerch;
+      const ranked = popup.from === "cash" ? cash.spendRows : spendRows;
+      const credits = popup.from === "tabs" ? incomeMerch : [];
+      return spendPopupLines(popup.title, merch, ranked, credits);
     }
-    setPopup({ title: label, lines: aggregateMerchants(incomeMerch, label) });
+    const merch = popup.from === "cash" ? cash.incomeMerch : incomeMerch;
+    const ranked = popup.from === "cash" ? cash.incomeRows : incomeRows;
+    return incomePopupLines(popup.title, merch, ranked);
+  })();
+  const popupNote = popup?.kind === "note" ? popup.note : undefined;
+
+  function setNet(next: boolean) {
+    setNetRefunds(next);
+    setSpendSel(null);
+    setIncomeSel(null);
   }
 
   return (
@@ -124,7 +172,7 @@ export function ReportsClient({
             <TabsTrigger value="spending">Spending</TabsTrigger>
             <TabsTrigger value="income">Income</TabsTrigger>
           </TabsList>
-          <ChartRange value={range} onChange={setRange} />
+          <ReportRange value={range} onChange={setRange} />
         </div>
 
         <TabsContent value="cashflow">
@@ -147,36 +195,30 @@ export function ReportsClient({
             </Card>
           </div>
           <Card className="mt-4">
-            <CardHeader>
-              <CardTitle>Spending by category</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <CategoryBars data={spendRows} onBarClick={openSpend} />
-            </CardContent>
-          </Card>
-          <Card className="mt-4">
             <CardHeader className="flex flex-row items-center justify-between space-y-0">
               <CardTitle>Where money moves</CardTitle>
               <Delta value={savings} className="text-lg" />
             </CardHeader>
             <CardContent>
               <CashflowSankey
-                income={incomeRows}
-                spend={spendRows}
-                onSpendClick={openSpend}
-                onIncomeClick={openIncome}
+                income={cash.incomeRows}
+                spend={cash.spendRows}
+                onSpendClick={(label) => setPopup({ kind: "spend", title: label, from: "cash" })}
+                onIncomeClick={(label) => setPopup({ kind: "income", title: label, from: "cash" })}
                 onBalanceClick={(kind) => {
                   if (kind === "from-savings") {
                     setPopup({
+                      kind: "note",
                       title: FROM_SAVINGS,
                       note: "Spending exceeded income in this window. This is the gap, covered from cash on hand — not extra income.",
-                      lines: spendRows.map((r) => ({ category: r.label, merchant: r.label, amount: r.value })),
+                      lines: cash.spendRows.map((r) => ({ category: r.label, merchant: r.label, amount: r.value })),
                     });
                   } else {
                     setPopup({
+                      kind: "note",
                       title: TO_SAVINGS,
                       note: "Income exceeded spending. This is what was left after bills — it is not a spend category.",
-                      lines: incomeRows.map((r) => ({ category: r.label, merchant: r.label, amount: r.value })),
+                      lines: cash.incomeRows.map((r) => ({ category: r.label, merchant: r.label, amount: r.value })),
                     });
                   }
                 }}
@@ -219,54 +261,59 @@ export function ReportsClient({
               <CardTitle>Month by month</CardTitle>
             </CardHeader>
             <CardContent className="px-0 pb-0">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b border-border text-[11px] uppercase tracking-[0.08em] text-muted-foreground">
-                    <th className="px-5 py-2 text-left font-medium">Month</th>
-                    <th className="px-5 py-2 text-right font-medium">Income</th>
-                    <th className="px-5 py-2 text-right font-medium">Spend</th>
-                    <th className="px-5 py-2 text-right font-medium">Saved</th>
-                    <th className="px-5 py-2 text-right font-medium">Rate</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {sliced.length === 0 ? (
-                    <tr>
-                      <td colSpan={5} className="px-5 py-8 text-center text-muted-foreground">
-                        No cashflow in this window.
-                      </td>
+              <div className="max-h-[min(28rem,calc(100dvh-18rem))] overflow-y-auto overscroll-contain">
+                <table className="w-full text-sm">
+                  <thead className="sticky top-0 z-10 bg-card">
+                    <tr className="border-b border-border text-[11px] uppercase tracking-[0.08em] text-muted-foreground">
+                      <th className="px-5 py-2 text-left font-medium">Month</th>
+                      <th className="px-5 py-2 text-right font-medium">Income</th>
+                      <th className="px-5 py-2 text-right font-medium">Spend</th>
+                      <th className="px-5 py-2 text-right font-medium">Saved</th>
+                      <th className="px-5 py-2 text-right font-medium">Rate</th>
                     </tr>
-                  ) : (
-                    sliced.map((m) => (
-                      <tr key={m.month} className="border-b border-border last:border-0">
-                        <td className="px-5 py-2 font-mono tabular-nums">{m.month}</td>
-                        <td className="px-5 py-2 text-right">
-                          <Money value={m.income} />
-                        </td>
-                        <td className="px-5 py-2 text-right">
-                          <Money value={m.spend} />
-                        </td>
-                        <td className="px-5 py-2 text-right">
-                          <Money value={m.savings} signed />
-                        </td>
-                        <td className="px-5 py-2 text-right font-mono tabular-nums">
-                          {m.income > 0 ? formatPct((m.savings / m.income) * 100, 0, true) : "—"}
+                  </thead>
+                  <tbody>
+                    {months.length === 0 ? (
+                      <tr>
+                        <td colSpan={5} className="px-5 py-8 text-center text-muted-foreground">
+                          No cashflow yet.
                         </td>
                       </tr>
-                    ))
-                  )}
-                </tbody>
-              </table>
+                    ) : (
+                      months.map((m) => (
+                        <tr key={m.month} className="border-b border-border last:border-0">
+                          <td className="px-5 py-2">{m.label}</td>
+                          <td className="px-5 py-2 text-right">
+                            <Money value={m.income} />
+                          </td>
+                          <td className="px-5 py-2 text-right">
+                            <Money value={m.spend} />
+                          </td>
+                          <td className="px-5 py-2 text-right">
+                            <Money value={m.savings} signed />
+                          </td>
+                          <td className="px-5 py-2 text-right font-mono tabular-nums">
+                            {m.income > 0 ? formatPct((m.savings / m.income) * 100, 0, true) : "—"}
+                          </td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
             </CardContent>
           </Card>
         </TabsContent>
 
         <TabsContent value="spending">
-          <div className="mb-4">
-            <div className="text-[12px] uppercase tracking-[0.1em] text-muted-foreground">Spending</div>
-            <div className="text-3xl font-medium font-mono tabular-nums">
-              <Money value={spend} />
+          <div className="mb-4 flex flex-wrap items-end justify-between gap-3">
+            <div>
+              <div className="text-[12px] uppercase tracking-[0.1em] text-muted-foreground">Spending</div>
+              <div className="text-3xl font-medium font-mono tabular-nums">
+                <Money value={spend} />
+              </div>
             </div>
+            <NetRefundsToggle checked={netRefunds} onChange={setNet} />
           </div>
           <Card>
             <CardHeader>
@@ -274,24 +321,28 @@ export function ReportsClient({
             </CardHeader>
             <CardContent>
               <AllocationChart
+                key={netRefunds ? "spend-net" : "spend-raw"}
                 data={spendRows.map((r) => ({ key: r.label, value: r.value }))}
                 large
                 showPercent
                 selectable
                 selected={spendSel}
                 onToggle={(key) => toggle(spendSel, key, spendKeys, setSpendSel)}
-                onSliceClick={openSpend}
+                onSliceClick={(label) => setPopup({ kind: "spend", title: label, from: "tabs" })}
               />
             </CardContent>
           </Card>
         </TabsContent>
 
         <TabsContent value="income">
-          <div className="mb-4">
-            <div className="text-[12px] uppercase tracking-[0.1em] text-muted-foreground">Income</div>
-            <div className="text-3xl font-medium font-mono tabular-nums">
-              <Money value={income} />
+          <div className="mb-4 flex flex-wrap items-end justify-between gap-3">
+            <div>
+              <div className="text-[12px] uppercase tracking-[0.1em] text-muted-foreground">Income</div>
+              <div className="text-3xl font-medium font-mono tabular-nums">
+                <Money value={income} />
+              </div>
             </div>
+            <NetRefundsToggle checked={netRefunds} onChange={setNet} />
           </div>
           <Card>
             <CardHeader>
@@ -299,13 +350,14 @@ export function ReportsClient({
             </CardHeader>
             <CardContent>
               <AllocationChart
+                key={netRefunds ? "income-net" : "income-raw"}
                 data={incomeRows.map((r) => ({ key: r.label, value: r.value }))}
                 large
                 showPercent
                 selectable
                 selected={incomeSel}
                 onToggle={(key) => toggle(incomeSel, key, incomeKeys, setIncomeSel)}
-                onSliceClick={openIncome}
+                onSliceClick={(label) => setPopup({ kind: "income", title: label, from: "tabs" })}
               />
             </CardContent>
           </Card>
@@ -314,11 +366,134 @@ export function ReportsClient({
       <CategoryMerchantDialog
         open={popup != null}
         title={popup?.title ?? ""}
-        lines={popup?.lines ?? []}
-        note={popup?.note}
+        lines={popupLines}
+        note={popupNote}
         onClose={() => setPopup(null)}
       />
     </>
+  );
+}
+
+function merchantKey(name: string) {
+  return name.toLowerCase().replace(/\s+/g, " ").trim();
+}
+
+function refundLinesForMerchants(spendMerchants: string[], credits: MerchantLine[]): MerchantLine[] {
+  const want = new Set(spendMerchants.map(merchantKey).filter(Boolean));
+  if (!want.size) return [];
+  const byMerch: Record<string, { merchant: string; category: string; amount: number }> = {};
+  for (const l of credits) {
+    const k = merchantKey(l.merchant);
+    if (!want.has(k)) continue;
+    const cur = byMerch[k] ?? { merchant: l.merchant, category: l.category, amount: 0 };
+    cur.amount += l.amount;
+    byMerch[k] = cur;
+  }
+  return Object.values(byMerch)
+    .filter((r) => r.amount > 0.005)
+    .map((r) => ({
+      category: r.category,
+      merchant: r.merchant,
+      amount: -r.amount,
+    }));
+}
+
+/** Credits from a merchant that also has spend in the window are treated as refunds. */
+function applyMerchantRefunds(flows: FlowRow[]): FlowRow[] {
+  const groups = new Map<string, FlowRow[]>();
+  const unmatched: FlowRow[] = [];
+  for (const f of flows) {
+    const key = merchantKey(f.merchant);
+    if (!key) {
+      unmatched.push(f);
+      continue;
+    }
+    const list = groups.get(key) ?? [];
+    list.push(f);
+    groups.set(key, list);
+  }
+  const out: FlowRow[] = [...unmatched];
+  for (const rows of groups.values()) {
+    const spend = rows.filter((r) => r.kind === "spend");
+    const income = rows.filter((r) => r.kind === "income");
+    const spendSum = spend.reduce((s, r) => s + r.amount, 0);
+    const incomeSum = income.reduce((s, r) => s + r.amount, 0);
+    if (!(spendSum > 0 && incomeSum > 0)) {
+      out.push(...rows);
+      continue;
+    }
+    const refund = Math.min(spendSum, incomeSum);
+    let left = refund;
+    const spendNewest = [...spend].sort((a, b) => b.date.localeCompare(a.date));
+    for (const s of spendNewest) {
+      if (left <= 0) {
+        out.push(s);
+        continue;
+      }
+      const take = Math.min(s.amount, left);
+      left -= take;
+      const remain = s.amount - take;
+      if (remain > 0.005) out.push({ ...s, amount: remain });
+    }
+    let keepIncome = incomeSum - refund;
+    const incomeOldest = [...income].sort((a, b) => a.date.localeCompare(b.date));
+    for (const i of incomeOldest) {
+      if (keepIncome <= 0.005) continue;
+      const keep = Math.min(i.amount, keepIncome);
+      keepIncome -= keep;
+      if (keep > 0.005) out.push({ ...i, amount: keep });
+    }
+  }
+  return out;
+}
+
+function aggregateFlows(rows: FlowRow[]) {
+  const spendCats: Record<string, number> = {};
+  const incomeCats: Record<string, number> = {};
+  const spendMerch: MerchantLine[] = [];
+  const incomeMerch: MerchantLine[] = [];
+  for (const f of rows) {
+    if (f.kind === "spend") {
+      spendCats[f.category] = (spendCats[f.category] ?? 0) + f.amount;
+      spendMerch.push({ category: f.category, merchant: f.merchant, amount: f.amount });
+    } else {
+      incomeCats[f.category] = (incomeCats[f.category] ?? 0) + f.amount;
+      incomeMerch.push({ category: f.category, merchant: f.merchant, amount: f.amount });
+    }
+  }
+  const spendRows = Object.entries(spendCats)
+    .map(([label, value]) => ({ label, value }))
+    .filter((r) => r.value > 0.005)
+    .sort((a, b) => b.value - a.value);
+  const incomeRows = Object.entries(incomeCats)
+    .map(([label, value]) => ({ label, value }))
+    .filter((r) => r.value > 0.005)
+    .sort((a, b) => b.value - a.value);
+  return { spendRows, incomeRows, spendMerch, incomeMerch };
+}
+
+function NetRefundsToggle({
+  checked,
+  onChange,
+}: {
+  checked: boolean;
+  onChange: (v: boolean) => void;
+}) {
+  return (
+    <label className="flex max-w-sm cursor-pointer items-start gap-2 text-sm text-muted-foreground">
+      <input
+        type="checkbox"
+        className="mt-0.5 cursor-pointer"
+        checked={checked}
+        onChange={(e) => onChange(e.target.checked)}
+      />
+      <span>
+        Net merchant refunds
+        <span className="mt-0.5 block text-xs">
+          Credits from a merchant in this window reduce that merchant’s spend and are hidden from income.
+        </span>
+      </span>
+    </label>
   );
 }
 

@@ -1,5 +1,5 @@
 import { prisma } from "./db";
-import { scanAddress, shortAddress, type OnchainAsset } from "./onchain";
+import { dropFakeStables, scanAddress, shortAddress, type OnchainAsset } from "./onchain";
 import { enrichCryptoQuotes } from "./quotes";
 import { snapshotNetWorth } from "./plaid-sync";
 import { significantOnly } from "./token-prices";
@@ -65,7 +65,7 @@ export async function syncAllWallets() {
 }
 
 async function persistAssets(walletId: string, assets: OnchainAsset[]) {
-  assets = significantOnly(assets);
+  assets = significantOnly(dropFakeStables(assets));
   const keep = new Set(assets.map((a) => `${a.chain}:${a.tokenKey}`));
   const existing = await prisma.cryptoWalletAsset.findMany({ where: { walletId } });
   for (const row of existing) {

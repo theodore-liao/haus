@@ -100,6 +100,14 @@ export function isRetirementType(h: string): boolean {
   return h === "ira" || h === "roth" || h === "401k" || h === "403b" || h === "hsa";
 }
 
+export function isRetirementAccount(a: {
+  isRetirement?: boolean;
+  hausType: string;
+  retirementKind?: string | null;
+}): boolean {
+  return Boolean(a.isRetirement) || isRetirementType(a.hausType) || Boolean(a.retirementKind);
+}
+
 export function isCashType(h: string): boolean {
   return h === "checking" || h === "savings" || h === "cash_management";
 }
@@ -125,6 +133,13 @@ export function isInvestmentType(h: string): boolean {
 
 export function isChildAccountType(h: string): boolean {
   return h === "529" || h === "custodial" || h === "trump";
+}
+
+/** Plaid / brokerage lot type for coins (Robinhood crypto, etc.). */
+export function isCryptoHoldingType(type: string | null | undefined): boolean {
+  const t = (type || "").trim().toLowerCase();
+  if (!t) return false;
+  return t === "cryptocurrency" || t === "crypto" || t === "digital" || t === "digital currency" || t.includes("crypto");
 }
 
 export function retirementKindFromHaus(h: string): string | null {

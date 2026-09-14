@@ -91,7 +91,7 @@ export function AppShell({
               key={item.href}
               href={item.href}
               className={cn(
-                "flex flex-col items-center gap-1 py-2.5 text-[11px]",
+                "flex flex-col items-center gap-1 py-2.5 text-[0.6875rem]",
                 active ? "text-primary" : "text-muted-foreground",
               )}
             >
@@ -104,7 +104,7 @@ export function AppShell({
           type="button"
           onClick={() => setMore(true)}
           className={cn(
-            "flex flex-col items-center gap-1 py-2.5 text-[11px]",
+            "flex flex-col items-center gap-1 py-2.5 text-[0.6875rem]",
             more ? "text-primary" : "text-muted-foreground",
           )}
         >

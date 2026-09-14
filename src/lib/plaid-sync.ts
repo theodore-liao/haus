@@ -5,7 +5,7 @@ import {
   mapPlaidToHausType,
   retirementKindFromHaus,
 } from "./account-types";
-import { TRANSFER_CATEGORIES } from "./constants";
+import { FIXED_USD_ID, TRANSFER_CATEGORIES } from "./constants";
 import { startOfDay } from "./format";
 import { matchesOwner, type OwnerFilter } from "./owners";
 import { propertyDebt, vehicleDebt } from "./property";
@@ -399,6 +399,7 @@ export async function snapshotNetWorth() {
   const vehicles = await prisma.vehicle.findMany();
   const manuals = await prisma.manualAccount.findMany();
   const cryptos = await loadCryptoLots();
+  const stockManualsAll = await prisma.manualHolding.findMany({ where: { kind: "security" } });
   const day = startOfDay();
   const filters: OwnerFilter[] = ["all", "a", "b", "children"];
 
@@ -443,6 +444,9 @@ export async function snapshotNetWorth() {
     for (const c of coins) {
       investments += lotValue(c);
     }
+    for (const h of stockManualsAll.filter((row) => matchesOwner(row.owner, filter))) {
+      investments += h.coingeckoId === FIXED_USD_ID ? (h.quotePrice ?? 0) : (h.quotePrice ?? 0) * h.quantity;
+    }
     const realEstate = props.reduce((s, p) => s + p.estimate, 0);
     const vehicleTotal = vehs.reduce((s, v) => s + v.estimate, 0);
     for (const p of props) {
@@ -482,7 +486,17 @@ export async function snapshotNetWorth() {
 export async function syncPlaidItem(itemDbId: string) {
   const item = await prisma.plaidItem.findUnique({ where: { id: itemDbId } });
   if (!item) throw new Error("Item not found");
-  const accessToken = plaidAccessToken(item);
+  let accessToken: string;
+  try {
+    accessToken = plaidAccessToken(item);
+  } catch (e) {
+    const message = e instanceof Error ? e.message : "Cannot decrypt Plaid token.";
+    await prisma.plaidItem.update({
+      where: { id: item.id },
+      data: { status: "error", errorCode: "TOKEN_DECRYPT_FAILED", errorMessage: message },
+    });
+    return { status: "error", errors: [message] };
+  }
   const plaid = getPlaidClient();
   const errors: string[] = [];
   let status = "good";

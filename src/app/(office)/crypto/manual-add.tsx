@@ -29,18 +29,24 @@ export function ManualAddBox({
 }) {
   const router = useRouter();
   const [busy, setBusy] = useState(false);
+  const [open, setOpen] = useState(false);
   const total = manuals.reduce((s, c) => s + lotValue(c), 0);
 
   return (
     <Card className="h-full border-dashed">
-      <CardHeader>
-        <CardTitle className="text-sm font-medium normal-case tracking-normal text-foreground">Manual add</CardTitle>
-        <p className="text-sm text-muted-foreground">Coins that are not in a linked wallet. USD is priced on CoinGecko.</p>
+      <CardHeader className="flex flex-row items-start justify-between space-y-0">
+        <div>
+          <CardTitle className="text-sm font-medium normal-case tracking-normal text-foreground">Manual lots</CardTitle>
+          <div className="mt-1 text-lg font-medium font-mono tabular-nums">
+            <Money value={total} />
+          </div>
+        </div>
+        <Button type="button" size="sm" variant={open ? "ghost" : "default"} onClick={() => setOpen((v) => !v)}>
+          {open ? "Close" : "Add"}
+        </Button>
       </CardHeader>
       <CardContent>
-        <div className="text-lg font-medium font-mono tabular-nums">
-          <Money value={total} />
-        </div>
+        {open ? (
         <form
           className="mt-3 grid gap-2"
           onSubmit={async (e) => {
@@ -87,7 +93,7 @@ export function ManualAddBox({
             <Input className="mt-1" name="notes" placeholder="Hardware wallet, gift, leftover from Coinbase…" />
           </div>
           <div>
-            <Label>Owner</Label>
+            <Label>Holder</Label>
             <select name="owner" className="mt-1 flex h-9 w-full rounded-md border border-border bg-card px-3 text-sm">
               {ownerOptions(names).map((o) => (
                 <option key={o.value} value={o.value}>
@@ -100,6 +106,7 @@ export function ManualAddBox({
             {busy ? "Looking up…" : "Add holding"}
           </Button>
         </form>
+        ) : null}
         {manuals.length > 0 ? (
           <ul className="mt-4 max-h-40 space-y-1.5 overflow-y-auto pr-1">
             {manuals.map((c) => (

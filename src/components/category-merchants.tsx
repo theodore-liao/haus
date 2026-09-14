@@ -41,13 +41,13 @@ export function CategoryMerchantDialog({
           <p className="text-sm text-muted-foreground">No transactions in this window.</p>
         ) : (
           <ul className="max-h-[28rem] space-y-2 overflow-y-auto pr-1">
-            {rows.map((r) => (
-              <li key={r.merchant} className="flex items-center justify-between gap-3 text-sm">
+            {rows.map((r, i) => (
+              <li key={`${r.merchant}-${r.amount}-${i}`} className="flex items-center justify-between gap-3 text-sm">
                 <BrandLabel className="min-w-0" kind="merchant" name={r.merchant}>
                   <span className="truncate">{r.merchant}</span>
                 </BrandLabel>
                 <span className="shrink-0 font-mono tabular-nums">
-                  <Money value={r.amount} />
+                  <Money value={r.amount} signed={r.amount < 0} />
                 </span>
               </li>
             ))}

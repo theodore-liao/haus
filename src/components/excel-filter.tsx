@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { Filter } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -57,6 +57,9 @@ export function DiscreteFilter({
   const [pos, setPos] = useState<Pos>({ top: 0, left: 0 });
   const [q, setQ] = useState("");
   const [draft, setDraft] = useState<Set<string> | null>(null);
+  const btnRef = useRef<HTMLButtonElement>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
+  const long = options.length > 12;
   const visible = useMemo(() => {
     const needle = q.trim().toLowerCase();
     return options.filter((o) => !needle || o.toLowerCase().includes(needle));
@@ -65,10 +68,43 @@ export function DiscreteFilter({
   const allOn = draft == null || (options.length > 0 && draft.size === options.length);
   const someOn = draft != null && draft.size > 0 && draft.size < options.length;
 
+  function place() {
+    const el = btnRef.current;
+    if (!el) return;
+    const r = el.getBoundingClientRect();
+    setPos({ top: r.bottom + 4, left: Math.min(r.left, window.innerWidth - 240) });
+  }
+
+  function close(apply: boolean) {
+    if (apply) onChange(draft);
+    setOpen(false);
+  }
+
+  useEffect(() => {
+    if (!open) return;
+    place();
+    function onDown(e: MouseEvent) {
+      const t = e.target as Node;
+      if (btnRef.current?.contains(t) || panelRef.current?.contains(t)) return;
+      close(true);
+    }
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape") close(false);
+    }
+    window.addEventListener("mousedown", onDown);
+    window.addEventListener("keydown", onKey);
+    window.addEventListener("scroll", place, true);
+    window.addEventListener("resize", place);
+    return () => {
+      window.removeEventListener("mousedown", onDown);
+      window.removeEventListener("keydown", onKey);
+      window.removeEventListener("scroll", place, true);
+      window.removeEventListener("resize", place);
+    };
+  }, [open, draft]);
+
   function openPanel(e: React.MouseEvent<HTMLButtonElement>) {
     e.stopPropagation();
-    const r = e.currentTarget.getBoundingClientRect();
-    setPos({ top: r.bottom + 4, left: Math.min(r.left, window.innerWidth - 240) });
     setDraft(selected == null ? null : new Set(selected));
     setQ("");
     setOpen(true);
@@ -86,13 +122,15 @@ export function DiscreteFilter({
     open &&
     createPortal(
       <div
+        ref={panelRef}
         className="fixed z-[80] w-56 rounded-md border border-border bg-card-elevated p-2 shadow-lg"
         style={{ top: pos.top, left: pos.left }}
         onClick={(e) => e.stopPropagation()}
       >
         <Input
           className="h-7 cursor-text text-xs"
-          placeholder={`Search ${label.toLowerCase()}`}
+          placeholder={long ? `Filter ${label.toLowerCase()}` : `Search ${label.toLowerCase()}`}
+          autoFocus={long}
           value={q}
           onChange={(e) => setQ(e.target.value)}
         />
@@ -117,6 +155,178 @@ export function DiscreteFilter({
                 {kind ? <BrandMark kind={kind} name={o} symbol={o} size={14} /> : null}
                 <span className="truncate">{o || "(blank)"}</span>
               </label>
+            );
+          })}
+        </div>
+      </div>,
+      document.body,
+    );
+
+  return (
+    <span className="relative inline-flex items-center">
+      <button
+        ref={btnRef}
+        type="button"
+        className={cn(
+          "ml-1 cursor-pointer text-muted-foreground hover:text-foreground",
+          active && "text-primary",
+        )}
+        onClick={openPanel}
+        aria-label={`Filter ${label}`}
+      >
+        <Filter className="h-3 w-3" />
+      </button>
+      {panel}
+    </span>
+  );
+}
+
+const MONTHS = [
+  "January",
+  "February",
+  "March",
+  "April",
+  "May",
+  "June",
+  "July",
+  "August",
+  "September",
+  "October",
+  "November",
+  "December",
+];
+
+export function dateMonthKey(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+}
+
+type YearGroup = { year: number; months: { key: string; label: string }[] };
+
+function yearGroupsFromDates(dates: string[]): YearGroup[] {
+  const map = new Map<number, Set<number>>();
+  for (const iso of dates) {
+    const d = new Date(iso);
+    if (Number.isNaN(d.getTime())) continue;
+    const y = d.getFullYear();
+    const m = d.getMonth();
+    let set = map.get(y);
+    if (!set) {
+      set = new Set();
+      map.set(y, set);
+    }
+    set.add(m);
+  }
+  return [...map.entries()]
+    .sort((a, b) => b[0] - a[0])
+    .map(([year, months]) => ({
+      year,
+      months: [...months]
+        .sort((a, b) => b - a)
+        .map((m) => ({
+          key: `${year}-${String(m + 1).padStart(2, "0")}`,
+          label: MONTHS[m],
+        })),
+    }));
+}
+
+export function DateFilter({
+  dates,
+  selected,
+  onChange,
+}: {
+  dates: string[];
+  selected: Set<string> | null;
+  onChange: (next: Set<string> | null) => void;
+}) {
+  const groups = useMemo(() => yearGroupsFromDates(dates), [dates]);
+  const allKeys = useMemo(() => groups.flatMap((g) => g.months.map((m) => m.key)), [groups]);
+  const [open, setOpen] = useState(false);
+  const [pos, setPos] = useState<Pos>({ top: 0, left: 0 });
+  const [draft, setDraft] = useState<Set<string> | null>(null);
+  const active = selected != null && selected.size !== allKeys.length;
+  const allOn = draft == null || (allKeys.length > 0 && draft.size === allKeys.length);
+  const someOn = draft != null && draft.size > 0 && draft.size < allKeys.length;
+
+  function yearState(g: YearGroup): "all" | "some" | "none" {
+    if (draft == null) return "all";
+    const n = g.months.filter((m) => draft.has(m.key)).length;
+    if (n === 0) return "none";
+    if (n === g.months.length) return "all";
+    return "some";
+  }
+
+  function commit(next: Set<string>) {
+    setDraft(next.size === allKeys.length ? null : next);
+  }
+
+  function toggleMonth(key: string) {
+    const base = draft ?? new Set(allKeys);
+    const next = new Set(base);
+    if (next.has(key)) next.delete(key);
+    else next.add(key);
+    commit(next);
+  }
+
+  function toggleYear(g: YearGroup) {
+    const base = draft ?? new Set(allKeys);
+    const next = new Set(base);
+    const st = yearState(g);
+    if (st === "all") g.months.forEach((m) => next.delete(m.key));
+    else g.months.forEach((m) => next.add(m.key));
+    commit(next);
+  }
+
+  const panel =
+    open &&
+    createPortal(
+      <div
+        className="fixed z-[80] w-56 rounded-md border border-border bg-card-elevated p-2 shadow-lg"
+        style={{ top: pos.top, left: pos.left }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="max-h-64 space-y-0.5 overflow-y-auto text-xs">
+          <label className="flex cursor-pointer items-center gap-2 border-b border-border py-1 font-medium">
+            <input
+              type="checkbox"
+              className="cursor-pointer"
+              checked={allOn}
+              ref={(el) => {
+                if (el) el.indeterminate = someOn;
+              }}
+              onChange={() => setDraft(allOn ? new Set() : null)}
+            />
+            <span>(Select All)</span>
+          </label>
+          {groups.map((g) => {
+            const st = yearState(g);
+            return (
+              <div key={g.year}>
+                <label className="flex cursor-pointer items-center gap-2 py-0.5 font-medium">
+                  <input
+                    type="checkbox"
+                    className="cursor-pointer"
+                    checked={st === "all"}
+                    ref={(el) => {
+                      if (el) el.indeterminate = st === "some";
+                    }}
+                    onChange={() => toggleYear(g)}
+                  />
+                  <span>{g.year}</span>
+                </label>
+                {g.months.map((m) => (
+                  <label key={m.key} className="flex cursor-pointer items-center gap-2 py-0.5 pl-5">
+                    <input
+                      type="checkbox"
+                      className="cursor-pointer"
+                      checked={draft == null || draft.has(m.key)}
+                      onChange={() => toggleMonth(m.key)}
+                    />
+                    <span>{m.label}</span>
+                  </label>
+                ))}
+              </div>
             );
           })}
         </div>
@@ -148,8 +358,14 @@ export function DiscreteFilter({
           "ml-1 cursor-pointer text-muted-foreground hover:text-foreground",
           active && "text-primary",
         )}
-        onClick={openPanel}
-        aria-label={`Filter ${label}`}
+        onClick={(e) => {
+          e.stopPropagation();
+          const r = e.currentTarget.getBoundingClientRect();
+          setPos({ top: r.bottom + 4, left: Math.min(r.left, window.innerWidth - 240) });
+          setDraft(selected == null ? null : new Set(selected));
+          setOpen(true);
+        }}
+        aria-label="Filter date"
       >
         <Filter className="h-3 w-3" />
       </button>

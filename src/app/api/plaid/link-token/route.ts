@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { CountryCode } from "plaid";
 import { prisma } from "@/lib/db";
-import { getPlaidClient, linkTokenProducts, plaidErr } from "@/lib/plaid";
+import { getPlaidClient, linkTokenProducts, plaidErr, PLAID_TXN_HISTORY_DAYS } from "@/lib/plaid";
 import { plaidConfigured, plaidEnv } from "@/lib/env";
 import { requireSession } from "@/lib/auth";
 import { plaidAccessToken } from "@/lib/token-crypto";
@@ -41,6 +41,7 @@ export async function POST(req: Request) {
       country_codes: [CountryCode.Us],
       language: "en",
       ...linkTokenProducts(),
+      transactions: { days_requested: PLAID_TXN_HISTORY_DAYS },
     });
     return NextResponse.json({ link_token: created.data.link_token });
   } catch (e) {

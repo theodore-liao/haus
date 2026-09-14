@@ -2,7 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { cn } from "@/lib/utils";
-import type { OwnerFilter } from "@/lib/owners";
+import { givenName, type OwnerFilter } from "@/lib/owners";
 
 export function OwnerFilterBar({
   value,
@@ -16,8 +16,8 @@ export function OwnerFilterBar({
   const router = useRouter();
   const options: { value: OwnerFilter; label: string }[] = [
     { value: "all", label: "All" },
-    { value: "a", label: nameA },
-    { value: "b", label: nameB },
+    { value: "a", label: givenName(nameA) || nameA },
+    { value: "b", label: givenName(nameB) || nameB },
     { value: "children", label: "Children" },
   ];
 

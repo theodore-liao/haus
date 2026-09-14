@@ -158,7 +158,7 @@ export function NavRail({
               <Link
                 href={item.href}
                 draggable={false}
-                className="flex min-w-0 flex-1 items-center gap-2.5 px-2.5 py-2 text-[15px]"
+                className="flex min-w-0 flex-1 items-center gap-2.5 px-2.5 py-2 text-[0.9375rem]"
                 onClick={(e) => {
                   if (drag) e.preventDefault();
                 }}
@@ -191,7 +191,7 @@ export function NavRail({
                 transform: "rotate(-1.2deg)",
               }}
             >
-              <span className="flex min-w-0 flex-1 items-center gap-2.5 px-2.5 py-2 text-[15px]">
+              <span className="flex min-w-0 flex-1 items-center gap-2.5 px-2.5 py-2 text-[0.9375rem]">
                 <span className="h-4 w-px rounded bg-primary" />
                 <dragged.icon className="h-4 w-4 shrink-0" />
                 <span className="truncate">{dragged.label}</span>

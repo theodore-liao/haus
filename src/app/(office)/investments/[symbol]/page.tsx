@@ -35,7 +35,7 @@ export default async function SymbolPage({ params }: { params: Promise<{ symbol:
             <TableHeader>
               <TableRow>
                 <TableHead>Account</TableHead>
-                <TableHead>Owner</TableHead>
+                <TableHead>Holder</TableHead>
                 <TableHead className="text-right">Qty</TableHead>
                 <TableHead className="text-right">Last</TableHead>
                 <TableHead className="text-right">Value</TableHead>

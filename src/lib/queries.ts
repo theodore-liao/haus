@@ -4,12 +4,15 @@ import {
   allocationBucket,
   isCashType,
   isChildAccountType,
+  isCryptoHoldingType,
   isInvestmentType,
   isLiabilityType,
+  isRetirementAccount,
   isRetirementType,
 } from "./account-types";
-import { CONCENTRATION_FLAG, HIGH_UTILIZATION, INSURANCE_RENEWAL_DAYS, IRS_LIMITS, IRS_LIMITS_YEAR, STALE_CONNECTION_HOURS, categoryLabel, incomeSourceLabel } from "./constants";
-import { effectiveCategory, isInternalMove, txnMerchantKey } from "./categories";
+import { CONCENTRATION_FLAG, FIXED_USD_ID, HIGH_UTILIZATION, INSURANCE_RENEWAL_DAYS, IRS_LIMITS, IRS_LIMITS_YEAR, STALE_CONNECTION_HOURS, categoryLabel, incomeSourceLabel } from "./constants";
+import { effectiveCategory, isInternalMove, isInvestFunding, txnMerchantKey } from "./categories";
+import { dayKey, ymKey } from "./range";
 
 async function hiddenMerchantKeys() {
   try {
@@ -190,7 +193,7 @@ function changeFromPath(path: { date: string; netWorth: number }[], current: num
 
 export async function getOverview(filter: OwnerFilter) {
   const names = await getNames();
-  const [accounts, properties, vehicles, policies, manuals, items, snapshots, holdings, recentTxnsRaw, cryptos, hidden] =
+  const [accounts, properties, vehicles, policies, manuals, items, snapshots, holdings, recentTxnsRaw, cryptos, hidden, stockManuals] =
     await Promise.all([
       prisma.account.findMany({ include: { item: true } }),
       prisma.property.findMany(),
@@ -202,7 +205,7 @@ export async function getOverview(filter: OwnerFilter) {
         where: { ownerKey: filter },
         orderBy: { date: "asc" },
       }),
-      prisma.holding.findMany({ include: { account: true } }),
+      prisma.holding.findMany({ include: { account: { include: { item: true } } } }),
       prisma.txn.findMany({
         include: { account: { include: { item: true } } },
         orderBy: { date: "desc" },
@@ -210,6 +213,7 @@ export async function getOverview(filter: OwnerFilter) {
       }),
       loadCryptoLots(),
       hiddenMerchantKeys(),
+      prisma.manualHolding.findMany({ where: { kind: "security" } }),
     ]);
 
   const accs = accounts.filter((a) => matchesOwner(a.owner, filter));
@@ -287,6 +291,48 @@ export async function getOverview(filter: OwnerFilter) {
     allocation.crypto += val;
     if (val >= 10) {
       allocationItems.crypto.push({ label: `${c.symbol} · ${c.name}`, value: val, symbol: c.symbol, name: c.name, kind: "crypto" });
+    }
+  }
+  for (const h of stockManuals.filter((row) => matchesOwner(row.owner, filter))) {
+    const val = h.coingeckoId === FIXED_USD_ID ? (h.quotePrice ?? 0) : (h.quotePrice ?? 0) * h.quantity;
+    investments += val;
+    allocation.stocks += val;
+    if (Math.abs(val) >= 10) {
+      allocationItems.stocks.push({
+        label: h.coingeckoId === FIXED_USD_ID ? h.name : `${h.symbol} · ${h.name}`,
+        value: val,
+        symbol: h.coingeckoId === FIXED_USD_ID ? null : h.symbol,
+        name: h.name,
+        kind: "security",
+      });
+    }
+  }
+  for (const h of holds) {
+    if (!isCryptoHoldingType(h.type) || isRetirementAccount(h.account)) continue;
+    const val = holdingValue(h);
+    if (Math.abs(val) < 0.01) continue;
+    const bucket = allocationBucket(h.account.hausType);
+    if (bucket === "crypto") continue;
+    allocation[bucket] -= val;
+    allocation.crypto += val;
+    const label = accountLabel(h.account.name, h.account.item.institutionName);
+    const list = allocationItems[bucket];
+    const row = list.find((i) => i.label === label);
+    if (row) {
+      row.value -= val;
+      if (Math.abs(row.value) < 10) {
+        const idx = list.indexOf(row);
+        if (idx >= 0) list.splice(idx, 1);
+      }
+    }
+    if (val >= 10) {
+      allocationItems.crypto.push({
+        label: h.symbol ? `${h.symbol} · ${h.name}` : h.name,
+        value: val,
+        symbol: h.symbol,
+        name: h.name,
+        kind: "crypto",
+      });
     }
   }
   const realEstate = props.reduce((s, p) => s + p.estimate, 0);
@@ -417,9 +463,14 @@ export async function getOverview(filter: OwnerFilter) {
     return parts.reduce((s, d) => s + d, 0);
   }
 
-  const dayChange = changeFromPath(path, netWorth, 1) ?? (hasQuoteMove ? holdingDayPl : sumMoverWindow("day"));
-  const weekChange = changeFromPath(path, netWorth, 7) ?? sumMoverWindow("week");
-  const monthChange = changeFromPath(path, netWorth, 30) ?? sumMoverWindow("month");
+  const latestPath = path.length ? path[path.length - 1] : null;
+  const pathAligned =
+    latestPath != null &&
+    Math.abs(latestPath.netWorth - netWorth) / Math.max(Math.abs(netWorth), 1) < 0.15;
+  const dayChange =
+    (pathAligned ? changeFromPath(path, netWorth, 1) : null) ?? (hasQuoteMove ? holdingDayPl : sumMoverWindow("day"));
+  const weekChange = (pathAligned ? changeFromPath(path, netWorth, 7) : null) ?? sumMoverWindow("week");
+  const monthChange = (pathAligned ? changeFromPath(path, netWorth, 30) : null) ?? sumMoverWindow("month");
 
   const movedAccounts = accs
     .filter((a) => a.previousBalance != null && a.currentBalance != null)
@@ -797,7 +848,12 @@ export async function getInvestments(filter: OwnerFilter) {
   const holdings = await prisma.holding.findMany({
     include: { account: { include: { item: true } } },
   });
-  const scoped = holdings.filter((h) => matchesOwner(h.account.owner, filter));
+  const scoped = holdings.filter(
+    (h) =>
+      matchesOwner(h.account.owner, filter) &&
+      !isRetirementAccount(h.account) &&
+      !isCryptoHoldingType(h.type),
+  );
   const lots = scoped.map((h) => {
     const value = holdingValue(h);
     const last = holdingPrice(h);
@@ -863,7 +919,12 @@ export async function getInvestments(filter: OwnerFilter) {
       take: 400,
     })
   )
-    .filter((t) => matchesOwner(t.account.owner, filter))
+    .filter(
+      (t) =>
+        matchesOwner(t.account.owner, filter) &&
+        !isRetirementAccount(t.account) &&
+        !isCryptoHoldingType(t.security?.type),
+    )
     .map((t) => ({
       id: t.id,
       date: t.date.toISOString(),
@@ -879,10 +940,38 @@ export async function getInvestments(filter: OwnerFilter) {
       fees: t.fees,
     }));
 
+  const [manualRows, manualMeta] = await Promise.all([
+    prisma.manualHolding.findMany({ where: { kind: "security" } }),
+    prisma.$queryRaw<{ id: string; assetClass: string | null; accountName: string | null }[]>`
+      SELECT id, assetClass, accountName FROM ManualHolding WHERE kind = 'security'
+    `,
+  ]);
+  const metaById = new Map(manualMeta.map((m) => [m.id, m]));
+  const manuals = manualRows
+    .filter((h) => matchesOwner(h.owner, filter))
+    .map((h) => {
+      const meta = metaById.get(h.id);
+      return {
+        id: h.id,
+        symbol: h.symbol,
+        name: h.name,
+        quantity: h.quantity,
+        quotePrice: h.quotePrice,
+        coingeckoId: h.coingeckoId,
+        notes: h.notes,
+        assetClass: meta?.assetClass || "equity",
+        accountName: meta?.accountName || "Manual",
+        ownerLabel: ownerLabel(h.owner, names),
+        value: h.coingeckoId === FIXED_USD_ID ? (h.quotePrice ?? 0) : (h.quotePrice ?? 0) * h.quantity,
+      };
+    })
+    .sort((a, b) => b.value - a.value);
+
   return {
     names,
     total,
     rows: withWeight.sort((a, b) => b.value - a.value),
+    manuals,
     byClass: Object.entries(byClass).map(([k, v]) => ({ key: k, value: v })),
     byAccount: Object.entries(byAccount).map(([k, v]) => ({ key: k, value: v })),
     byOwner: Object.entries(byOwner).map(([k, v]) => ({ key: k, value: v })),
@@ -890,6 +979,67 @@ export async function getInvestments(filter: OwnerFilter) {
     trades,
     hasQuotes: scoped.some((h) => h.quotePrice != null),
   };
+}
+
+export async function getBrokerageCrypto(filter: OwnerFilter) {
+  const names = await getNames();
+  const holdings = await prisma.holding.findMany({
+    include: { account: { include: { item: true } } },
+  });
+  const scoped = holdings.filter(
+    (h) =>
+      matchesOwner(h.account.owner, filter) &&
+      !isRetirementAccount(h.account) &&
+      isCryptoHoldingType(h.type),
+  );
+  type Group = {
+    id: string;
+    institution: string;
+    owner: string;
+    ownerLabel: string;
+    assets: {
+      id: string;
+      symbol: string;
+      name: string;
+      quantity: number;
+      quotePrice: number | null;
+      value: number;
+    }[];
+  };
+  const groups = new Map<string, Group>();
+  for (const h of scoped) {
+    const institution = (h.account.item.institutionName || "Brokerage").trim() || "Brokerage";
+    const key = `${institution.toLowerCase()}\0${h.account.owner}`;
+    let g = groups.get(key);
+    if (!g) {
+      const slug = institution.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "brokerage";
+      g = {
+        id: `brokerage:${slug}:${h.account.owner}`,
+        institution,
+        owner: h.account.owner,
+        ownerLabel: ownerLabel(h.account.owner, names),
+        assets: [],
+      };
+      groups.set(key, g);
+    }
+    const value = holdingValue(h);
+    const qty = h.quantity;
+    g.assets.push({
+      id: h.id,
+      symbol: (h.symbol || h.name).trim() || h.name,
+      name: h.name,
+      quantity: qty,
+      quotePrice: qty ? value / qty : value,
+      value,
+    });
+  }
+  return [...groups.values()]
+    .map((g) => ({
+      ...g,
+      assets: g.assets.filter((a) => a.value >= 10).sort((a, b) => b.value - a.value),
+    }))
+    .filter((g) => g.assets.length > 0)
+    .sort((a, b) => a.institution.localeCompare(b.institution) || a.ownerLabel.localeCompare(b.ownerLabel));
 }
 
 export async function getSymbolDetail(symbol: string, filter: OwnerFilter) {
@@ -957,8 +1107,7 @@ export async function getRetirement(filter: OwnerFilter) {
   const names = await getNames();
   const accounts = (await prisma.account.findMany({ include: { item: true, investmentTxns: true, holdings: true } })).filter(
     (a) =>
-      matchesOwner(a.owner, filter) &&
-      (a.isRetirement || isRetirementType(a.hausType) || a.retirementKind),
+      matchesOwner(a.owner, filter) && isRetirementAccount(a),
   );
   const year = IRS_LIMITS_YEAR;
   const yStart = new Date(year, 0, 1);
@@ -1119,78 +1268,55 @@ export async function getReports(filter: OwnerFilter) {
   ]);
   const txns = notHidden(allTxns, hidden).filter((t) => matchesOwner(t.account.owner, filter));
 
-  const months: Record<
-    string,
-    {
-      income: number;
-      spend: number;
-      cats: Record<string, number>;
-      incomeCats: Record<string, number>;
-      merchants: Record<string, number>;
-      spendMerch: Record<string, Record<string, number>>;
-      incomeMerch: Record<string, Record<string, number>>;
-    }
-  > = {};
+  const flows: {
+    date: string;
+    month: string;
+    kind: "spend" | "income" | "invest";
+    category: string;
+    merchant: string;
+    amount: number;
+  }[] = [];
   for (const t of txns) {
-    if (isInternalMove(t)) continue;
-    const key = `${t.date.getFullYear()}-${String(t.date.getMonth() + 1).padStart(2, "0")}`;
-    const bucket = months[key] ?? {
-      income: 0,
-      spend: 0,
-      cats: {},
-      incomeCats: {},
-      merchants: {},
-      spendMerch: {},
-      incomeMerch: {},
-    };
+    const month = ymKey(t.date);
+    const date = dayKey(t.date);
     const cat = effectiveCategory(t);
-    if (t.amount > 0 && cat !== "INCOME") {
-      bucket.spend += t.amount;
-      bucket.cats[cat] = (bucket.cats[cat] ?? 0) + t.amount;
-      const merch = t.userMerchant || t.merchantName || t.name;
-      bucket.merchants[merch] = (bucket.merchants[merch] ?? 0) + t.amount;
-      const catLabel = categoryLabel(cat);
-      bucket.spendMerch[catLabel] = bucket.spendMerch[catLabel] ?? {};
-      bucket.spendMerch[catLabel][merch] = (bucket.spendMerch[catLabel][merch] ?? 0) + t.amount;
-    } else if (t.amount < 0 || cat === "INCOME") {
-      const amt = Math.abs(t.amount);
-      bucket.income += amt;
-      const src = incomeSourceLabel(t);
-      bucket.incomeCats[src] = (bucket.incomeCats[src] ?? 0) + amt;
-      const merch = t.userMerchant || t.merchantName || t.name || src;
-      bucket.incomeMerch[src] = bucket.incomeMerch[src] ?? {};
-      bucket.incomeMerch[src][merch] = (bucket.incomeMerch[src][merch] ?? 0) + amt;
+    const merch = t.userMerchant || t.merchantName || t.name;
+    if (isInvestFunding(t) && t.amount > 0) {
+      flows.push({
+        date,
+        month,
+        kind: "invest",
+        category: "To investments",
+        merchant: merch,
+        amount: t.amount,
+      });
+      continue;
     }
-    months[key] = bucket;
+    if (isInternalMove(t)) continue;
+    if (t.amount > 0 && cat !== "INCOME") {
+      flows.push({
+        date,
+        month,
+        kind: "spend",
+        category: categoryLabel(cat),
+        merchant: merch,
+        amount: t.amount,
+      });
+    } else if (t.amount < 0 || cat === "INCOME") {
+      const src = incomeSourceLabel(t);
+      flows.push({
+        date,
+        month,
+        kind: "income",
+        category: src,
+        merchant: merch || src,
+        amount: Math.abs(t.amount),
+      });
+    }
   }
 
   return {
-    months: Object.entries(months)
-      .sort(([a], [b]) => a.localeCompare(b))
-      .map(([month, v]) => ({
-        month,
-        income: v.income,
-        spend: v.spend,
-        savings: v.income - v.spend,
-        cats: Object.entries(v.cats).map(([key, value]) => ({
-          key,
-          label: categoryLabel(key),
-          value,
-        })),
-        incomeCats: Object.entries(v.incomeCats)
-          .map(([label, value]) => ({ label, value }))
-          .sort((a, b) => b.value - a.value),
-        merchants: Object.entries(v.merchants)
-          .map(([label, value]) => ({ label, value }))
-          .sort((a, b) => b.value - a.value)
-          .slice(0, 8),
-        spendMerchants: Object.entries(v.spendMerch).flatMap(([category, merchs]) =>
-          Object.entries(merchs).map(([merchant, amount]) => ({ category, merchant, amount })),
-        ),
-        incomeMerchants: Object.entries(v.incomeMerch).flatMap(([category, merchs]) =>
-          Object.entries(merchs).map(([merchant, amount]) => ({ category, merchant, amount })),
-        ),
-      })),
+    flows,
     recurring: inferRecurring(txns),
   };
 }
@@ -1216,6 +1342,20 @@ export async function getInsights(filter: OwnerFilter) {
     math: cashflow.recurring.map((r) => `${r.label} ${formatMath(r.amount)} × ${r.cadence}`).join(" + ") || "No recurring series with ≥3 similar charges yet.",
     value: formatMath(subAnnual) + " / yr",
     tone: "neutral",
+  });
+
+  cards.push({
+    section: "Questions",
+    title: "If we both stopped working",
+    math:
+      cashflow.monthlyEssential > 0
+        ? `Cash ${formatMath(cashflow.cash)} lasts ${(cashflow.cash / cashflow.monthlyEssential).toFixed(1)} mo at ${formatMath(cashflow.monthlyEssential)}/mo essential. Net worth ${formatMath(overview.netWorth)} is ${(overview.netWorth / (cashflow.monthlyEssential * 12)).toFixed(1)} years at that burn.`
+        : "Need ~90 days of housing, medical, loan, grocery, and transport charges to estimate a burn rate.",
+    value:
+      cashflow.monthlyEssential > 0
+        ? `${(cashflow.cash / cashflow.monthlyEssential).toFixed(1)} mo cash`
+        : "—",
+    tone: cashflow.runway != null && cashflow.runway < 12 ? "negative" : "neutral",
   });
 
   cards.push({

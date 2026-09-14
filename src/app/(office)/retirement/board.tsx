@@ -36,7 +36,7 @@ export function RetirementBoard({ rows }: { rows: RetirementCard[] }) {
             <Card className="h-full cursor-pointer" onClick={() => setOpen(r)}>
               <CardHeader className="flex flex-row items-start justify-between gap-3 space-y-0">
                 <div className="min-w-0">
-                  <CardTitle className="text-xl font-semibold normal-case tracking-tight text-foreground">
+                  <CardTitle className="text-base font-medium normal-case tracking-normal text-foreground">
                     {hausTypeLabel(r.kind)}
                   </CardTitle>
                   <div className="mt-1 text-sm text-muted-foreground">{r.ownerLabel}</div>
@@ -52,12 +52,14 @@ export function RetirementBoard({ rows }: { rows: RetirementCard[] }) {
                     {r.name}
                   </BrandLabel>
                 </div>
-                {r.institution ? (
-                  <div className="mt-0.5 text-xs text-muted-foreground">{r.institution}</div>
-                ) : null}
-                <div className="mt-3 text-2xl">
+                <div className="mt-2 text-2xl font-medium font-mono tabular-nums">
                   <Money value={r.balance} />
                 </div>
+                {r.limit > 0 ? (
+                  <div className="mt-1 text-xs text-muted-foreground">
+                    YTD <Money value={r.ytd} className="text-xs" /> / {r.limit.toLocaleString("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 })}
+                  </div>
+                ) : null}
               </CardContent>
             </Card>
           );

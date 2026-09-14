@@ -1,14 +1,14 @@
 import {
   Activity,
   Baby,
-  BarChart3,
   Building2,
-  Car,
   Coins,
   FileText,
   Landmark,
   LayoutDashboard,
   LineChart,
+  Link2,
+  Receipt,
   Settings,
   Shield,
   ScanSearch,
@@ -19,16 +19,16 @@ export type NavItem = { href: string; label: string; icon: LucideIcon };
 
 export const NAV: NavItem[] = [
   { href: "/", label: "Overview", icon: LayoutDashboard },
-  { href: "/transactions", label: "Transactions", icon: Activity },
-  { href: "/investments", label: "Equities", icon: LineChart },
+  { href: "/spending", label: "Spending", icon: Receipt },
+  { href: "/investments", label: "Stocks", icon: LineChart },
   { href: "/crypto", label: "Cryptocurrencies", icon: Coins },
-  { href: "/retirement", label: "Retirement", icon: Landmark },
-  { href: "/real-estate", label: "Real Estate", icon: Building2 },
-  { href: "/vehicles", label: "Vehicles", icon: Car },
+  { href: "/retirement", label: "Retirement accounts", icon: Landmark },
+  { href: "/property", label: "Property", icon: Building2 },
   { href: "/insurance", label: "Insurance", icon: Shield },
   { href: "/children", label: "Children", icon: Baby },
-  { href: "/reports", label: "Reports", icon: FileText },
   { href: "/insights", label: "Insights", icon: ScanSearch },
+  { href: "/connections", label: "Manage connections", icon: Link2 },
+  { href: "/transactions", label: "Manage transactions", icon: FileText },
   { href: "/settings", label: "Settings", icon: Settings },
 ];
 
@@ -36,6 +36,6 @@ export const NAV_ORDER_KEY = "haus.navOrder";
 
 export const MOBILE_PRIMARY = [
   { href: "/", label: "Overview", icon: LayoutDashboard },
-  { href: "/transactions", label: "Activity", icon: Activity },
-  { href: "/investments", label: "Equities", icon: BarChart3 },
+  { href: "/spending", label: "Spending", icon: Receipt },
+  { href: "/investments", label: "Stocks", icon: LineChart },
 ] as const;

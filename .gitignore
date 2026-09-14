@@ -62,3 +62,7 @@ next-env.d.ts
 
 # one-shot local remap (contains old owner ids; never publish)
 scripts/_local-*
+
+# verification evidence (live household screenshots, never publish)
+.grok/skills/verify-haus/artifacts/
+.grok/skills/verify-haus/scripts/node_modules/

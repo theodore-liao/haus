@@ -5,6 +5,7 @@ import { startOfDay } from "./format";
 import { historyAgreesWithSpot, loadPriceMap, priceOnOrBefore } from "./quotes";
 import { propertyDebt, vehicleDebt } from "./property";
 import { loadCryptoLots } from "./crypto-lots";
+import { FIXED_USD_ID } from "./constants";
 
 function holdingValueNow(h: {
   quantity: number;
@@ -61,7 +62,7 @@ function qtyAt(
 }
 
 export async function reconstructNetWorthPath(filter: OwnerFilter): Promise<{ date: string; netWorth: number }[]> {
-  const [accounts, txns, holdings, invTxns, manuals, cryptos, properties, vehicles] = await Promise.all([
+  const [accounts, txns, holdings, invTxns, manuals, cryptos, properties, vehicles, stockManuals] = await Promise.all([
     prisma.account.findMany({ include: { item: true } }),
     prisma.txn.findMany({ select: { accountId: true, date: true, amount: true } }),
     prisma.holding.findMany(),
@@ -70,6 +71,7 @@ export async function reconstructNetWorthPath(filter: OwnerFilter): Promise<{ da
     loadCryptoLots(),
     prisma.property.findMany(),
     prisma.vehicle.findMany(),
+    prisma.manualHolding.findMany({ where: { kind: "security" } }),
   ]);
 
   const accs = accounts.filter((a) => matchesOwner(a.owner, filter));
@@ -77,6 +79,7 @@ export async function reconstructNetWorthPath(filter: OwnerFilter): Promise<{ da
   const coins = cryptos.filter((c) => matchesOwner(c.owner, filter));
   const props = properties.filter((p) => matchesOwner(p.owner, filter));
   const vehs = vehicles.filter((v) => matchesOwner(v.owner, filter));
+  const stockLots = stockManuals.filter((h) => matchesOwner(h.owner, filter));
 
   const txnDates = txns.map((t) => t.date);
   const invDates = invTxns.map((t) => t.date);
@@ -94,6 +97,10 @@ export async function reconstructNetWorthPath(filter: OwnerFilter): Promise<{ da
   }
   for (const c of coins) {
     priceSymbols.push({ symbol: c.symbol, coingeckoId: c.coingeckoId });
+  }
+  for (const h of stockLots) {
+    if (h.coingeckoId === FIXED_USD_ID) continue;
+    if (h.symbol) priceSymbols.push({ symbol: h.symbol });
   }
   const priceMap = await loadPriceMap(
     [...new Set(priceSymbols.map((s) => s.symbol.toUpperCase()))],
@@ -182,6 +189,18 @@ export async function reconstructNetWorthPath(filter: OwnerFilter): Promise<{ da
         : null;
       const px = hist ?? c.quotePrice;
       if (px != null) investments += c.quantity * px;
+    }
+    for (const h of stockLots) {
+      if (h.coingeckoId === FIXED_USD_ID) {
+        investments += h.quotePrice ?? 0;
+        continue;
+      }
+      const sym = h.symbol.trim().toUpperCase();
+      const spot = h.quotePrice;
+      const recent = sym ? priceOnOrBefore(priceMap, sym, to, 3) : null;
+      const hist = sym && historyAgreesWithSpot(recent, spot) ? priceOnOrBefore(priceMap, sym, asOf) : null;
+      const px = hist ?? spot;
+      if (px != null) investments += h.quantity * px;
     }
     for (const p of props) {
       otherAssets += p.estimate;

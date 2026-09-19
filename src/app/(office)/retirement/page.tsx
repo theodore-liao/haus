@@ -39,7 +39,7 @@ export default async function RetirementPage() {
           <EmptyLedger
             showConnect={false}
             title="Nothing classified as retirement"
-            body="Open Manage connections and mark the account as IRA, Roth, 401(k), 403(b), or HSA."
+            body="Open Connections and mark the account as IRA, Roth, 401(k), 403(b), or HSA."
           />
         ) : (
           <div className="md:col-span-2">

@@ -99,10 +99,11 @@ model Txn {
 }
 
 model MerchantRule {
-  merchantKey String  @id
-  category    String?
-  displayName String?
-  hidden      Boolean @default(false)
+  merchantKey      String  @id
+  category         String?
+  displayName      String?
+  hidden           Boolean @default(false)
+  ignoreRecurring  Boolean @default(false)
 }
 
 model Security {

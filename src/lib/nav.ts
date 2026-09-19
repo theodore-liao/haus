@@ -27,8 +27,8 @@ export const NAV: NavItem[] = [
   { href: "/insurance", label: "Insurance", icon: Shield },
   { href: "/children", label: "Children", icon: Baby },
   { href: "/insights", label: "Insights", icon: ScanSearch },
-  { href: "/connections", label: "Manage connections", icon: Link2 },
-  { href: "/transactions", label: "Manage transactions", icon: FileText },
+  { href: "/connections", label: "Connections", icon: Link2 },
+  { href: "/transactions", label: "Transactions", icon: FileText },
   { href: "/settings", label: "Settings", icon: Settings },
 ];
 

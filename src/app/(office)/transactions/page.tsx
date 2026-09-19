@@ -13,7 +13,7 @@ export default async function TransactionsPage() {
   if (!connections) {
     return (
       <>
-        <PageHeader title="Manage transactions" />
+        <PageHeader title="Transactions" />
         <EmptyLedger
           title="No transactions"
           body="Connect institutions with the Transactions product. Haus stores the full available history and never asks for a spreadsheet."
@@ -25,7 +25,7 @@ export default async function TransactionsPage() {
   return (
     <>
       <PageHeader
-        title="Manage transactions"
+        title="Transactions"
         actions={
           <Button variant="outline" size="sm" asChild>
             <a href="/api/export/transactions">Download view</a>

@@ -5,12 +5,14 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Money } from "@/components/money";
 import { AllocationChart } from "@/components/charts";
 import { ReportRange } from "@/components/chart-range";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Button } from "@/components/ui/button";
 import { defaultReportWindow, inWindow, type WindowKey } from "@/lib/range";
 import { formatDate } from "@/lib/format";
 import { BrandLabel } from "@/components/brand-mark";
 import { CategoryMerchantDialog, aggregateMerchants, type MerchantLine } from "@/components/category-merchants";
 import { applyMerchantRefunds, aggregateFlows, refundPairs, type FlowRow } from "@/lib/spend-net";
+import { recurringMerchantKey } from "@/lib/categories";
 import { TransactionsTable, type TxnRow } from "../transactions/table";
 
 type RecurringRow = { label: string; amount: number; cadence: string; lastDate: string; annual: number };
@@ -27,6 +29,34 @@ export function SpendingClient({
   const [range, setRange] = useState<WindowKey>(defaultReportWindow());
   const [tab, setTab] = useState("mix");
   const [popup, setPopup] = useState<{ title: string; lines: MerchantLine[] } | null>(null);
+  const [dismissed, setDismissed] = useState<Set<string>>(() => new Set());
+  const visibleRecurring = useMemo(
+    () => recurring.filter((r) => !dismissed.has(recurringMerchantKey(r.label))),
+    [recurring, dismissed],
+  );
+
+  function dismissRecurring(label: string) {
+    const key = recurringMerchantKey(label);
+    setDismissed((cur) => {
+      const next = new Set(cur);
+      next.add(key);
+      return next;
+    });
+    void fetch("/api/merchant-rules", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ merchant: label, ignoreRecurring: true }),
+    }).then((res) => {
+      if (res.ok) return;
+      throw new Error("dismiss failed");
+    }).catch(() => {
+      setDismissed((cur) => {
+        const next = new Set(cur);
+        next.delete(key);
+        return next;
+      });
+    });
+  }
 
   const sliced = useMemo(() => flows.filter((f) => inWindow(f.date, range)), [flows, range]);
   const netted = useMemo(() => applyMerchantRefunds(sliced), [sliced]);
@@ -104,27 +134,41 @@ export function SpendingClient({
             <CardTitle>Recurring</CardTitle>
           </CardHeader>
           <CardContent className="space-y-3">
-            {recurring.length === 0 ? (
+            {visibleRecurring.length === 0 ? (
               <p className="text-sm text-muted-foreground">
                 Need at least three similar charges at a weekly, monthly, or annual cadence to infer a bill.
               </p>
             ) : (
-              recurring.map((r) => (
+              visibleRecurring.map((r) => (
                 <div key={r.label} className="flex items-center justify-between gap-3 border-b border-border pb-2 last:border-0">
-                  <div className="min-w-0">
-                    <BrandLabel className="min-w-0" kind="merchant" name={r.label}>
-                      <span className="truncate text-sm">{r.label}</span>
-                    </BrandLabel>
-                    <div className="text-xs text-muted-foreground">
-                      {r.cadence} · last {formatDate(r.lastDate)}
+                  <button
+                    type="button"
+                    className="flex min-w-0 flex-1 cursor-pointer items-center justify-between gap-3 text-left"
+                    onClick={() => dismissRecurring(r.label)}
+                  >
+                    <div className="min-w-0">
+                      <BrandLabel className="min-w-0" kind="merchant" name={r.label}>
+                        <span className="truncate text-sm">{r.label}</span>
+                      </BrandLabel>
+                      <div className="text-xs text-muted-foreground">
+                        {r.cadence} · last {formatDate(r.lastDate)}
+                      </div>
                     </div>
-                  </div>
-                  <div className="text-right">
-                    <Money value={r.amount} className="text-sm" />
-                    <div className="text-[11px] text-muted-foreground">
-                      <Money value={r.annual} className="text-[11px]" /> / yr
+                    <div className="text-right">
+                      <Money value={r.amount} className="text-sm" />
+                      <div className="text-[11px] text-muted-foreground">
+                        <Money value={r.annual} className="text-[11px]" /> / yr
+                      </div>
                     </div>
-                  </div>
+                  </button>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => dismissRecurring(r.label)}
+                  >
+                    Remove
+                  </Button>
                 </div>
               ))
             )}

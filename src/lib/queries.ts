@@ -11,12 +11,24 @@ import {
   isRetirementType,
 } from "./account-types";
 import { CONCENTRATION_FLAG, FIXED_USD_ID, HIGH_UTILIZATION, INSURANCE_RENEWAL_DAYS, IRS_LIMITS, IRS_LIMITS_YEAR, STALE_CONNECTION_HOURS, categoryLabel, incomeSourceLabel } from "./constants";
-import { effectiveCategory, isInternalMove, isInvestFunding, txnMerchantKey } from "./categories";
+import { effectiveCategory, isCreditCardPayment, isInternalMove, isInvestFunding, recurringMerchantKey, txnMerchantKey } from "./categories";
 import { dayKey, ymKey } from "./range";
 
 async function hiddenMerchantKeys() {
   try {
     const rows = await prisma.merchantRule.findMany({ where: { hidden: true }, select: { merchantKey: true } });
+    return new Set(rows.map((r) => r.merchantKey));
+  } catch {
+    return new Set<string>();
+  }
+}
+
+async function ignoredRecurringKeys() {
+  try {
+    const rows = await prisma.merchantRule.findMany({
+      where: { ignoreRecurring: true },
+      select: { merchantKey: true },
+    });
     return new Set(rows.map((r) => r.merchantKey));
   } catch {
     return new Set<string>();
@@ -668,13 +680,14 @@ export async function getCashflow(filter: OwnerFilter, month: Date, includeTrans
   const end = new Date(month.getFullYear(), month.getMonth() + 1, 1);
   const lookbackStart = subDays(start, 400);
 
-  const [txns, hidden] = await Promise.all([
+  const [txns, hidden, ignoredRecurring] = await Promise.all([
     prisma.txn.findMany({
       where: { date: { gte: lookbackStart, lt: end } },
       include: { account: true },
       orderBy: { date: "asc" },
     }),
     hiddenMerchantKeys(),
+    ignoredRecurringKeys(),
   ]);
   const scoped = notHidden(txns, hidden).filter((t) => matchesOwner(t.account.owner, filter));
   const monthTxns = scoped.filter((t) => t.date >= start);
@@ -725,7 +738,7 @@ export async function getCashflow(filter: OwnerFilter, month: Date, includeTrans
   const cash = cashAccounts.reduce((s, a) => s + (a.currentBalance ?? 0), 0);
   const runway = monthlyEssential > 0 ? cash / monthlyEssential : null;
 
-  const recurring = inferRecurring(scoped.filter((t) => t.date < end));
+  const recurring = inferRecurring(scoped.filter((t) => t.date < end), ignoredRecurring);
 
   return {
     month: start.toISOString(),
@@ -756,14 +769,15 @@ export function inferRecurring(
     categoryPrimary?: string | null;
     categoryDetailed?: string | null;
   }[],
+  ignored: Set<string> = new Set(),
 ) {
   const groups = new Map<string, { label: string; amounts: number[]; dates: Date[] }>();
   for (const t of txns) {
     if (isInternalMove(t)) continue;
     if (t.amount <= 0) continue;
     const label = t.userMerchant || t.merchantName || t.name;
-    const key = label.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
-    if (!key) continue;
+    const key = recurringMerchantKey(label);
+    if (!key || ignored.has(key)) continue;
     const g = groups.get(key) ?? { label, amounts: [], dates: [] };
     g.amounts.push(t.amount);
     g.dates.push(t.date);
@@ -1259,12 +1273,13 @@ export async function getChildrenView() {
 }
 
 export async function getReports(filter: OwnerFilter) {
-  const [allTxns, hidden] = await Promise.all([
+  const [allTxns, hidden, ignoredRecurring] = await Promise.all([
     prisma.txn.findMany({
       include: { account: true },
       orderBy: { date: "asc" },
     }),
     hiddenMerchantKeys(),
+    ignoredRecurringKeys(),
   ]);
   const txns = notHidden(allTxns, hidden).filter((t) => matchesOwner(t.account.owner, filter));
 
@@ -1281,29 +1296,15 @@ export async function getReports(filter: OwnerFilter) {
     const date = dayKey(t.date);
     const cat = effectiveCategory(t);
     const merch = t.userMerchant || t.merchantName || t.name;
-    if (isInvestFunding(t) && t.amount > 0) {
-      flows.push({
-        date,
-        month,
-        kind: "invest",
-        category: "To investments",
-        merchant: merch,
-        amount: t.amount,
-      });
-      continue;
-    }
-    if (isInternalMove(t)) continue;
-    if (t.amount > 0 && cat !== "INCOME") {
-      flows.push({
-        date,
-        month,
-        kind: "spend",
-        category: categoryLabel(cat),
-        merchant: merch,
-        amount: t.amount,
-      });
-    } else if (t.amount < 0 || cat === "INCOME") {
-      const src = incomeSourceLabel(t);
+    if (
+      cat === "INCOME" ||
+      (t.amount < 0 &&
+        cat !== "TRANSFER_IN" &&
+        cat !== "TRANSFER_OUT" &&
+        !t.isTransfer &&
+        !isCreditCardPayment(t))
+    ) {
+      const src = incomeSourceLabel({ ...t, accountName: t.account.name });
       flows.push({
         date,
         month,
@@ -1312,12 +1313,32 @@ export async function getReports(filter: OwnerFilter) {
         merchant: merch || src,
         amount: Math.abs(t.amount),
       });
+    } else if (isInvestFunding(t) && t.amount > 0) {
+      flows.push({
+        date,
+        month,
+        kind: "invest",
+        category: "To investments",
+        merchant: merch,
+        amount: t.amount,
+      });
+    } else if (isInternalMove(t)) {
+      continue;
+    } else if (t.amount > 0) {
+      flows.push({
+        date,
+        month,
+        kind: "spend",
+        category: categoryLabel(cat),
+        merchant: merch,
+        amount: t.amount,
+      });
     }
   }
 
   return {
     flows,
-    recurring: inferRecurring(txns),
+    recurring: inferRecurring(txns, ignoredRecurring),
   };
 }
 

@@ -104,6 +104,7 @@ export function isInvestFunding(t: {
   userMerchant?: string | null;
   name?: string | null;
 }) {
+  if (effectiveCategory(t) === "INCOME") return false;
   const blob = `${t.merchantName ?? ""} ${t.userMerchant ?? ""} ${t.name ?? ""} ${t.merchant ?? ""}`.toLowerCase();
   if (!/robinhood|fidelity|vanguard|schwab|wealthfront|betterment|e-?trade|m1 finance|sofi invest|acorns|public\.com|coinbase/.test(blob)) {
     return false;
@@ -145,6 +146,10 @@ export function effectiveCategory(t: {
 
 export function merchantKey(name: string | null | undefined) {
   return (name || "").toLowerCase().trim();
+}
+
+export function recurringMerchantKey(name: string | null | undefined) {
+  return (name || "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
 }
 
 export function txnMerchantKey(t: {

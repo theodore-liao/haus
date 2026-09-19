@@ -536,7 +536,7 @@ export function CashflowSankey({
   }
   const saved = inTotal - outTotal - Math.max(0, invest);
   if (saved > 1) links.push({ source: hub, target: idx("save:to", TO_SAVINGS), value: saved });
-  else if (saved < -1) links.push({ source: idx("save:from", FROM_SAVINGS), target: hub, value: -saved });
+  else if (saved < -1) links.push({ source: hub, target: idx("save:from", FROM_SAVINGS), value: -saved });
 
   if (!links.length) {
     return <p className="py-10 text-sm text-muted-foreground">No cashflow in this window.</p>;
@@ -650,19 +650,21 @@ function RainbowLink({
   const clickable =
     (onSpendClick && spendNames?.has(tgtName)) ||
     (onIncomeClick && incomeNames?.has(srcName)) ||
-    srcName === FROM_SAVINGS ||
+    tgtName === FROM_SAVINGS ||
     tgtName === TO_SAVINGS ||
     tgtName === TO_INVESTMENTS;
+  const strokeName =
+    tgtName === FROM_SAVINGS || tgtName === TO_SAVINGS || tgtName === TO_INVESTMENTS ? tgtName : srcName;
   return (
     <path
       d={d}
       fill="none"
-      stroke={colorFor(srcName)}
+      stroke={colorFor(strokeName)}
       strokeWidth={Math.max(Number(linkWidth) || 2, 2)}
       strokeOpacity={0.55}
       className={clickable ? "cursor-pointer" : undefined}
       onClick={() => {
-        if (srcName === FROM_SAVINGS) onBalanceClick?.("from-savings");
+        if (tgtName === FROM_SAVINGS) onBalanceClick?.("from-savings");
         else if (tgtName === TO_SAVINGS) onBalanceClick?.("to-savings");
         else if (tgtName === TO_INVESTMENTS) onBalanceClick?.("to-investments");
         else if (onSpendClick && spendNames?.has(tgtName)) onSpendClick(tgtName);

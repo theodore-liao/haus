@@ -71,6 +71,10 @@ export function categoryLabel(code: string | null | undefined): string {
     .replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
+function genericInterest(s: string | null | undefined) {
+  return !!s && /^interest(\s+paid)?$/i.test(s.trim());
+}
+
 export function incomeSourceLabel(t: {
   categoryPrimary?: string | null;
   categoryDetailed?: string | null;
@@ -78,13 +82,22 @@ export function incomeSourceLabel(t: {
   userMerchant?: string | null;
   merchantName?: string | null;
   name?: string | null;
+  accountName?: string;
 }): string {
   if (t.userCategory && t.userCategory !== "INCOME") return categoryLabel(t.userCategory);
-  const detailed = t.categoryDetailed;
+  const merch = t.userMerchant || t.merchantName;
+  const detailed = t.categoryDetailed || "";
+  const interest = detailed.includes("INTEREST") || genericInterest(merch) || genericInterest(t.name);
+  if (interest) {
+    if (merch && !genericInterest(merch)) return merch;
+    if (t.accountName) return t.accountName;
+    if (merch) return merch;
+    if (t.name) return t.name;
+    return "Interest";
+  }
   if (detailed && detailed !== "INCOME" && detailed !== "INCOME_OTHER_INCOME") {
     return categoryLabel(detailed);
   }
-  const merch = t.userMerchant || t.merchantName;
   if (merch) return merch;
   if (t.name) return t.name;
   return "Other income";

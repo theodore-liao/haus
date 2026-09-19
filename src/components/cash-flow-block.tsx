@@ -3,10 +3,10 @@
 import { useMemo, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Money, Delta } from "@/components/money";
-import { CashflowSankey, FROM_SAVINGS, OTHER_CATEGORIES, TO_INVESTMENTS, TO_SAVINGS } from "@/components/charts";
+import { CashflowSankey, FROM_SAVINGS, OTHER_CATEGORIES, TO_SAVINGS } from "@/components/charts";
 import { formatPct } from "@/lib/format";
 import { ReportRange } from "@/components/chart-range";
-import { defaultReportWindow, inWindow, ymKey, asLocalDate, type WindowKey } from "@/lib/range";
+import { defaultReportWindow, inWindow, asLocalDate, type WindowKey } from "@/lib/range";
 import { format } from "date-fns";
 import { cn } from "@/lib/utils";
 import { CategoryMerchantDialog, aggregateMerchants, type MerchantLine } from "@/components/category-merchants";
@@ -21,7 +21,7 @@ export function CashFlowBlock({ flows }: { flows: FlowRow[] }) {
   const agg = useMemo(() => aggregateFlows(netted), [netted]);
   const spendAll = agg.spendRows.reduce((s, r) => s + r.value, 0);
   const incomeAll = agg.incomeRows.reduce((s, r) => s + r.value, 0);
-  const savings = incomeAll - spendAll - agg.invest;
+  const savings = incomeAll - spendAll;
 
   const spendMerch: MerchantLine[] = netted
     .filter((f) => f.kind === "spend")
@@ -29,55 +29,31 @@ export function CashFlowBlock({ flows }: { flows: FlowRow[] }) {
   const incomeMerch: MerchantLine[] = netted
     .filter((f) => f.kind === "income")
     .map((f) => ({ category: f.category, merchant: f.merchant, amount: f.amount }));
-  const investMerch: MerchantLine[] = sliced
-    .filter((f) => f.kind === "invest")
-    .map((f) => ({ category: f.category, merchant: f.merchant, amount: f.amount }));
 
   const months = useMemo(() => {
     const byMonth: Record<string, { income: number; spend: number }> = {};
-    const dates = flows.map((f) => f.date).sort();
-    const minDate = dates[0];
-    const maxDate = dates[dates.length - 1];
-    if (!minDate || !maxDate) return [];
-    const firstFull = minDate.slice(0, 7);
-    const now = new Date();
-    const currentYm = ymKey(now);
-    let min: string | null = null;
-    let max: string | null = null;
     for (const f of flows) {
       const row = byMonth[f.month] ?? { income: 0, spend: 0 };
       if (f.kind === "spend") row.spend += f.amount;
       else if (f.kind === "income") row.income += f.amount;
       byMonth[f.month] = row;
-      if (!min || f.month < min) min = f.month;
-      if (!max || f.month > max) max = f.month;
     }
-    if (!min || !max) return [];
-    const out: { month: string; label: string; income: number; spend: number; savings: number }[] = [];
-    const [ys, ms] = min.split("-").map(Number);
-    const [ye, me] = max.split("-").map(Number);
-    let y = ye;
-    let m = me;
-    while (y > ys || (y === ys && m >= ms)) {
-      const month = `${y}-${String(m).padStart(2, "0")}`;
-      const partial = month === currentYm || month === firstFull;
-      if (!partial) {
-        const v = byMonth[month] ?? { income: 0, spend: 0 };
-        out.push({
-          month,
-          label: format(asLocalDate(`${month}-01`), "MMM yyyy"),
-          income: v.income,
-          spend: v.spend,
-          savings: v.income - v.spend,
-        });
-      }
-      m -= 1;
-      if (m === 0) {
-        m = 12;
-        y -= 1;
-      }
-    }
-    return out;
+    return Object.keys(byMonth)
+      .sort()
+      .reverse()
+      .flatMap((month) => {
+        const v = byMonth[month];
+        if (v.income === 0 && v.spend === 0) return [];
+        return [
+          {
+            month,
+            label: format(asLocalDate(`${month}-01`), "MMM yyyy"),
+            income: v.income,
+            spend: v.spend,
+            savings: v.income - v.spend,
+          },
+        ];
+      });
   }, [flows]);
 
   return (
@@ -112,7 +88,6 @@ export function CashFlowBlock({ flows }: { flows: FlowRow[] }) {
           <CashflowSankey
             income={agg.incomeRows}
             spend={agg.spendRows}
-            invest={agg.invest}
             onSpendClick={(label) =>
               setPopup({
                 title: label,
@@ -132,9 +107,7 @@ export function CashFlowBlock({ flows }: { flows: FlowRow[] }) {
               })
             }
             onBalanceClick={(kind) => {
-              if (kind === "to-investments") {
-                setPopup({ title: TO_INVESTMENTS, lines: investMerch });
-              } else if (kind === "from-savings") {
+              if (kind === "from-savings") {
                 setPopup({
                   title: FROM_SAVINGS,
                   note: "Spending exceeded income in this window.",
@@ -143,7 +116,7 @@ export function CashFlowBlock({ flows }: { flows: FlowRow[] }) {
               } else {
                 setPopup({
                   title: TO_SAVINGS,
-                  note: "Income left after spending and investment transfers.",
+                  note: "Income left after spending.",
                   lines: agg.incomeRows.map((r) => ({ category: r.label, merchant: r.label, amount: r.value })),
                 });
               }

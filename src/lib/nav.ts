@@ -1,6 +1,4 @@
 import {
-  Activity,
-  Baby,
   Building2,
   Coins,
   FileText,
@@ -21,14 +19,13 @@ export const NAV: NavItem[] = [
   { href: "/", label: "Overview", icon: LayoutDashboard },
   { href: "/spending", label: "Spending", icon: Receipt },
   { href: "/investments", label: "Stocks", icon: LineChart },
-  { href: "/crypto", label: "Cryptocurrencies", icon: Coins },
-  { href: "/retirement", label: "Retirement accounts", icon: Landmark },
+  { href: "/crypto", label: "Crypto", icon: Coins },
+  { href: "/retirement", label: "Retirement", icon: Landmark },
   { href: "/property", label: "Property", icon: Building2 },
   { href: "/insurance", label: "Insurance", icon: Shield },
-  { href: "/children", label: "Children", icon: Baby },
   { href: "/insights", label: "Insights", icon: ScanSearch },
-  { href: "/connections", label: "Manage connections", icon: Link2 },
-  { href: "/transactions", label: "Manage transactions", icon: FileText },
+  { href: "/connections", label: "Connections", icon: Link2 },
+  { href: "/transactions", label: "Transactions", icon: FileText },
   { href: "/settings", label: "Settings", icon: Settings },
 ];
 

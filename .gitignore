@@ -62,3 +62,6 @@ next-env.d.ts
 
 # one-shot local remap (contains old owner ids; never publish)
 scripts/_local-*
+
+# local agent / verify artifacts (may include screenshots of live balances)
+.grok/

@@ -1,8 +1,20 @@
 "use client";
 
-import type { ReactNode } from "react";
-import { RANGE_KEYS, calendarMonthOptions, type RangeKey, type WindowKey } from "@/lib/range";
+import { useEffect, useState, type ReactNode } from "react";
+import { DEFAULT_RANGE, RANGE_KEYS, calendarMonthOptions, type RangeKey, type WindowKey } from "@/lib/range";
+import { storedDefaultRange } from "@/lib/prefs";
 import { cn } from "@/lib/utils";
+
+/** Range state seeded from the Settings preference after mount (server renders the app default). */
+export function useChartRange(): [RangeKey, (key: RangeKey) => void] {
+  const [range, setRange] = useState<RangeKey>(DEFAULT_RANGE);
+  useEffect(() => {
+    const stored = storedDefaultRange();
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    if (stored) setRange(stored);
+  }, []);
+  return [range, setRange];
+}
 
 function ChipGroup({
   children,
@@ -26,7 +38,7 @@ function Chip({
       type="button"
       onClick={onClick}
       className={cn(
-        "cursor-pointer rounded px-2 py-0.5 text-[11px] uppercase tracking-wide",
+        "cursor-pointer rounded px-2 py-0.5 text-[11px] font-medium uppercase tracking-[0.1em]",
         active ? "bg-secondary text-primary" : "text-muted-foreground hover:text-foreground",
       )}
     >

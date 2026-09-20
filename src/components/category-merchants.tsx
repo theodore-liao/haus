@@ -46,7 +46,7 @@ export function CategoryMerchantDialog({
                 <BrandLabel className="min-w-0" kind="merchant" name={r.merchant}>
                   <span className="truncate">{r.merchant}</span>
                 </BrandLabel>
-                <span className="shrink-0 font-mono tabular-nums">
+                <span className="shrink-0 num">
                   <Money value={r.amount} signed={r.amount < 0} />
                 </span>
               </li>
@@ -63,7 +63,9 @@ export type SliceItem = {
   value: number;
   symbol?: string | null;
   name?: string | null;
+  logoName?: string | null;
   kind?: "merchant" | "institution" | "security" | "crypto";
+  src?: string | null;
 };
 
 export function SliceBreakdownDialog({
@@ -96,10 +98,16 @@ export function SliceBreakdownDialog({
               const kind = r.kind ?? (r.symbol ? "security" : "institution");
               return (
                 <li key={`${r.label}-${i}`} className="flex items-center justify-between gap-3 text-sm">
-                  <BrandLabel className="min-w-0" kind={kind} symbol={r.symbol} name={r.name ?? r.label}>
+                  <BrandLabel
+                    className="min-w-0"
+                    kind={kind}
+                    symbol={kind === "institution" ? null : r.symbol}
+                    name={r.logoName ?? r.name ?? r.label}
+                    src={r.src}
+                  >
                     <span className="truncate">{r.label}</span>
                   </BrandLabel>
-                  <span className="shrink-0 font-mono tabular-nums">
+                  <span className="shrink-0 num">
                     <Money value={r.value} />
                   </span>
                 </li>

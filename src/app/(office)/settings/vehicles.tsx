@@ -23,7 +23,7 @@ export function VehiclesCard({
   const [open, setOpen] = useState(false);
   return (
     <Card>
-      <CardHeader className="flex-row items-center justify-between">
+      <CardHeader row>
         <CardTitle>Vehicles (manual)</CardTitle>
         <Button size="sm" onClick={() => setOpen(true)}>
           Add vehicle

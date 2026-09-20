@@ -1,6 +1,6 @@
 "use client";
 
-import { useId, useMemo, useState } from "react";
+import { useId, useMemo, useState, type CSSProperties } from "react";
 import {
   Area,
   AreaChart,
@@ -19,19 +19,50 @@ import {
   type SankeyLinkProps,
   type SankeyNodeProps,
 } from "recharts";
-import { formatMoney, formatPct } from "@/lib/format";
+import { formatLegendLabel, formatMoney, formatPct, splitHolder } from "@/lib/format";
 import { cn } from "@/lib/utils";
+import { OwnerTag } from "./type";
 import { format } from "date-fns";
-import { DEFAULT_RANGE, inRange, type RangeKey } from "@/lib/range";
-import { ChartRange } from "./chart-range";
+import { inRange } from "@/lib/range";
+import { ChartRange, useChartRange } from "./chart-range";
 import { SliceBreakdownDialog, type SliceItem } from "./category-merchants";
 import { CategoryIcon, hasCategoryIcon } from "@/lib/category-icons";
 
-const AXIS = { fontSize: 11, fill: "#8B9BB3", fontFamily: "var(--font-geist-sans)" };
+const AXIS = { fontSize: 11, fill: "#8fa0b8", fontFamily: "var(--font-geist-sans)" };
 const GRID = "rgba(148,163,184,0.12)";
 const ICE = "#A8C5E2";
-const PALETTE = ["#7EB6E0", "#6FC4B0", "#CBB892", "#8FA0B8", "#D48992", "#9BB4C8", "#B7C9A8", "#A8C5E2", "#C9B7A0", "#7DB8A8"];
-const RAINBOW = ["#E06C75", "#E5C07B", "#98C379", "#56B6C2", "#61AFEF", "#C678DD", "#D19A66", "#7DB8A8", "#DE8F6E", "#A8C5E2"];
+const PALETTE = [
+  "#7EABD4",
+  "#D4928C",
+  "#7DB8A4",
+  "#D4BE7A",
+  "#A898CC",
+  "#78C0C4",
+  "#D4A878",
+  "#D49AB0",
+  "#94C48C",
+  "#8EA4DC",
+  "#C4A898",
+  "#7CBCB0",
+  "#C8C47A",
+  "#86B8D4",
+  "#C49AC4",
+  "#E0A898",
+  "#88C4A8",
+  "#D4B85C",
+  "#9A9AD0",
+  "#E0B07A",
+  "#70C4BC",
+  "#B8A0D0",
+  "#D4C888",
+  "#7AB4D4",
+];
+const RAINBOW = PALETTE;
+const HUB_FILL = "#8B9BB3";
+const SAVED_FILL = "#6FC4B0";
+const DRAWN_FILL = "#D48992";
+const INVEST_FILL = "#8EA4DC";
+const BALANCE_COLORS = [SAVED_FILL, DRAWN_FILL, INVEST_FILL, "#7DB8A4", "#88C4A8", "#7CBCB0"];
 
 function colorFor(name: string) {
   let h = 0;
@@ -53,7 +84,7 @@ function Tip({
     <div className="rounded-md border border-border bg-card-elevated px-3 py-2 text-xs">
       {label ? <div className="mb-1 text-muted-foreground">{label}</div> : null}
       {payload.map((p) => (
-        <div key={p.name} className="font-mono tabular-nums">
+        <div key={p.name} className="num">
           {p.name}: {formatMoney(p.value)}
         </div>
       ))}
@@ -62,7 +93,7 @@ function Tip({
 }
 
 export function NetWorthChart({ data }: { data: { date: string; netWorth: number }[] }) {
-  const [range, setRange] = useState<RangeKey>(DEFAULT_RANGE);
+  const [range, setRange] = useChartRange();
   const sliced = useMemo(() => data.filter((d) => inRange(d.date, range)), [data, range]);
   if (data.length === 0) {
     return (
@@ -72,8 +103,8 @@ export function NetWorthChart({ data }: { data: { date: string; netWorth: number
       </p>
     );
   }
-  const tickFmt =
-    range === "1m" ? "d MMM" : range === "3m" || range === "6m" ? "MMM" : range === "1y" ? "MMM yyyy" : "yyyy";
+  // Sub-year windows label by day so adjacent ticks never read "Aug Aug Aug".
+  const tickFmt = range === "1m" || range === "3m" || range === "6m" ? "d MMM" : "MMM yyyy";
   const rows = sliced.map((d) => ({
     ...d,
     label: format(new Date(d.date), tickFmt),
@@ -117,22 +148,35 @@ export type AllocSlice = { key: string; value: number; members?: string[]; items
 
 export function AllocationChart({
   data,
-  large,
   showPercent = true,
   onSliceClick,
-  selectable,
-  selected,
-  onToggle,
+  selectable = true,
+  selected: selectedProp,
+  onToggle: onToggleProp,
+  defaultOff,
+  onSelectionChange,
+  size,
 }: {
   data: AllocSlice[];
+  /** Kept for call-site compatibility; layout now follows the container width. */
   large?: boolean;
   showPercent?: boolean;
   onSliceClick?: (key: string) => void;
+  /** Every donut can be filtered from its legend; pass false to hide the checkboxes. */
   selectable?: boolean;
+  /** Controlled selection. When omitted the chart keeps its own, seeded from `defaultOff`. */
   selected?: Set<string> | null;
   onToggle?: (key: string) => void;
+  /** Keys unchecked on first render (uncontrolled mode). */
+  defaultOff?: string[];
+  /** Fires with the visible rows whenever the (uncontrolled) selection changes. */
+  onSelectionChange?: (rows: AllocSlice[]) => void;
+  /** `large` for a page whose only content is this donut. */
+  size?: "large";
 }) {
   const [openKey, setOpenKey] = useState<string | null>(null);
+  // Uncontrolled selection is stored as the set of *unchecked* keys so new slices default to on.
+  const [off, setOff] = useState<Set<string>>(() => new Set(defaultOff ?? []));
   const chartId = useId();
   const all = data
     .filter((d) => d.value > 0)
@@ -143,9 +187,28 @@ export function AllocationChart({
       if (ao !== bo) return ao ? 1 : -1;
       return b.value - a.value;
     });
+  const controlled = selectedProp !== undefined && onToggleProp !== undefined;
+  const selected: Set<string> | null = controlled
+    ? selectedProp
+    : off.size === 0
+      ? null
+      : new Set(all.map((d) => d.key).filter((k) => !off.has(k)));
+  const onToggle = controlled
+    ? onToggleProp
+    : (key: string) => {
+        setOff((cur) => {
+          const next = new Set(cur);
+          if (next.has(key)) next.delete(key);
+          else next.add(key);
+          onSelectionChange?.(all.filter((d) => !next.has(d.key)));
+          return next;
+        });
+      };
   const rows = selected == null ? all : all.filter((d) => selected.has(d.key));
   const total = rows.reduce((s, r) => s + r.value, 0);
   const openSlice = all.find((r) => r.key === openKey);
+  // Colours follow the slice's position in the full list, so unchecking a row never recolours the rest.
+  const colorAt = (key: string) => PALETTE[Math.max(0, all.findIndex((d) => d.key === key)) % PALETTE.length];
   if (!all.length) {
     return <p className="py-8 text-sm text-muted-foreground">No balances to allocate yet.</p>;
   }
@@ -153,11 +216,11 @@ export function AllocationChart({
     return (
       <div>
         <p className="py-6 text-sm text-muted-foreground">No categories selected.</p>
-        <ul className="min-w-0 space-y-1.5 text-sm">
+        <ul className="min-w-0 space-y-2 text-sm">
           {all.map((r, i) => (
             <li key={`${r.key}-${i}`} className="flex min-w-0 items-center gap-2">
               <input type="checkbox" className="cursor-pointer" checked={false} onChange={() => onToggle?.(r.key)} />
-              <span className="min-w-0 truncate capitalize text-muted-foreground">{r.key.replaceAll("_", " ")}</span>
+              <span className="min-w-0 truncate text-muted-foreground">{formatLegendLabel(r.key)}</span>
             </li>
           ))}
         </ul>
@@ -166,9 +229,9 @@ export function AllocationChart({
   }
   return (
     <>
-    <div className={large ? "flex min-h-[28rem] flex-col items-center gap-6 lg:flex-row lg:items-center" : "flex h-80 min-w-0 items-center gap-3"}>
-      <div className={large ? "h-[28rem] w-full min-w-0 shrink-0 lg:w-[58%]" : "h-full w-[58%] min-w-[12rem] shrink-0"}>
-        <ResponsiveContainer>
+    <div className={cn("donut-row", size === "large" && "donut-row-large")}>
+    <div className="donut">
+        <ResponsiveContainer width="100%" height="100%">
           <PieChart
             id={chartId}
             margin={{ top: 2, right: 2, bottom: 2, left: 2 }}
@@ -224,18 +287,23 @@ export function AllocationChart({
               style={{ outline: "none" }}
             >
               {rows.map((r, i) => (
-                <Cell key={`${r.key}-${i}`} fill={PALETTE[i % PALETTE.length]} stroke="none" />
+                <Cell key={`${r.key}-${i}`} fill={colorAt(r.key)} stroke="none" />
               ))}
             </Pie>
             <Tooltip content={<DonutTip total={total} />} />
           </PieChart>
         </ResponsiveContainer>
-      </div>
-      <ul className={large ? "grid w-full min-w-0 gap-1.5 text-sm sm:grid-cols-2 lg:w-1/2 lg:grid-cols-1" : "min-w-0 max-h-full flex-1 space-y-1 overflow-y-auto text-xs"}>
+    </div>
+      <ul className="legend">
         {all.map((r, i) => {
           const on = selected == null || selected.has(r.key);
+          const label = formatLegendLabel(r.key);
           return (
-            <li key={`${r.key}-${i}`} className="flex min-w-0 items-center gap-2">
+            <li
+              key={`${r.key}-${i}`}
+              className={cn("legend-row", selectable && "selectable")}
+              style={{ "--swatch": colorAt(r.key) } as CSSProperties}
+            >
               {selectable ? (
                 <input
                   type="checkbox"
@@ -243,25 +311,19 @@ export function AllocationChart({
                   checked={on}
                   onChange={() => onToggle?.(r.key)}
                 />
-              ) : (
-                <span className="h-1.5 w-1.5 shrink-0 rounded-full" style={{ background: PALETTE[i % PALETTE.length] }} />
-              )}
+              ) : null}
               <button
                 type="button"
-                title={[r.key, ...(r.members && r.members.length > 1 ? r.members : [])].join("\n")}
-                className={cn(
-                  "inline-flex min-w-0 flex-1 items-center gap-1.5 truncate text-left capitalize text-muted-foreground",
-                  (onSliceClick || r.items?.length) && "cursor-pointer hover:text-foreground",
-                )}
+                title={[label, ...(r.members && r.members.length > 1 ? r.members : [])].join("\n")}
                 onClick={() => {
                   if (onSliceClick) onSliceClick(r.key);
                   else if (r.items?.length) setOpenKey(r.key);
                 }}
               >
                 {hasCategoryIcon(r.key) ? <CategoryIcon category={r.key} /> : null}
-                <span className="truncate">{r.key.replaceAll("_", " ")}</span>
+                <LegendName label={label} />
               </button>
-              <span className="shrink-0 font-mono tabular-nums">{formatMoney(r.value)}</span>
+              <strong>{formatMoney(r.value)}</strong>
             </li>
           );
         })}
@@ -269,7 +331,7 @@ export function AllocationChart({
     </div>
     <SliceBreakdownDialog
       open={openKey != null && Boolean(openSlice?.items?.length)}
-      title={openSlice?.key.replaceAll("_", " ") ?? ""}
+      title={openSlice ? formatLegendLabel(openSlice.key) : ""}
       rows={openSlice?.items ?? []}
       onClose={() => setOpenKey(null)}
     />
@@ -292,8 +354,8 @@ function DonutTip({
   const members = p.payload?.members?.filter((m) => m && m !== p.name) ?? [];
   return (
     <div className="max-w-xs rounded-md border border-border bg-card-elevated px-3 py-2 text-xs">
-      <div className="mb-1 text-muted-foreground">{p.name}</div>
-      <div className="font-mono tabular-nums">
+      <div className="mb-1 text-muted-foreground">{formatLegendLabel(p.name)}</div>
+      <div className="num">
         {formatMoney(p.value)} ({formatPct(pct, 1, false)})
       </div>
       {members.length > 0 ? (
@@ -306,6 +368,19 @@ function DonutTip({
         </ul>
       ) : null}
     </div>
+  );
+}
+
+function LegendName({ label }: { label: string }) {
+  const { head, holder } = splitHolder(label);
+  if (!holder) {
+    return <span className="min-w-0 truncate">{label}</span>;
+  }
+  return (
+    <span className="flex min-w-0 items-baseline">
+      <span className="min-w-0 truncate">{head}</span>
+      <OwnerTag>{holder}</OwnerTag>
+    </span>
   );
 }
 
@@ -335,7 +410,7 @@ function PercentLabel({
       y={y}
       textAnchor="middle"
       dominantBaseline="central"
-      fill="#e6edf7"
+      fill="#1c2838"
       fontSize={12}
       fontWeight={500}
       fontFamily="var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif"
@@ -357,7 +432,7 @@ export function CategoryBars({
   rangeable?: boolean;
   onBarClick?: (label: string) => void;
 }) {
-  const [range, setRange] = useState<RangeKey>(DEFAULT_RANGE);
+  const [range, setRange] = useChartRange();
   const sliced = useMemo(() => {
     if (!rangeable) return data;
     const startEligible = data.some((d) => d.date);
@@ -448,7 +523,7 @@ function CategoryTick({
       }}
     >
       <foreignObject x={Number(x ?? 0) - 176} y={Number(y ?? 0) - 9} width={172} height={18}>
-        <div className="flex h-full items-center justify-end gap-1.5 overflow-hidden pr-1 text-[11px] text-[#8B9BB3]">
+        <div className="flex h-full items-center justify-end gap-1.5 overflow-hidden pr-1 text-[11px] text-muted-foreground">
           {hasCategoryIcon(label) ? <CategoryIcon category={label} className="h-3 w-3" /> : null}
           <span className="truncate" title={label}>
             {shown}
@@ -513,12 +588,17 @@ export function CashflowSankey({
   }
 
   const keys: string[] = [];
-  const nodes: { name: string; label: string }[] = [];
-  const idx = (key: string, label: string) => {
+  const nodes: { name: string; label: string; color: string }[] = [];
+  let colorI = 0;
+  // Balance nodes get fixed semantic colours (saved = positive, drawn down = negative, invested = ice) so
+  // they never collide with whichever spend category happened to land on the same palette slot.
+  const idx = (key: string, label: string, fixed?: string) => {
     const found = keys.indexOf(key);
     if (found >= 0) return found;
     keys.push(key);
-    nodes.push({ name: key, label });
+    let color = fixed ?? (key === "hub" ? HUB_FILL : PALETTE[colorI++ % PALETTE.length]);
+    if (!fixed) while (BALANCE_COLORS.includes(color)) color = PALETTE[colorI++ % PALETTE.length];
+    nodes.push({ name: key, label, color });
     return keys.length - 1;
   };
   const links: { source: number; target: number; value: number }[] = [];
@@ -532,27 +612,27 @@ export function CashflowSankey({
     links.push({ source: hub, target: idx(`out:${s.label}`, s.label), value: s.value });
   }
   if (invest >= 1 && Number.isFinite(invest)) {
-    links.push({ source: hub, target: idx("save:invest", TO_INVESTMENTS), value: invest });
+    links.push({ source: hub, target: idx("save:invest", TO_INVESTMENTS, INVEST_FILL), value: invest });
   }
   const saved = inTotal - outTotal - Math.max(0, invest);
-  if (saved > 1) links.push({ source: hub, target: idx("save:to", TO_SAVINGS), value: saved });
-  else if (saved < -1) links.push({ source: idx("save:from", FROM_SAVINGS), target: hub, value: -saved });
+  if (saved > 1) links.push({ source: hub, target: idx("save:to", TO_SAVINGS, SAVED_FILL), value: saved });
+  else if (saved < -1) links.push({ source: hub, target: idx("save:from", FROM_SAVINGS, DRAWN_FILL), value: -saved });
 
   if (!links.length) {
     return <p className="py-10 text-sm text-muted-foreground">No cashflow in this window.</p>;
   }
 
   return (
-    <div className="h-[28rem] w-full">
+    <div className="h-[32rem] w-full">
       <ResponsiveContainer>
         <Sankey
           data={{ nodes, links }}
           nameKey="name"
           nodeWidth={12}
-          nodePadding={18}
+          nodePadding={26}
           linkCurvature={0.5}
           iterations={16}
-          margin={{ left: 108, right: 124, top: 16, bottom: 16 }}
+          margin={{ left: 116, right: 132, top: 16, bottom: 16 }}
           node={(props) => (
             <SankeyNode
               x={props.x}
@@ -593,18 +673,15 @@ export function CashflowSankey({
                 name?: string;
                 label?: string;
                 value?: number;
-                source?: { name?: string; label?: string };
-                target?: { name?: string; label?: string };
+                source?: unknown;
+                target?: unknown;
               };
-              const src = sankeyLabel(row?.source);
-              const tgt = sankeyLabel(row?.target);
-              const raw = src && tgt ? (tgt !== "Income" ? tgt : src) : sankeyLabel(row) || String(entry.name ?? "");
-              const label = raw.replace(/^Income\s*[-–:]\s*/i, "");
+              const label = sankeyHoverLabel(row, entry.name);
               const value = typeof row.value === "number" ? row.value : Number(payload[0].value);
               return (
                 <div className="rounded-md border border-border bg-card-elevated px-3 py-2 text-xs">
                   <div className="mb-1 text-muted-foreground">{label}</div>
-                  <div className="font-mono tabular-nums">{formatMoney(value)}</div>
+                  <div className="num">{formatMoney(value)}</div>
                 </div>
               );
             }}
@@ -615,9 +692,43 @@ export function CashflowSankey({
   );
 }
 
+function cleanSankeyText(text: string): string {
+  let s = text.trim();
+  s = s.replace(/^(?:hub|in|out|save)(?::(?:hub|in|out|save))?\s*[-–:]\s*/i, "");
+  s = s.replace(/^(?:in|out|save|hub):/i, "");
+  s = s.replace(/^Income\s*[-–:]\s*/i, "");
+  s = s.replace(/\s*[-–:]\s*(?:hub|income)$/i, "");
+  s = s.replace(/\s+hub$/i, "");
+  if (/^hub$/i.test(s)) return "Income";
+  return s.trim();
+}
+
 function sankeyLabel(n: { name?: string; label?: string } | undefined | null): string {
-  if (!n) return "";
-  return String(n.label || n.name || "").replace(/^(in|out|save|hub):/i, "");
+  if (!n || typeof n !== "object") return "";
+  return cleanSankeyText(String(n.label || n.name || ""));
+}
+
+function isSankeyHub(s: string): boolean {
+  return !s || /^(hub|income)$/i.test(s);
+}
+
+function sankeyHoverLabel(row: { name?: string; label?: string; source?: unknown; target?: unknown }, entryName?: unknown): string {
+  const src = sankeyLabel(row?.source as { name?: string; label?: string } | undefined);
+  const tgt = sankeyLabel(row?.target as { name?: string; label?: string } | undefined);
+  if (src && tgt) {
+    if (!isSankeyHub(tgt)) return tgt;
+    if (!isSankeyHub(src)) return src;
+  }
+  const self = sankeyLabel(row);
+  if (self && !isSankeyHub(self)) return self;
+  return cleanSankeyText(String(entryName ?? self ?? ""));
+}
+
+function nodeColor(n: { color?: string; name?: string; label?: string } | undefined | null): string | undefined {
+  if (!n || typeof n !== "object") return undefined;
+  if (n.color) return n.color;
+  const label = sankeyLabel(n);
+  return label ? colorFor(label) : undefined;
 }
 
 function RainbowLink({
@@ -650,19 +761,21 @@ function RainbowLink({
   const clickable =
     (onSpendClick && spendNames?.has(tgtName)) ||
     (onIncomeClick && incomeNames?.has(srcName)) ||
-    srcName === FROM_SAVINGS ||
+    tgtName === FROM_SAVINGS ||
     tgtName === TO_SAVINGS ||
     tgtName === TO_INVESTMENTS;
+  const leaf = !isSankeyHub(tgtName) ? payload?.target : payload?.source;
+  const stroke = nodeColor(leaf as { color?: string; name?: string; label?: string }) ?? colorFor(tgtName || srcName);
   return (
     <path
       d={d}
       fill="none"
-      stroke={colorFor(srcName)}
+      stroke={stroke}
       strokeWidth={Math.max(Number(linkWidth) || 2, 2)}
-      strokeOpacity={0.55}
+      strokeOpacity={0.72}
       className={clickable ? "cursor-pointer" : undefined}
       onClick={() => {
-        if (srcName === FROM_SAVINGS) onBalanceClick?.("from-savings");
+        if (tgtName === FROM_SAVINGS) onBalanceClick?.("from-savings");
         else if (tgtName === TO_SAVINGS) onBalanceClick?.("to-savings");
         else if (tgtName === TO_INVESTMENTS) onBalanceClick?.("to-investments");
         else if (onSpendClick && spendNames?.has(tgtName)) onSpendClick(tgtName);
@@ -694,7 +807,7 @@ function SankeyNode({
   const outgoing = ((payload as { targetNodes?: number[] })?.targetNodes ?? []).length > 0;
   const incoming = ((payload as { sourceNodes?: number[] })?.sourceNodes ?? []).length > 0;
   const right = incoming && !outgoing;
-  const name = right ? rawName.replace(/^Income\s*[-–:]\s*/i, "") : rawName;
+  const name = cleanSankeyText(rawName);
   const cx = Number(x ?? 0);
   const cy = Number(y ?? 0);
   const w = Number(width ?? 0);
@@ -703,8 +816,8 @@ function SankeyNode({
   const income = Boolean(onIncomeClick && incomeNames?.has(name));
   const balance = name === FROM_SAVINGS || name === TO_SAVINGS || name === TO_INVESTMENTS;
   const clickable = spend || income || balance;
-  const lines = wrapLabel(name, 13);
-  const labelW = 108;
+  const lines = wrapLabel(name, 16);
+  const labelW = 116;
   const labelH = Math.max(h, 12 * lines.length + 4);
   const labelX = right ? cx + w + 4 : cx - 4 - labelW;
   const labelY = cy + (Math.max(h, 2) - labelH) / 2;
@@ -721,7 +834,14 @@ function SankeyNode({
         else if (income && onIncomeClick) onIncomeClick(name);
       }}
     >
-      <rect x={cx} y={cy} width={w} height={Math.max(h, 2)} fill={colorFor(name)} rx={1} />
+      <rect
+        x={cx}
+        y={cy}
+        width={w}
+        height={Math.max(h, 2)}
+        fill={nodeColor(payload as { color?: string; name?: string; label?: string }) ?? colorFor(name)}
+        rx={1}
+      />
       {clickable ? <rect x={labelX} y={labelY} width={labelW} height={labelH} fill="transparent" /> : null}
       <text
         x={textX}
@@ -788,10 +908,10 @@ export function ValueDebtChart({
             }
           />
           <Tooltip content={<Tip />} />
-          <Legend wrapperStyle={{ fontSize: 11, color: "#8B9BB3" }} />
-          <Bar dataKey="value" name="Value" fill="#61AFEF" radius={[2, 2, 0, 0]} />
-          <Bar dataKey="debt" name="Debt" fill="#E06C75" radius={[2, 2, 0, 0]} />
-          <Bar dataKey="equity" name="Equity" fill="#98C379" radius={[2, 2, 0, 0]} />
+          <Legend wrapperStyle={{ fontSize: 11, color: "#8fa0b8" }} />
+          <Bar dataKey="value" name="Value" fill="#7EABD4" radius={[2, 2, 0, 0]} />
+          <Bar dataKey="debt" name="Debt" fill="#D4928C" radius={[2, 2, 0, 0]} />
+          <Bar dataKey="equity" name="Equity" fill="#7DB8A4" radius={[2, 2, 0, 0]} />
         </BarChart>
       </ResponsiveContainer>
     </div>

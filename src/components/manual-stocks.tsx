@@ -10,6 +10,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Money } from "@/components/money";
 import { BrandLabel } from "@/components/brand-mark";
+import { OwnerTag } from "@/components/type";
 import { ownerOptions } from "@/lib/owners";
 import { RemoveCrypto } from "@/components/add-crypto";
 import { FIXED_USD_ID } from "@/lib/constants";
@@ -25,6 +26,7 @@ export type ManualStock = {
   notes?: string | null;
   assetClass: string;
   accountName: string;
+  owner: string;
   ownerLabel: string;
 };
 
@@ -82,7 +84,7 @@ export function ManualStockBox({
 
   return (
     <Card className="relative z-0 mb-4">
-      <CardHeader className="flex flex-row items-start justify-between gap-3 space-y-0">
+      <CardHeader row className="flex-nowrap items-start">
         <div>
           <CardTitle>Manual Entries</CardTitle>
           <p className="mt-1 text-sm text-muted-foreground">
@@ -90,7 +92,7 @@ export function ManualStockBox({
           </p>
         </div>
         <div className="flex shrink-0 items-center gap-3">
-          <div className="text-xl font-medium font-mono tabular-nums">
+          <div className="text-3xl font-medium num leading-none">
             <Money value={total} />
           </div>
           {adding ? (
@@ -234,12 +236,13 @@ export function ManualStockBox({
                       <span className="ml-1 text-muted-foreground">{c.quantity} sh</span>
                     )}
                     <span className="ml-1 text-muted-foreground">
-                      · {c.assetClass === "etf" ? "ETF" : "Equity"} · {c.accountName} · {c.ownerLabel}
+                      · {c.assetClass === "etf" ? "ETF" : "Equity"} · {c.accountName}
                     </span>
+                    <OwnerTag>{c.ownerLabel}</OwnerTag>
                     {c.notes ? <span className="ml-1 text-muted-foreground">· {c.notes}</span> : null}
                   </span>
                 </BrandLabel>
-                <span className="flex shrink-0 items-center gap-2 font-mono tabular-nums">
+                <span className="flex shrink-0 items-center gap-2 num">
                   <Money value={lotValue(c)} />
                   <RemoveCrypto id={c.id} />
                 </span>
@@ -249,5 +252,207 @@ export function ManualStockBox({
         ) : null}
       </CardContent>
     </Card>
+  );
+}
+
+export function ManualEntryControls({
+  names,
+  rows,
+}: {
+  names: { nameA: string; nameB: string; children: { id: string; name: string }[] };
+  rows: ManualStock[];
+}) {
+  const [open, setOpen] = useState(false);
+  const [edit, setEdit] = useState<ManualStock | null>(null);
+  return (
+    <>
+      <Button
+        type="button"
+        size="sm"
+        className="cursor-pointer"
+        onClick={() => {
+          setEdit(null);
+          setOpen(true);
+        }}
+      >
+        Add manual entry
+      </Button>
+      <ManualStockFormDialog names={names} existing={edit} open={open} onOpenChange={setOpen} />
+    </>
+  );
+}
+
+export function ManualStockFormDialog({
+  names,
+  existing,
+  open,
+  onOpenChange,
+}: {
+  names: { nameA: string; nameB: string; children: { id: string; name: string }[] };
+  existing?: ManualStock | null;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+}) {
+  const router = useRouter();
+  const [busy, setBusy] = useState(false);
+  const [mode, setMode] = useState<"shares" | "value">(
+    existing?.coingeckoId === FIXED_USD_ID ? "value" : "shares",
+  );
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent persist className="max-w-2xl">
+        <DialogHeader>
+          <DialogTitle>{existing ? "Edit manual entry" : "Add manual entry"}</DialogTitle>
+        </DialogHeader>
+        <p className="text-sm text-muted-foreground">
+          Ticker lots are priced live. Named lots use the dollar amount you enter.
+        </p>
+        <div className="mb-3 flex rounded-md border border-border p-0.5">
+          {(
+            [
+              ["shares", "Ticker + shares"],
+              ["value", "Name + dollar value"],
+            ] as const
+          ).map(([k, label]) => (
+            <button
+              key={k}
+              type="button"
+              onClick={() => setMode(k)}
+              className={cn(
+                "cursor-pointer flex-1 rounded px-2 py-1 text-[12px]",
+                mode === k ? "bg-secondary text-foreground" : "text-muted-foreground hover:text-foreground",
+              )}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+        <form
+          className="grid gap-2 md:grid-cols-6 md:items-end"
+          onSubmit={async (e) => {
+            e.preventDefault();
+            setBusy(true);
+            const form = e.currentTarget;
+            const fd = new FormData(form);
+            const notes = String(fd.get("notes") || "").trim();
+            const meta = {
+              id: existing?.id,
+              assetClass: String(fd.get("assetClass") || "equity"),
+              accountName: String(fd.get("accountName") || "").trim(),
+              owner: String(fd.get("owner") || ""),
+              notes: notes || undefined,
+            };
+            const body =
+              mode === "shares"
+                ? {
+                    mode: "shares" as const,
+                    symbol: fd.get("symbol"),
+                    quantity: Number(fd.get("quantity")),
+                    ...meta,
+                  }
+                : {
+                    mode: "value" as const,
+                    name: fd.get("name"),
+                    value: Number(fd.get("value")),
+                    ...meta,
+                  };
+            try {
+              const res = await fetch("/api/manual-stocks", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(body),
+              });
+              const data = await res.json();
+              if (!res.ok) toast.error(data.error ?? "Could not save.");
+              else {
+                toast.success(existing ? "Manual holding updated." : "Manual holding added.");
+                onOpenChange(false);
+                router.refresh();
+              }
+            } finally {
+              setBusy(false);
+            }
+          }}
+        >
+          {mode === "shares" ? (
+            <>
+              <div>
+                <Label>Ticker</Label>
+                <Input className="mt-1" name="symbol" placeholder="AAPL" required defaultValue={existing?.symbol} />
+              </div>
+              <div>
+                <Label>Shares</Label>
+                <Input
+                  className="mt-1"
+                  name="quantity"
+                  type="number"
+                  step="any"
+                  min="0"
+                  required
+                  defaultValue={existing?.quantity}
+                />
+              </div>
+            </>
+          ) : (
+            <>
+              <div>
+                <Label>Name</Label>
+                <Input
+                  className="mt-1"
+                  name="name"
+                  placeholder="Private company, RSUs, note…"
+                  required
+                  defaultValue={existing?.name}
+                />
+              </div>
+              <div>
+                <Label>Value (USD)</Label>
+                <Input
+                  className="mt-1"
+                  name="value"
+                  type="number"
+                  step="any"
+                  min="0"
+                  required
+                  defaultValue={existing ? lotValue(existing) : undefined}
+                />
+              </div>
+            </>
+          )}
+          <div>
+            <Label>Type</Label>
+            <select
+              name="assetClass"
+              className="mt-1 flex h-9 w-full rounded-md border border-border bg-card px-3 text-sm"
+              defaultValue={existing?.assetClass || "equity"}
+            >
+              <option value="equity">Equity</option>
+              <option value="etf">ETF</option>
+            </select>
+          </div>
+          <div>
+            <Label>Account</Label>
+            <Input className="mt-1" name="accountName" placeholder="Brokerage, ESPP…" required defaultValue={existing?.accountName} />
+          </div>
+          <div>
+            <Label>Account holder</Label>
+            <select
+              name="owner"
+              className="mt-1 flex h-9 w-full rounded-md border border-border bg-card px-3 text-sm"
+              defaultValue={existing?.owner}
+            >
+              {ownerOptions(names).map((o) => (
+                <option key={o.value} value={o.value}>
+                  {o.label}
+                </option>
+              ))}
+            </select>
+          </div>
+          <Button type="submit" className="h-9 w-full md:w-auto" disabled={busy}>
+            {busy ? "Saving…" : existing ? "Save" : "Add"}
+          </Button>
+        </form>
+      </DialogContent>
+    </Dialog>
   );
 }

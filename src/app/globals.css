@@ -1,4 +1,8 @@
 @import "tailwindcss";
+/* Components layer: utilities on an element still win, so pages can nudge a shared block when they must. */
+@import "./haus.css" layer(components);
+
+/* Tokens only. Type roles and shared blocks live in haus.css. Geist + Geist Mono, self-hosted. */
 
 :root {
   --background: #0b1320;

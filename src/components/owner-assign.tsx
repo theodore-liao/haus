@@ -18,8 +18,8 @@ export function OwnerAssign({ item, onDone }: { item: Item; onDone: () => void }
     Object.fromEntries(item.accounts.map((a) => [a.id, a.owner || "joint"])),
   );
   const [options, setOptions] = useState<{ value: string; label: string }[]>([
-    { value: "a", label: "One" },
-    { value: "b", label: "Two" },
+    { value: "a", label: "Primary" },
+    { value: "b", label: "Spouse" },
     { value: "joint", label: "Joint" },
   ]);
   const [saving, setSaving] = useState(false);
@@ -82,7 +82,7 @@ export function OwnerAssign({ item, onDone }: { item: Item; onDone: () => void }
                   {accountLabel(a.name, item.institutionName)}
                   {a.mask ? <span className="text-muted-foreground"> · {a.mask}</span> : null}
                 </div>
-                <div className="text-[11px] uppercase tracking-[0.08em] text-muted-foreground">
+                <div className="kicker">
                   {hausTypeLabel(a.hausType)}
                 </div>
               </div>

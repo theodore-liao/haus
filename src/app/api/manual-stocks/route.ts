@@ -9,6 +9,7 @@ import { fetchEquitySpot } from "@/lib/quotes";
 export const dynamic = "force-dynamic";
 
 const meta = {
+  id: z.string().optional(),
   assetClass: z.enum(["equity", "etf"]),
   accountName: z.string().min(1).max(80),
   owner: z.string(),
@@ -53,20 +54,21 @@ export async function POST(req: Request) {
     if (!spot) {
       return NextResponse.json({ error: `No quote for ${symbol}. Check the ticker.` }, { status: 400 });
     }
-    const row = await prisma.manualHolding.create({
-      data: {
-        kind: "security",
-        symbol,
-        name: spot.name || symbol,
-        quantity: d.quantity,
-        owner: d.owner,
-        notes: d.notes,
-        quotePrice: spot.price,
-        quoteChange: spot.change,
-        quoteChangePct: spot.changePct,
-        quoteAsOf: spot.asOf,
-      },
-    });
+    const payload = {
+      kind: "security" as const,
+      symbol,
+      name: spot.name || symbol,
+      quantity: d.quantity,
+      owner: d.owner,
+      notes: d.notes,
+      quotePrice: spot.price,
+      quoteChange: spot.change,
+      quoteChangePct: spot.changePct,
+      quoteAsOf: spot.asOf,
+    };
+    const row = d.id
+      ? await prisma.manualHolding.update({ where: { id: d.id }, data: payload })
+      : await prisma.manualHolding.create({ data: payload });
     await prisma.$executeRaw`
       UPDATE ManualHolding SET assetClass = ${d.assetClass}, accountName = ${d.accountName.trim()} WHERE id = ${row.id}
     `;
@@ -74,21 +76,22 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: true, row });
   }
 
-  const row = await prisma.manualHolding.create({
-    data: {
-      kind: "security",
-      symbol: slugSymbol(d.name),
-      coingeckoId: FIXED_USD_ID,
-      name: d.name.trim(),
-      quantity: 1,
-      owner: d.owner,
-      notes: d.notes,
-      quotePrice: d.value,
-      quoteChange: 0,
-      quoteChangePct: 0,
-      quoteAsOf: new Date(),
-    },
-  });
+  const payload = {
+    kind: "security" as const,
+    symbol: slugSymbol(d.name),
+    coingeckoId: FIXED_USD_ID,
+    name: d.name.trim(),
+    quantity: 1,
+    owner: d.owner,
+    notes: d.notes,
+    quotePrice: d.value,
+    quoteChange: 0,
+    quoteChangePct: 0,
+    quoteAsOf: new Date(),
+  };
+  const row = d.id
+    ? await prisma.manualHolding.update({ where: { id: d.id }, data: payload })
+    : await prisma.manualHolding.create({ data: payload });
   await prisma.$executeRaw`
     UPDATE ManualHolding SET assetClass = ${d.assetClass}, accountName = ${d.accountName.trim()} WHERE id = ${row.id}
   `;

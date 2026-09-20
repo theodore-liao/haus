@@ -36,10 +36,14 @@ export default function LockPage() {
   return (
     <main className="flex min-h-screen items-center justify-center px-6">
       <form onSubmit={onSubmit} className="w-full max-w-sm">
-        <div className="text-xl font-medium tracking-[0.32em] text-primary">HAUS</div>
-        <h1 className="mt-3 text-2xl font-medium tracking-tight">Household lock</h1>
-        <p className="mt-2 text-sm text-muted-foreground">Enter the household passphrase.</p>
-        <div className="mt-8 space-y-3">
+        <div className="mb-6 bg-gradient-to-r from-primary via-primary to-accent bg-clip-text text-lg font-medium tracking-[0.32em] text-transparent">
+          HAUS
+        </div>
+        <div className="page-title">
+          <h1>Household lock</h1>
+          <p>Enter the household passphrase.</p>
+        </div>
+        <div className="mt-6 space-y-3">
           <Input
             type="password"
             autoFocus

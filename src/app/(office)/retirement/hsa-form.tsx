@@ -21,7 +21,7 @@ export function AddHsa({
 
   return (
     <>
-      <Button type="button" size="sm" onClick={() => setOpen(true)}>
+      <Button type="button" variant="outline" size="sm" onClick={() => setOpen(true)}>
         Add HSA
       </Button>
       <Dialog open={open} onOpenChange={setOpen}>

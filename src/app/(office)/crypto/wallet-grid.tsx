@@ -1,8 +1,9 @@
 "use client";
 
 import { useState, type ReactNode } from "react";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Money } from "@/components/money";
+import { Card, CardContent, CardHeader } from "@/components/ui/card";
+import { Money, HeroMetric } from "@/components/money";
+import { ObjectTitle, OwnerTag, kickerClass } from "@/components/type";
 import { BrandLabel, BrandMark } from "@/components/brand-mark";
 import { CHAIN_META, isDefiAsset, shortAddress } from "@/lib/onchain";
 import { lotValue } from "@/lib/crypto-lots";
@@ -31,6 +32,7 @@ export type WalletCard = {
     name: string;
     quantity: number;
     quotePrice: number | null;
+    logo?: string | null;
   }[];
 };
 
@@ -57,7 +59,7 @@ export function WalletGrid({
     <SortableGrid
       items={ordered}
       onReorder={reorder}
-      className="mb-4"
+      className="mb-4 xl:grid-cols-3"
       extra={<ManualAddBox names={names} manuals={manuals} />}
       render={(w, handle) => {
         const chains = [...new Set(w.assets.map((a) => a.chain))];
@@ -73,31 +75,36 @@ export function WalletGrid({
         const tokens = holdings.filter((a) => !isDefiAsset(a));
         const defi = holdings.filter((a) => isDefiAsset(a));
         const shownValue = holdings.reduce((s, a) => s + lotValue(a), 0);
+        // Every card has the same rows in the same order (title, value, address line, two facts, fixed-height
+        // holdings) so the grid reads as a set of identical tiles regardless of wallet contents.
         return (
-          <Card className="h-full">
-            <CardHeader className="flex flex-row items-start justify-between gap-3 space-y-0">
+          <Card className="flex h-full flex-col">
+            <CardHeader row className="flex-nowrap items-start">
               <div className="min-w-0">
-                <CardTitle className="flex items-center gap-2 truncate text-sm font-medium normal-case tracking-normal text-foreground">
+                <ObjectTitle
+                  title={`${w.label || shortAddress(w.address)} - ${w.ownerLabel}`}
+                  className="flex items-center gap-2"
+                >
                   <BrandMark kind={brand.kind} symbol={brand.symbol} src={brand.src} name={brand.name} />
                   <span className="truncate">{w.label || shortAddress(w.address)}</span>
-                </CardTitle>
-                <div className="mt-1 text-sm text-muted-foreground">{w.ownerLabel}</div>
+                  <OwnerTag className="ml-0">{w.ownerLabel}</OwnerTag>
+                </ObjectTitle>
               </div>
               <div className="flex shrink-0 items-start gap-1">
                 {w.brokerage ? null : <WalletActions id={w.id} />}
                 {handle}
               </div>
             </CardHeader>
-            <CardContent>
-              <div className="text-lg font-medium font-mono tabular-nums">
+            <CardContent className="flex flex-1 flex-col">
+              <HeroMetric label="Value">
                 <Money value={shownValue} />
-              </div>
-              {w.brokerage ? (
-                <div className="mt-2 text-[12px] text-muted-foreground">Brokerage custody</div>
-              ) : (
-                <>
-                  <div className="mt-2 flex items-center gap-2 font-mono text-[12px] text-muted-foreground">
-                    <span className="min-w-0 break-all">
+              </HeroMetric>
+              <div className="footnote mt-2 flex h-5 items-center gap-2">
+                {w.brokerage ? (
+                  <span>Brokerage custody</span>
+                ) : (
+                  <>
+                    <span className="num min-w-0 truncate">
                       {revealed[w.id] ? w.address : shortAddress(w.address)}
                     </span>
                     <button
@@ -108,43 +115,41 @@ export function WalletGrid({
                     >
                       {revealed[w.id] ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
                     </button>
-                  </div>
-                  {revealed[w.id] && explorer ? (
-                    <a href={explorer} target="_blank" rel="noreferrer" className="mt-1 inline-block text-[12px] text-primary">
-                      Open explorer
-                    </a>
-                  ) : null}
-                  <div className="mt-3 grid grid-cols-2 gap-2 text-sm">
-                    <Field k="Chains" v={chainLabels.length ? chainLabels.join(", ") : "—"} />
-                    <Field k="Last sync" v={formatDateTime(w.lastSyncedAt)} />
-                  </div>
-                  {w.lastError ? <p className="mt-2 text-sm text-negative">{w.lastError}</p> : null}
-                </>
-              )}
-              {tokens.length || defi.length ? (
-                defi.length ? (
-                  <Tabs defaultValue="tokens" className="mt-3">
-                    <TabsList className="h-8">
-                      <TabsTrigger value="tokens" className="px-2 py-0.5 text-[12px]">
-                        Tokens ({tokens.length})
-                      </TabsTrigger>
-                      <TabsTrigger value="defi" className="px-2 py-0.5 text-[12px]">
-                        DeFi ({defi.length})
-                      </TabsTrigger>
-                    </TabsList>
-                    <TabsContent value="tokens" className="mt-2">
-                      <HoldingList rows={tokens} />
-                    </TabsContent>
-                    <TabsContent value="defi" className="mt-2">
-                      <HoldingList rows={defi} />
-                    </TabsContent>
-                  </Tabs>
-                ) : (
-                  <div className="mt-3">
+                    {revealed[w.id] && explorer ? (
+                      <a href={explorer} target="_blank" rel="noreferrer" className="shrink-0 text-primary">
+                        Explorer
+                      </a>
+                    ) : null}
+                  </>
+                )}
+              </div>
+              <div className="mt-3 grid grid-cols-2 gap-2 text-sm">
+                <Field k={w.brokerage ? "Custody" : "Chains"} v={w.brokerage ? "Brokerage" : chainLabels.length ? chainLabels.join(", ") : "—"} />
+                <Field k="Last sync" v={formatDateTime(w.lastSyncedAt)} />
+              </div>
+              {w.lastError ? <p className="mt-2 text-sm text-negative">{w.lastError}</p> : null}
+              {defi.length ? (
+                <Tabs defaultValue="tokens" className="mt-3 flex flex-1 flex-col">
+                  <TabsList className="min-h-8">
+                    <TabsTrigger value="tokens" className="px-2 py-0.5 text-xs">
+                      Tokens ({tokens.length})
+                    </TabsTrigger>
+                    <TabsTrigger value="defi" className="px-2 py-0.5 text-xs">
+                      DeFi ({defi.length})
+                    </TabsTrigger>
+                  </TabsList>
+                  <TabsContent value="tokens" className="mt-2 flex-1">
                     <HoldingList rows={tokens} />
-                  </div>
-                )
-              ) : null}
+                  </TabsContent>
+                  <TabsContent value="defi" className="mt-2 flex-1">
+                    <HoldingList rows={defi} />
+                  </TabsContent>
+                </Tabs>
+              ) : (
+                <div className="mt-3 flex-1">
+                  <HoldingList rows={tokens} />
+                </div>
+              )}
             </CardContent>
           </Card>
         );
@@ -159,19 +164,19 @@ function HoldingList({
   rows: WalletCard["assets"];
 }) {
   if (!rows.length) {
-    return <p className="text-sm text-muted-foreground">Nothing in this tab.</p>;
+    return <p className="flex h-44 items-center justify-center text-sm text-muted-foreground">No balances found on supported chains.</p>;
   }
   return (
-    <ul className="max-h-56 space-y-1.5 overflow-y-auto pr-1">
+    <ul className="h-44 space-y-1.5 overflow-y-auto pr-1">
       {rows.map((a) => (
         <li key={a.id} className="flex items-center justify-between gap-3 text-sm">
-          <BrandLabel className="min-w-0" kind="crypto" symbol={a.symbol} name={a.name}>
+          <BrandLabel className="min-w-0" kind="crypto" symbol={a.symbol} name={a.name} src={a.logo}>
             <span className="truncate">
               {a.symbol}
               <span className="ml-1 text-muted-foreground">{a.name}</span>
             </span>
           </BrandLabel>
-          <span className="shrink-0 font-mono tabular-nums">
+          <span className="shrink-0 num">
             <Money value={lotValue(a)} />
           </span>
         </li>
@@ -183,7 +188,7 @@ function HoldingList({
 function Field({ k, v }: { k: string; v: ReactNode }) {
   return (
     <div>
-      <div className="text-[11px] uppercase tracking-[0.08em] text-muted-foreground">{k}</div>
+      <div className={kickerClass}>{k}</div>
       <div>{v}</div>
     </div>
   );

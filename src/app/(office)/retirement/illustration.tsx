@@ -4,7 +4,7 @@ import { useMemo, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Money } from "@/components/money";
+import { Money, HeroMetric } from "@/components/money";
 
 function fv(pv: number, pmt: number, annual: number, years: number) {
   const r = annual / 12;
@@ -29,7 +29,7 @@ export function Illustration({ starting }: { starting: number }) {
   return (
     <Card className="mt-4">
       <CardHeader>
-        <CardTitle>Illustration — not advice</CardTitle>
+        <CardTitle>Illustration, not advice</CardTitle>
       </CardHeader>
       <CardContent>
         <p className="mb-4 max-w-2xl text-sm text-muted-foreground">
@@ -39,7 +39,7 @@ export function Illustration({ starting }: { starting: number }) {
         <div className="grid gap-4 sm:grid-cols-3">
           <div>
             <Label>Starting balance</Label>
-            <div className="mt-1 text-lg">
+            <div className="mt-1">
               <Money value={starting} />
             </div>
           </div>
@@ -60,10 +60,9 @@ export function Illustration({ starting }: { starting: number }) {
         <div className="mt-5 grid gap-3 sm:grid-cols-3">
           {rows.map((r) => (
             <div key={r.years} className="rounded-md border border-border px-4 py-3">
-              <div className="text-[12px] uppercase tracking-[0.08em] text-muted-foreground">{r.years} years</div>
-              <div className="mt-1 text-xl">
+              <HeroMetric label={`${r.years} years`}>
                 <Money value={r.value} />
-              </div>
+              </HeroMetric>
             </div>
           ))}
         </div>

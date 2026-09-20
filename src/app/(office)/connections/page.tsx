@@ -9,7 +9,7 @@ export default async function ConnectionsPage() {
   const data = await getSettings();
   return (
     <>
-      <PageHeader title="Manage connections" />
+      <PageHeader title="Connections" />
       <ConnectionsPanel
         plaidReady={data.plaidReady}
         items={data.items.map((i) => ({

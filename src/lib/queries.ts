@@ -1,5 +1,5 @@
 import { prisma, ensureHousehold } from "./db";
-import { matchesOwner, ownerLabel, type OwnerFilter } from "./owners";
+import { childLabelFor, matchesOwner, ownerLabel, withHolder, type OwnerFilter } from "./owners";
 import {
   allocationBucket,
   isCashType,
@@ -11,12 +11,24 @@ import {
   isRetirementType,
 } from "./account-types";
 import { CONCENTRATION_FLAG, FIXED_USD_ID, HIGH_UTILIZATION, INSURANCE_RENEWAL_DAYS, IRS_LIMITS, IRS_LIMITS_YEAR, STALE_CONNECTION_HOURS, categoryLabel, incomeSourceLabel } from "./constants";
-import { effectiveCategory, isInternalMove, isInvestFunding, txnMerchantKey } from "./categories";
+import { effectiveCategory, isInternalMove, isInvestFunding, recurringMerchantKey, txnMerchantKey } from "./categories";
 import { dayKey, ymKey } from "./range";
 
 async function hiddenMerchantKeys() {
   try {
     const rows = await prisma.merchantRule.findMany({ where: { hidden: true }, select: { merchantKey: true } });
+    return new Set(rows.map((r) => r.merchantKey));
+  } catch {
+    return new Set<string>();
+  }
+}
+
+async function ignoredRecurringKeys() {
+  try {
+    const rows = await prisma.merchantRule.findMany({
+      where: { ignoreRecurring: true },
+      select: { merchantKey: true },
+    });
     return new Set(rows.map((r) => r.merchantKey));
   } catch {
     return new Set<string>();
@@ -31,7 +43,7 @@ function notHidden<T extends { userMerchant?: string | null; merchantName?: stri
   return rows.filter((t) => !hidden.has(txnMerchantKey(t)));
 }
 import { parseJson } from "./utils";
-import { formatHoldingClass, startOfDay } from "./format";
+import { ellipsize, formatHoldingClass, startOfDay } from "./format";
 import { differenceInCalendarDays, subDays } from "date-fns";
 import { accountLabel } from "./account-label";
 import { reconstructNetWorthPath } from "./history";
@@ -46,6 +58,8 @@ export async function getNames() {
   return {
     nameA: household.nameA,
     nameB: household.nameB,
+    birthdateA: household.birthdateA?.toISOString().slice(0, 10) ?? null,
+    birthdateB: household.birthdateB?.toISOString().slice(0, 10) ?? null,
     quoteApiKey: household.quoteApiKey,
     children,
   };
@@ -117,9 +131,10 @@ function consolidateBySymbol<
       leftover.push(r);
       continue;
     }
-    const list = groups.get(sym) ?? [];
+    const groupKey = `${sym}::${r.owner}::${r.account}`;
+    const list = groups.get(groupKey) ?? [];
     list.push(r);
-    groups.set(sym, list);
+    groups.set(groupKey, list);
   }
   const out: T[] = [...leftover];
   for (const [, list] of groups) {
@@ -230,6 +245,7 @@ export async function getOverview(filter: OwnerFilter) {
   let investments = 0;
   let liabilities = 0;
   let otherAssets = 0;
+  const liabilityIds = new Set<string>();
   const allocation = {
     cash: 0,
     stocks: 0,
@@ -256,25 +272,32 @@ export async function getOverview(filter: OwnerFilter) {
 
   for (const a of accs) {
     const bal = a.currentBalance ?? 0;
-    const label = accountLabel(a.name, a.item.institutionName);
+    const base = accountLabel(a.name, a.item.institutionName);
+    const holder =
+      isChildAccountType(a.hausType) || a.owner.startsWith("child:")
+        ? (childLabelFor(names, { owner: a.owner, name: base }) ?? ownerLabel(a.owner, names))
+        : ownerLabel(a.owner, names);
+    const label = withHolder(base, holder);
+    const logoName = a.item.institutionName || base;
     const plaidType = (a.type || "").toLowerCase();
     const asLiability =
       isLiabilityType(a.hausType) || plaidType === "credit" || plaidType === "loan";
     if (isCashType(a.hausType) && !asLiability) {
       cash += bal;
       allocation.cash += bal;
-      if (Math.abs(bal) >= 10) allocationItems.cash.push({ label, value: bal, name: label, kind: "institution" });
+      if (Math.abs(bal) >= 10) allocationItems.cash.push({ label, value: bal, name: logoName, kind: "institution" });
     } else if (asLiability) {
       liabilities += Math.abs(bal);
+      liabilityIds.add(a.id);
     } else if (isInvestmentType(a.hausType)) {
       investments += bal;
       const bucket = allocationBucket(a.hausType);
       allocation[bucket] += bal;
-      if (Math.abs(bal) >= 10) allocationItems[bucket].push({ label, value: bal, name: label, kind: "institution" });
+      if (Math.abs(bal) >= 10) allocationItems[bucket].push({ label, value: bal, name: logoName, kind: "institution" });
     } else {
       otherAssets += bal;
       allocation.other += bal;
-      if (Math.abs(bal) >= 10) allocationItems.other.push({ label, value: bal, name: label, kind: "institution" });
+      if (Math.abs(bal) >= 10) allocationItems.other.push({ label, value: bal, name: logoName, kind: "institution" });
     }
   }
   for (const m of mans) {
@@ -282,7 +305,18 @@ export async function getOverview(filter: OwnerFilter) {
     const bucket = allocationBucket(m.hausType);
     allocation[bucket] += m.balance;
     if (Math.abs(m.balance) >= 10) {
-      allocationItems[bucket].push({ label: m.name, value: m.balance, name: m.name, kind: "institution" });
+      allocationItems[bucket].push({
+        label: withHolder(
+          m.name,
+          isChildAccountType(m.hausType) || m.owner.startsWith("child:")
+            ? (childLabelFor(names, { owner: m.owner, name: m.name, beneficiary: m.beneficiary }) ??
+              ownerLabel(m.owner, names))
+            : ownerLabel(m.owner, names),
+        ),
+        value: m.balance,
+        name: m.name,
+        kind: "institution",
+      });
     }
   }
   for (const c of coins) {
@@ -315,7 +349,10 @@ export async function getOverview(filter: OwnerFilter) {
     if (bucket === "crypto") continue;
     allocation[bucket] -= val;
     allocation.crypto += val;
-    const label = accountLabel(h.account.name, h.account.item.institutionName);
+    const label = withHolder(
+      accountLabel(h.account.name, h.account.item.institutionName),
+      ownerLabel(h.account.owner, names),
+    );
     const list = allocationItems[bucket];
     const row = list.find((i) => i.label === label);
     if (row) {
@@ -341,10 +378,15 @@ export async function getOverview(filter: OwnerFilter) {
 
   let reEquity = 0;
   let manualMortgages = 0;
+  // Debt already netted into property / vehicle equity; kept apart so the tiles don't count it twice.
+  let securedDebt = 0;
+  const countedInLiabilities = (linkedId: string | null | undefined) =>
+    linkedId ? liabilityIds.has(linkedId) : true; // manual balances are added below
   for (const p of props) {
     const loan = propertyDebt(p, accs);
     const equity = p.estimate - loan;
     reEquity += equity;
+    if (countedInLiabilities(p.mortgageAccountId)) securedDebt += loan;
     allocation.real_estate += equity;
     if (Math.abs(equity) >= 10) {
       allocationItems.real_estate.push({ label: p.label, value: equity, name: p.label, kind: "institution" });
@@ -353,9 +395,12 @@ export async function getOverview(filter: OwnerFilter) {
   }
   liabilities += manualMortgages;
 
+  let vehicleEquity = 0;
   for (const v of vehs) {
     const loan = vehicleDebt(v, accs);
     const equity = v.estimate - loan;
+    vehicleEquity += equity;
+    if (countedInLiabilities(v.loanAccountId)) securedDebt += loan;
     allocation.vehicles += equity;
     if (Math.abs(equity) >= 10) {
       allocationItems.vehicles.push({ label: v.label, value: equity, name: v.label, kind: "institution" });
@@ -364,6 +409,9 @@ export async function getOverview(filter: OwnerFilter) {
   }
 
   const netWorth = cash + investments + realEstate + otherAssets - liabilities;
+  // Tiles partition net worth exactly: investments + cash + equity − unsecured debt.
+  const equity = reEquity + vehicleEquity + (otherAssets - vehicleTotal);
+  const unsecuredDebt = Math.max(0, liabilities - securedDebt);
 
   const holdingDayPl =
     holds.reduce((s, h) => (h.quoteChange != null ? s + h.quoteChange * h.quantity : s), 0) +
@@ -549,6 +597,10 @@ export async function getOverview(filter: OwnerFilter) {
       cash,
       investments,
       liabilities,
+      /** Property + vehicle + other-asset equity, net of the loans secured on them. */
+      equity,
+      /** Liabilities not already netted into `equity` (cards, student and personal loans). */
+      unsecuredDebt,
       realEstateEquity: reEquity,
       realEstateGross: realEstate,
       insurance: { policies: pols.length, lifeCoverage, liabilityCoverage },
@@ -668,13 +720,14 @@ export async function getCashflow(filter: OwnerFilter, month: Date, includeTrans
   const end = new Date(month.getFullYear(), month.getMonth() + 1, 1);
   const lookbackStart = subDays(start, 400);
 
-  const [txns, hidden] = await Promise.all([
+  const [txns, hidden, ignoredRecurring] = await Promise.all([
     prisma.txn.findMany({
       where: { date: { gte: lookbackStart, lt: end } },
       include: { account: true },
       orderBy: { date: "asc" },
     }),
     hiddenMerchantKeys(),
+    ignoredRecurringKeys(),
   ]);
   const scoped = notHidden(txns, hidden).filter((t) => matchesOwner(t.account.owner, filter));
   const monthTxns = scoped.filter((t) => t.date >= start);
@@ -725,7 +778,7 @@ export async function getCashflow(filter: OwnerFilter, month: Date, includeTrans
   const cash = cashAccounts.reduce((s, a) => s + (a.currentBalance ?? 0), 0);
   const runway = monthlyEssential > 0 ? cash / monthlyEssential : null;
 
-  const recurring = inferRecurring(scoped.filter((t) => t.date < end));
+  const recurring = inferRecurring(scoped.filter((t) => t.date < end), ignoredRecurring);
 
   return {
     month: start.toISOString(),
@@ -756,14 +809,15 @@ export function inferRecurring(
     categoryPrimary?: string | null;
     categoryDetailed?: string | null;
   }[],
+  ignored: Set<string> = new Set(),
 ) {
   const groups = new Map<string, { label: string; amounts: number[]; dates: Date[] }>();
   for (const t of txns) {
     if (isInternalMove(t)) continue;
     if (t.amount <= 0) continue;
     const label = t.userMerchant || t.merchantName || t.name;
-    const key = label.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
-    if (!key) continue;
+    const key = recurringMerchantKey(label);
+    if (!key || ignored.has(key)) continue;
     const g = groups.get(key) ?? { label, amounts: [], dates: [] };
     g.amounts.push(t.amount);
     g.dates.push(t.date);
@@ -961,6 +1015,7 @@ export async function getInvestments(filter: OwnerFilter) {
         notes: h.notes,
         assetClass: meta?.assetClass || "equity",
         accountName: meta?.accountName || "Manual",
+        owner: h.owner,
         ownerLabel: ownerLabel(h.owner, names),
         value: h.coingeckoId === FIXED_USD_ID ? (h.quotePrice ?? 0) : (h.quotePrice ?? 0) * h.quantity,
       };
@@ -1107,7 +1162,8 @@ export async function getRetirement(filter: OwnerFilter) {
   const names = await getNames();
   const accounts = (await prisma.account.findMany({ include: { item: true, investmentTxns: true, holdings: true } })).filter(
     (a) =>
-      matchesOwner(a.owner, filter) && isRetirementAccount(a),
+      matchesOwner(a.owner, filter) &&
+      (isRetirementAccount(a) || isChildAccountType(a.hausType)),
   );
   const year = IRS_LIMITS_YEAR;
   const yStart = new Date(year, 0, 1);
@@ -1115,6 +1171,7 @@ export async function getRetirement(filter: OwnerFilter) {
 
   const rows = accounts.map((a) => {
     const kind = a.retirementKind || a.hausType;
+    const inst = (a.item.institutionName || "").trim();
     const ytd = a.investmentTxns
       .filter((t) => t.date >= yStart && t.date < yEnd)
       .filter((t) => {
@@ -1123,23 +1180,26 @@ export async function getRetirement(filter: OwnerFilter) {
         return sub.includes("contribution") || type === "cash" && sub.includes("deposit") || sub.includes("transfer");
       })
       .reduce((s, t) => s + Math.abs(t.amount), 0);
-    const limit =
+    const limit: number =
       kind === "hsa" ? IRS_LIMITS.hsaFamily : kind === "401k" || kind === "403b" ? IRS_LIMITS.electiveDeferral : IRS_LIMITS.ira;
     const holdings: {
       label: string;
       value: number;
       symbol: string | null;
       name: string;
+      logoName?: string | null;
       kind: "crypto" | "security" | "institution";
     }[] = a.holdings
       .map((h) => {
         const value = holdingValue(h);
+        const holdingName = h.name || h.symbol || "Holding";
         return {
-          label: h.symbol ? `${h.symbol} · ${h.name}` : h.name,
+          label: ellipsize(inst ? `${inst}: ${holdingName}` : holdingName, 40),
           value,
           symbol: h.symbol,
-          name: h.name,
-          kind: (h.type === "cryptocurrency" ? "crypto" : "security") as "crypto" | "security",
+          name: holdingName,
+          logoName: inst || holdingName,
+          kind: "institution" as const,
         };
       })
       .filter((h) => Math.abs(h.value) >= 10)
@@ -1148,30 +1208,39 @@ export async function getRetirement(filter: OwnerFilter) {
     const cashLeft = (a.currentBalance ?? 0) - held;
     if (cashLeft >= 10) {
       holdings.push({
-        label: "Cash",
+        label: ellipsize(inst ? `${inst}: Cash` : "Cash", 40),
         value: cashLeft,
         symbol: null,
         name: "Cash",
+        logoName: inst || "Cash",
         kind: "institution" as const,
       });
     }
+    const name = accountLabel(a.name, a.item.institutionName);
     return {
       id: a.id,
-      name: accountLabel(a.name, a.item.institutionName),
+      name,
       institution: a.item.institutionName,
       owner: a.owner,
       ownerLabel: ownerLabel(a.owner, names),
+      childLabel:
+        isChildAccountType(kind) || a.owner.startsWith("child:")
+          ? childLabelFor(names, { owner: a.owner, name })
+          : null,
       kind,
       balance: a.currentBalance ?? 0,
       ytd,
       limit,
       holdings,
       manual: false as boolean,
+      beneficiary: null as string | null,
     };
   });
 
   const manuals = (await prisma.manualAccount.findMany()).filter(
-    (m) => matchesOwner(m.owner, filter) && m.hausType === "hsa",
+    (m) =>
+      matchesOwner(m.owner, filter) &&
+      (m.hausType === "hsa" || isChildAccountType(m.hausType)),
   );
   for (const m of manuals) {
     rows.push({
@@ -1180,19 +1249,22 @@ export async function getRetirement(filter: OwnerFilter) {
       institution: "Manual",
       owner: m.owner,
       ownerLabel: ownerLabel(m.owner, names),
-      kind: "hsa",
+      childLabel: childLabelFor(names, { owner: m.owner, name: m.name, beneficiary: m.beneficiary }),
+      kind: m.hausType,
       balance: m.balance,
       ytd: 0,
-      limit: IRS_LIMITS.hsaFamily,
+      limit: m.hausType === "hsa" ? IRS_LIMITS.hsaFamily : m.hausType === "trump" ? IRS_LIMITS.trumpAccount : 0,
       holdings:
         m.balance >= 10
           ? [{ label: m.name, value: m.balance, symbol: null, name: m.name, kind: "institution" as const }]
           : [],
       manual: true,
+      beneficiary: m.beneficiary,
     });
   }
 
-  return { names, year, limits: IRS_LIMITS, rows };
+  const ranked = rows.filter((r) => Math.abs(r.balance) > 0).sort((a, b) => b.balance - a.balance);
+  return { names, year, limits: IRS_LIMITS, rows: ranked };
 }
 
 export async function getRealEstate(filter: OwnerFilter) {
@@ -1259,12 +1331,13 @@ export async function getChildrenView() {
 }
 
 export async function getReports(filter: OwnerFilter) {
-  const [allTxns, hidden] = await Promise.all([
+  const [allTxns, hidden, ignoredRecurring] = await Promise.all([
     prisma.txn.findMany({
       include: { account: true },
       orderBy: { date: "asc" },
     }),
     hiddenMerchantKeys(),
+    ignoredRecurringKeys(),
   ]);
   const txns = notHidden(allTxns, hidden).filter((t) => matchesOwner(t.account.owner, filter));
 
@@ -1281,29 +1354,21 @@ export async function getReports(filter: OwnerFilter) {
     const date = dayKey(t.date);
     const cat = effectiveCategory(t);
     const merch = t.userMerchant || t.merchantName || t.name;
-    if (isInvestFunding(t) && t.amount > 0) {
-      flows.push({
-        date,
-        month,
-        kind: "invest",
-        category: "To investments",
-        merchant: merch,
-        amount: t.amount,
-      });
+    if (isInternalMove(t)) {
+      if (isInvestFunding(t) && t.amount > 0) {
+        flows.push({
+          date,
+          month,
+          kind: "invest",
+          category: "To investments",
+          merchant: merch,
+          amount: t.amount,
+        });
+      }
       continue;
     }
-    if (isInternalMove(t)) continue;
-    if (t.amount > 0 && cat !== "INCOME") {
-      flows.push({
-        date,
-        month,
-        kind: "spend",
-        category: categoryLabel(cat),
-        merchant: merch,
-        amount: t.amount,
-      });
-    } else if (t.amount < 0 || cat === "INCOME") {
-      const src = incomeSourceLabel(t);
+    if (cat === "INCOME" || t.amount < 0) {
+      const src = incomeSourceLabel({ ...t, accountName: t.account.name });
       flows.push({
         date,
         month,
@@ -1312,141 +1377,363 @@ export async function getReports(filter: OwnerFilter) {
         merchant: merch || src,
         amount: Math.abs(t.amount),
       });
+    } else if (isInvestFunding(t) && t.amount > 0) {
+      flows.push({
+        date,
+        month,
+        kind: "invest",
+        category: "To investments",
+        merchant: merch,
+        amount: t.amount,
+      });
+    } else if (isInternalMove(t)) {
+      continue;
+    } else if (t.amount > 0) {
+      flows.push({
+        date,
+        month,
+        kind: "spend",
+        category: categoryLabel(cat),
+        merchant: merch,
+        amount: t.amount,
+      });
     }
   }
 
   return {
     flows,
-    recurring: inferRecurring(txns),
+    recurring: inferRecurring(txns, ignoredRecurring),
   };
 }
 
+export type InsightCard = {
+  section: string;
+  title: string;
+  math: string;
+  value: string;
+  tone: "neutral" | "positive" | "negative";
+};
+
+/** Advisor-style ratios. Each card states its own arithmetic so the number is auditable at a glance. */
 export async function getInsights(filter: OwnerFilter) {
-  const overview = await getOverview(filter);
-  const cashflow = await getCashflow(filter, new Date(), false);
-  const inv = await getInvestments(filter);
-  const insurance = await getInsurance(filter);
   const now = new Date();
-  const cards: {
-    section: string;
-    title: string;
-    math: string;
-    value: string;
-    tone: "neutral" | "positive" | "negative";
-  }[] = [];
+  const [cashflow, overview, reports, accounts] = await Promise.all([
+    getCashflow(filter, now, false),
+    getOverview(filter),
+    getReports(filter),
+    prisma.account.findMany({ include: { item: true } }),
+  ]);
+  const accs = accounts.filter((a) => matchesOwner(a.owner, filter));
+  const cards: InsightCard[] = [];
 
-  const subAnnual = cashflow.recurring.reduce((s, r) => s + r.annual, 0);
+  // --- Liquidity -------------------------------------------------------------
   cards.push({
     section: "Liquidity",
-    title: "Inferred subscriptions",
-    math: cashflow.recurring.map((r) => `${r.label} ${formatMath(r.amount)} × ${r.cadence}`).join(" + ") || "No recurring series with ≥3 similar charges yet.",
-    value: formatMath(subAnnual) + " / yr",
-    tone: "neutral",
-  });
-
-  cards.push({
-    section: "Questions",
-    title: "If we both stopped working",
+    title: "Emergency fund",
     math:
       cashflow.monthlyEssential > 0
-        ? `Cash ${formatMath(cashflow.cash)} lasts ${(cashflow.cash / cashflow.monthlyEssential).toFixed(1)} mo at ${formatMath(cashflow.monthlyEssential)}/mo essential. Net worth ${formatMath(overview.netWorth)} is ${(overview.netWorth / (cashflow.monthlyEssential * 12)).toFixed(1)} years at that burn.`
-        : "Need ~90 days of housing, medical, loan, grocery, and transport charges to estimate a burn rate.",
-    value:
-      cashflow.monthlyEssential > 0
-        ? `${(cashflow.cash / cashflow.monthlyEssential).toFixed(1)} mo cash`
-        : "—",
-    tone: cashflow.runway != null && cashflow.runway < 12 ? "negative" : "neutral",
-  });
-
-  cards.push({
-    section: "Liquidity",
-    title: "Emergency fund months",
-    math:
-      cashflow.monthlyEssential > 0
-        ? `${formatMath(cashflow.cash)} cash ÷ ${formatMath(cashflow.monthlyEssential)} trailing essential / month`
+        ? `${formatMath(cashflow.cash)} cash ÷ ${formatMath(cashflow.monthlyEssential)} essential spend / month (90-day average)`
         : "Need 90 days of rent, medical, loan, and transport charges to compute runway.",
     value: cashflow.runway != null ? `${cashflow.runway.toFixed(1)} mo` : "—",
-    tone: cashflow.runway != null && cashflow.runway < 3 ? "negative" : "neutral",
+    tone: cashflow.runway == null ? "neutral" : cashflow.runway < 3 ? "negative" : cashflow.runway >= 6 ? "positive" : "neutral",
   });
 
-  if (inv.flags[0]) {
+  if (cashflow.monthlyEssential > 0) {
+    const target = cashflow.monthlyEssential * 6;
+    const idle = cashflow.cash - target;
     cards.push({
-      section: "Portfolio",
-      title: "Taxable single-name concentration",
-      math: `${inv.flags[0].symbol} ${formatMath(inv.flags[0].value)} / taxable ${formatMath(
-        inv.rows.filter((r) => r.taxable).reduce((s, r) => s + r.value, 0),
-      )} = ${(inv.flags[0].weight * 100).toFixed(1)}% (flag > 15%)`,
-      value: `${inv.flags[0].symbol} ${(inv.flags[0].weight * 100).toFixed(1)}%`,
-      tone: "negative",
+      section: "Liquidity",
+      title: idle >= 0 ? "Cash above a 6-month reserve" : "Shortfall to a 6-month reserve",
+      math: `${formatMath(cashflow.cash)} cash − ${formatMath(target)} (6 × essential spend)`,
+      value: formatMath(Math.abs(idle)),
+      tone: idle >= 0 ? "neutral" : "negative",
     });
   }
 
-  for (const p of insurance.policies) {
-    if (!p.renewalDate) continue;
-    const days = differenceInCalendarDays(p.renewalDate, now);
-    if (days <= INSURANCE_RENEWAL_DAYS) {
+  // --- Cash flow: last three complete months --------------------------------
+  const months: string[] = [];
+  for (let i = 1; i <= 3; i++) months.push(ymKey(new Date(now.getFullYear(), now.getMonth() - i, 1)));
+  const window = reports.flows.filter((f) => months.includes(f.month));
+  const income = window.filter((f) => f.kind === "income").reduce((s, f) => s + f.amount, 0);
+  const spend = window.filter((f) => f.kind === "spend").reduce((s, f) => s + f.amount, 0);
+  const invested = window.filter((f) => f.kind === "invest").reduce((s, f) => s + f.amount, 0);
+  if (income > 0) {
+    const rate = (income - spend) / income;
+    cards.push({
+      section: "Cash flow",
+      title: "Savings rate, trailing 3 months",
+      math: `(${formatMath(income)} income − ${formatMath(spend)} spending) ÷ ${formatMath(income)} income`,
+      value: formatPctValue(rate),
+      tone: rate < 0.1 ? "negative" : rate >= 0.2 ? "positive" : "neutral",
+    });
+    const housing = window
+      .filter((f) => f.kind === "spend" && (f.category === "Loan payments" || f.category === "Rent and utilities"))
+      .reduce((s, f) => s + f.amount, 0);
+    if (housing > 0) {
+      const share = housing / income;
       cards.push({
-        section: "Insurance",
-        title: `${p.carrier} renewal`,
-        math: `Renewal ${p.renewalDate.toISOString().slice(0, 10)} − today = ${days} days`,
-        value: days < 0 ? "Expired" : `${days} days`,
-        tone: days <= 30 ? "negative" : "neutral",
+        section: "Cash flow",
+        title: "Housing and debt service share of income",
+        math: `${formatMath(housing)} loan, rent and utility payments ÷ ${formatMath(income)} income, trailing 3 months`,
+        value: formatPctValue(share),
+        tone: share > 0.36 ? "negative" : share <= 0.28 ? "positive" : "neutral",
+      });
+    }
+    if (invested > 0) {
+      cards.push({
+        section: "Cash flow",
+        title: "Share of income sent to investments",
+        math: `${formatMath(invested)} transferred to brokerage or retirement ÷ ${formatMath(income)} income, trailing 3 months`,
+        value: formatPctValue(invested / income),
+        tone: "neutral",
+      });
+    }
+    const monthly = months.map((m) => {
+      const rows = reports.flows.filter((f) => f.month === m && f.kind === "spend");
+      return rows.reduce((s, f) => s + f.amount, 0);
+    });
+    const avg = monthly.reduce((s, v) => s + v, 0) / monthly.length;
+    const latest = monthly[0];
+    if (avg > 0 && latest > 0) {
+      const drift = (latest - avg) / avg;
+      cards.push({
+        section: "Cash flow",
+        title: "Last month's spending vs 3-month average",
+        math: `${formatMath(latest)} last month vs ${formatMath(avg)} average`,
+        value: `${drift >= 0 ? "+" : "−"}${formatPctValue(Math.abs(drift))}`,
+        tone: drift > 0.15 ? "negative" : drift < -0.05 ? "positive" : "neutral",
       });
     }
   }
 
-  const merchants = await unusualMerchants(filter);
-  cards.push(...merchants);
+  // --- Annual run-rate ---------------------------------------------------------
+  // Plaid hands over ~90 days of deposits, so a year of take-home is inferred from paycheck cadence,
+  // and a year of spending from the complete months on file.
+  const pay = annualisedPaychecks(reports.flows);
+  if (pay.annual > 0) {
+    cards.push({
+      section: "Annual run-rate",
+      title: "Take-home pay, annualised",
+      math: pay.sources
+        .map((s) => `${s.label}: ${formatMath(s.amount)} ${s.cadence} × ${s.perYear}`)
+        .join(" + "),
+      value: formatMath(pay.annual),
+      tone: "neutral",
+    });
+  }
+  const run = annualisedSpend(reports.flows, now);
+  if (run) {
+    cards.push({
+      section: "Annual run-rate",
+      title: "Total spending, annualised",
+      math: `${formatMath(run.total)} over ${run.basis} × ${run.factor}`,
+      value: formatMath(run.total * run.factor),
+      tone: "neutral",
+    });
+    cards.push({
+      section: "Annual run-rate",
+      title: "Discretionary spending, annualised",
+      math: `${formatMath(run.discretionary)} excluding loan payments and rent & utilities, over ${run.basis} × ${run.factor}`,
+      value: formatMath(run.discretionary * run.factor),
+      tone: "neutral",
+    });
+  }
 
-  return { cards, overviewNet: overview.netWorth };
+  // --- Balance sheet ----------------------------------------------------------
+  const grossAssets = overview.netWorth + overview.tiles.liabilities;
+  if (grossAssets > 0) {
+    const ratio = overview.tiles.liabilities / grossAssets;
+    cards.push({
+      section: "Balance sheet",
+      title: "Debt to assets",
+      math: `${formatMath(overview.tiles.liabilities)} liabilities ÷ ${formatMath(grossAssets)} gross assets`,
+      value: formatPctValue(ratio),
+      tone: ratio > 0.5 ? "negative" : ratio <= 0.3 ? "positive" : "neutral",
+    });
+  }
+  if (overview.monthChange != null && overview.netWorth > 0) {
+    const pct = overview.monthChange / (overview.netWorth - overview.monthChange);
+    cards.push({
+      section: "Balance sheet",
+      title: "Net worth change, 30 days",
+      math: `${formatMath(overview.netWorth)} today vs ${formatMath(overview.netWorth - overview.monthChange)} a month ago`,
+      value: `${overview.monthChange >= 0 ? "+" : "−"}${formatPctValue(Math.abs(pct))}`,
+      tone: overview.monthChange >= 0 ? "positive" : "negative",
+    });
+  }
+  const a = overview.allocation;
+  const investable = a.stocks + a.crypto + a.retirement;
+  if (overview.netWorth > 0 && a.retirement > 0) {
+    cards.push({
+      section: "Balance sheet",
+      title: "Retirement share of net worth",
+      math: `${formatMath(a.retirement)} in tax-advantaged accounts ÷ ${formatMath(overview.netWorth)} net worth`,
+      value: formatPctValue(a.retirement / overview.netWorth),
+      tone: "neutral",
+    });
+  }
+  if (overview.netWorth > 0 && a.real_estate > 0) {
+    cards.push({
+      section: "Balance sheet",
+      title: "Home equity share of net worth",
+      math: `${formatMath(a.real_estate)} real-estate equity ÷ ${formatMath(overview.netWorth)} net worth`,
+      value: formatPctValue(a.real_estate / overview.netWorth),
+      tone: a.real_estate / overview.netWorth > 0.5 ? "negative" : "neutral",
+    });
+  }
+
+  // --- Portfolio --------------------------------------------------------------
+  if (investable > 0) {
+    const top = [...overview.movers].sort((x, y) => Math.abs(y.value) - Math.abs(x.value))[0];
+    if (top) {
+      const weight = Math.abs(top.value) / investable;
+      cards.push({
+        section: "Portfolio",
+        title: `Largest position: ${top.symbol ?? top.name}`,
+        math: `${formatMath(Math.abs(top.value))} ÷ ${formatMath(investable)} invested`,
+        value: formatPctValue(weight),
+        tone: weight > 0.25 ? "negative" : "neutral",
+      });
+    }
+    if (a.crypto > 0) {
+      const share = a.crypto / investable;
+      cards.push({
+        section: "Portfolio",
+        title: "Crypto share of invested assets",
+        math: `${formatMath(a.crypto)} crypto ÷ ${formatMath(investable)} invested`,
+        value: formatPctValue(share),
+        tone: share > 0.2 ? "negative" : "neutral",
+      });
+    }
+  }
+
+  // --- Credit -----------------------------------------------------------------
+  const cards_ = accs.filter((x) => x.hausType === "credit_card" && x.limitAmount && x.limitAmount > 0);
+  if (cards_.length) {
+    const used = cards_.reduce((s, x) => s + Math.abs(x.currentBalance ?? 0), 0);
+    const limit = cards_.reduce((s, x) => s + (x.limitAmount ?? 0), 0);
+    const util = used / limit;
+    cards.push({
+      section: "Credit",
+      title: "Card utilization",
+      math: `${formatMath(used)} balances ÷ ${formatMath(limit)} combined limits across ${cards_.length} card${cards_.length === 1 ? "" : "s"}`,
+      value: formatPctValue(util),
+      tone: util > 0.3 ? "negative" : util < 0.1 ? "positive" : "neutral",
+    });
+  }
+
+  return { cards };
+}
+
+type Flow = { date: string; month: string; kind: "spend" | "income" | "invest"; category: string; merchant: string; amount: number };
+
+function median(xs: number[]) {
+  const s = [...xs].sort((a, b) => a - b);
+  const mid = Math.floor(s.length / 2);
+  return s.length % 2 ? s[mid] : (s[mid - 1] + s[mid]) / 2;
+}
+
+/** True for employment take-home (salary / contractor). Excludes interest, rentals, credits. */
+function isTakeHome(category: string) {
+  const c = category.toLowerCase();
+  return c.startsWith("income") && !c.includes("interest");
+}
+
+/**
+ * Cluster deposits that land within ~20% of each other. A single employer often pays two
+ * fixed streams (e.g. Microsoft $3,118 + $1,100) that look "unstable" if lumped together.
+ */
+function amountClusters(rows: { date: number; amount: number }[]) {
+  const sorted = [...rows].sort((a, b) => a.amount - b.amount);
+  const clusters: { date: number; amount: number }[][] = [];
+  for (const row of sorted) {
+    const last = clusters[clusters.length - 1];
+    const pivot = last ? median(last.map((r) => r.amount)) : 0;
+    if (last && pivot > 0 && Math.abs(row.amount - pivot) / pivot <= 0.2) last.push(row);
+    else clusters.push([row]);
+  }
+  return clusters;
+}
+
+function cadenceOf(dates: number[]): { cadence: string; perYear: number } | null {
+  if (dates.length < 3) return null;
+  const sorted = [...dates].sort((a, b) => a - b);
+  const gaps: number[] = [];
+  for (let i = 1; i < sorted.length; i++) gaps.push((sorted[i] - sorted[i - 1]) / 86400000);
+  const avg = gaps.reduce((s, x) => s + x, 0) / gaps.length;
+  if (avg >= 6 && avg <= 8) return { cadence: "weekly", perYear: 52 };
+  if (avg >= 13 && avg <= 15 && gaps.every((d) => d >= 12 && d <= 16)) return { cadence: "biweekly", perYear: 26 };
+  if (avg >= 13 && avg <= 17) return { cadence: "semi-monthly", perYear: 24 };
+  if (avg >= 26 && avg <= 35) return { cadence: "monthly", perYear: 12 };
+  return null;
+}
+
+/** All holders' repeating take-home deposits, scaled to a year. Amount-clustered per merchant. */
+export function annualisedPaychecks(flows: Flow[]) {
+  const byMerchant = new Map<string, { label: string; rows: { date: number; amount: number }[] }>();
+  for (const f of flows) {
+    if (f.kind !== "income" || !isTakeHome(f.category)) continue;
+    const key = recurringMerchantKey(f.merchant);
+    if (!key) continue;
+    const g = byMerchant.get(key) ?? { label: f.merchant, rows: [] };
+    g.rows.push({ date: Date.parse(f.date), amount: f.amount });
+    byMerchant.set(key, g);
+  }
+  const sources: { label: string; amount: number; cadence: string; perYear: number }[] = [];
+  for (const g of byMerchant.values()) {
+    for (const cluster of amountClusters(g.rows)) {
+      // Drop one-off outliers (bonuses) that sit far from the cluster median.
+      const med0 = median(cluster.map((r) => r.amount));
+      const steady = cluster.filter((r) => med0 > 0 && Math.abs(r.amount - med0) / med0 <= 0.2);
+      if (steady.length < 3) continue;
+      const hit = cadenceOf(steady.map((r) => r.date));
+      if (!hit) continue;
+      const amount = median(steady.map((r) => r.amount));
+      if (amount <= 0) continue;
+      sources.push({ label: g.label, amount, cadence: hit.cadence, perYear: hit.perYear });
+    }
+  }
+  sources.sort((a, b) => b.amount * b.perYear - a.amount * a.perYear);
+  return { annual: sources.reduce((s, x) => s + x.amount * x.perYear, 0), sources };
+}
+
+const FIXED_SPEND = new Set(["Loan payments", "Rent and utilities"]);
+
+/** Spend over the most recent complete months, with the factor that scales it to a year.
+ *  Capped at three because Plaid's initial pull covers ~90 days; older months are usually thin. */
+export function annualisedSpend(flows: Flow[], now: Date) {
+  const current = ymKey(now);
+  const spend = flows.filter((f) => f.kind === "spend");
+  const months = [...new Set(spend.map((f) => f.month))].filter((m) => m < current).sort().slice(-3);
+  if (months.length === 0) {
+    // Only the current month so far: scale by the days elapsed.
+    const days = Math.max(1, now.getDate());
+    const rows = spend.filter((f) => f.month === current);
+    if (rows.length === 0) return null;
+    const total = rows.reduce((s, f) => s + f.amount, 0);
+    const discretionary = rows.filter((f) => !FIXED_SPEND.has(f.category)).reduce((s, f) => s + f.amount, 0);
+    return { total, discretionary, basis: `${days} days`, factor: Math.round((365 / days) * 10) / 10 };
+  }
+  const set = new Set(months);
+  const rows = spend.filter((f) => set.has(f.month));
+  const total = rows.reduce((s, f) => s + f.amount, 0);
+  const discretionary = rows.filter((f) => !FIXED_SPEND.has(f.category)).reduce((s, f) => s + f.amount, 0);
+  const n = months.length;
+  return {
+    total,
+    discretionary,
+    basis: `${n} complete month${n === 1 ? "" : "s"}`,
+    factor: Math.round((12 / n) * 100) / 100,
+  };
 }
 
 function formatMath(n: number) {
   return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 }).format(n);
 }
 
-async function unusualMerchants(filter: OwnerFilter) {
-  const since = subDays(new Date(), 90);
-  const hidden = await hiddenMerchantKeys();
-  const txns = notHidden(
-    await prisma.txn.findMany({
-      where: { date: { gte: since }, pending: false },
-      include: { account: true },
-    }),
-    hidden,
-  ).filter((t) => matchesOwner(t.account.owner, filter) && t.amount > 0 && !isInternalMove(t));
-  const monthStart = new Date(new Date().getFullYear(), new Date().getMonth(), 1);
-  const groups = new Map<string, { label: string; month: number[]; prior: number[] }>();
-  for (const t of txns) {
-    const label = t.userMerchant || t.merchantName || t.name;
-    const key = label.toLowerCase();
-    const g = groups.get(key) ?? { label, month: [], prior: [] };
-    if (t.date >= monthStart) g.month.push(t.amount);
-    else g.prior.push(t.amount);
-    groups.set(key, g);
-  }
-  const cards: {
-    section: string;
-    title: string;
-    math: string;
-    value: string;
-    tone: "neutral" | "positive" | "negative";
-  }[] = [];
-  for (const g of groups.values()) {
-    if (g.prior.length < 2 || g.month.length === 0) continue;
-    const avg = g.prior.reduce((s, x) => s + x, 0) / g.prior.length;
-    const latest = g.month[g.month.length - 1];
-    if (avg > 0 && latest > avg * 2 && latest >= 80) {
-      cards.push({
-        section: "Activity",
-        title: `Unusual spend · ${g.label}`,
-        math: `Latest ${formatMath(latest)} vs 90-day merchant average ${formatMath(avg)}`,
-        value: `${((latest / avg - 1) * 100).toFixed(0)}% above avg`,
-        tone: "negative",
-      });
-    }
-  }
-  return cards.slice(0, 4);
+function formatPctValue(ratio: number) {
+  const pct = ratio * 100;
+  return `${pct.toFixed(Math.abs(pct) < 10 ? 1 : 0)}%`;
 }
 
 export async function getSettings() {

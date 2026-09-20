@@ -6,7 +6,16 @@ import { RefreshCw } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "./ui/button";
 
-export function RefreshButton({ lastSynced }: { lastSynced?: string | null }) {
+export function RefreshButton({
+  lastSynced,
+  iconOnly,
+  autoSync = true,
+}: {
+  lastSynced?: string | null;
+  iconOnly?: boolean;
+  /** Only one mounted instance should own the stale-ledger auto refresh. */
+  autoSync?: boolean;
+}) {
   const router = useRouter();
   const [busy, setBusy] = useState(false);
 
@@ -32,12 +41,28 @@ export function RefreshButton({ lastSynced }: { lastSynced?: string | null }) {
   }
 
   useEffect(() => {
+    if (!autoSync) return;
     const stale =
       !lastSynced || Date.now() - new Date(lastSynced).getTime() > 4 * 60 * 60 * 1000;
     if (stale) refresh(false);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  if (iconOnly) {
+    return (
+      <Button
+        variant="outline"
+        size="icon"
+        className="h-8 w-8"
+        onClick={() => refresh(true)}
+        disabled={busy}
+        aria-label={busy ? "Refreshing" : "Refresh all"}
+        title="Refresh all"
+      >
+        <RefreshCw className={busy ? "animate-spin" : ""} />
+      </Button>
+    );
+  }
   return (
     <Button variant="outline" size="sm" onClick={() => refresh(true)} disabled={busy}>
       <RefreshCw className={busy ? "animate-spin" : ""} />

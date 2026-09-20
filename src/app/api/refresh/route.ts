@@ -6,6 +6,7 @@ import { STALE_SYNC_HOURS } from "@/lib/constants";
 import { plaidConfigured } from "@/lib/env";
 import { enrichHoldingsQuotes, ensurePriceHistory } from "@/lib/quotes";
 import { syncAllWallets } from "@/lib/crypto-wallets";
+import { invalidateNetWorthPath } from "@/lib/history";
 
 export const dynamic = "force-dynamic";
 
@@ -18,6 +19,7 @@ export async function POST(req: Request) {
     await enrichHoldingsQuotes();
     await syncAllWallets().catch(() => null);
     await snapshotNetWorth();
+    invalidateNetWorthPath();
     return NextResponse.json({ ok: true, message: "Quotes refreshed." });
   }
   if (!plaidConfigured()) {
@@ -69,5 +71,6 @@ export async function POST(req: Request) {
     from,
     new Date(),
   ).catch(() => null);
+  invalidateNetWorthPath();
   return NextResponse.json({ ok: true, message: "Household ledger refreshed.", results });
 }

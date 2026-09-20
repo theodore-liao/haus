@@ -112,7 +112,7 @@ export function InsuranceDesk({
 
   return (
     <Tabs value={section} onValueChange={setSection}>
-      <TabsList className="flex h-auto flex-wrap">
+      <TabsList>
         {SECTIONS.map((s) => (
           <TabsTrigger key={s.id} value={s.id}>
             {s.label}
@@ -124,13 +124,16 @@ export function InsuranceDesk({
           return (
             <TabsContent key={s.id} value={s.id} className="space-y-4">
               <Tabs value={healthMember} onValueChange={setHealthMember}>
-                <TabsList className="flex h-auto flex-wrap">
-                  {members.map((m) => (
-                    <TabsTrigger key={m.id} value={m.id}>
-                      {m.label}
-                    </TabsTrigger>
-                  ))}
-                </TabsList>
+                <div className="section-head">
+                  <span className="kicker">Covered member</span>
+                  <TabsList>
+                    {members.map((m) => (
+                      <TabsTrigger key={m.id} value={m.id}>
+                        {m.label}
+                      </TabsTrigger>
+                    ))}
+                  </TabsList>
+                </div>
                 {members.map((m) => (
                   <TabsContent key={m.id} value={m.id}>
                     <div className="grid grid-cols-3 gap-4">
@@ -222,8 +225,8 @@ function CardSlot({
 
   return (
     <Card className="w-full">
-      <CardContent className="space-y-2 p-3">
-        <div className="text-sm font-medium">{title}</div>
+      <CardContent className="space-y-3 p-4">
+        <div className="kicker">{title}</div>
         {doc?.mimeType.startsWith("image/") ? (
           <a href={`/api/insurance/files/${doc.id}`} target="_blank" rel="noreferrer">
             {/* eslint-disable-next-line @next/next/no-img-element */}

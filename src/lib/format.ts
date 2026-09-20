@@ -57,6 +57,29 @@ export function formatHoldingClass(raw: string | null | undefined): string {
   return key.replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
+/** Donut legends: underscores to spaces, first character capitalized. */
+export function formatLegendLabel(raw: string): string {
+  const t = raw.replaceAll("_", " ").trim();
+  if (!t) return t;
+  return t.charAt(0).toUpperCase() + t.slice(1);
+}
+
+export const HOLDER_SEP = " - ";
+
+/** Split `Account - Holder` so the holder can stay visible when the head is truncated. */
+export function splitHolder(label: string): { head: string; holder: string | null } {
+  const t = label.replace(/\s+/g, " ").trim();
+  const i = t.lastIndexOf(HOLDER_SEP);
+  if (i <= 0) return { head: t, holder: null };
+  return { head: t.slice(0, i), holder: t.slice(i + HOLDER_SEP.length) };
+}
+
+export function ellipsize(s: string, max = 36): string {
+  const t = s.replace(/\s+/g, " ").trim();
+  if (t.length <= max) return t;
+  return `${t.slice(0, Math.max(1, max - 1)).trimEnd()}…`;
+}
+
 export function formatDate(d: Date | string | null | undefined): string {
   if (!d) return "—";
   const date = typeof d === "string" ? new Date(d) : d;

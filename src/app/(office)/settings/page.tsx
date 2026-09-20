@@ -9,7 +9,19 @@ export default async function SettingsPage() {
   return (
     <>
       <PageHeader title="Settings" />
-      <SettingsClient nameA={data.names.nameA} nameB={data.names.nameB} />
+      <SettingsClient
+        nameA={data.names.nameA}
+        nameB={data.names.nameB}
+        birthdateA={data.names.birthdateA}
+        birthdateB={data.names.birthdateB}
+        householdChildren={data.names.children}
+        connectionCount={data.items.length}
+        lastSynced={data.items.reduce<string | null>((latest, i) => {
+          if (!i.lastSyncedAt) return latest;
+          const iso = i.lastSyncedAt.toISOString();
+          return !latest || iso > latest ? iso : latest;
+        }, null)}
+      />
     </>
   );
 }

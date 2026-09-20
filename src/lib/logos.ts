@@ -120,6 +120,16 @@ export function cryptoLogoUrl(symbol: string) {
   return `https://assets.coincap.io/assets/icons/${encodeURIComponent(symbol.toLowerCase())}@2x.png`;
 }
 
+/** Symbol-keyed sources tried in order when we have no CoinGecko image for a token. */
+export function cryptoLogoCandidates(symbol: string) {
+  const s = symbol.toLowerCase();
+  return [
+    cryptoLogoUrl(s),
+    `https://cdn.jsdelivr.net/gh/spothq/cryptocurrency-icons@master/128/color/${encodeURIComponent(s)}.png`,
+    `https://raw.githubusercontent.com/spothq/cryptocurrency-icons/master/128/color/${encodeURIComponent(s)}.png`,
+  ];
+}
+
 const CHAIN_LOGO: Record<string, { symbol?: string; src?: string; name: string }> = {
   solana: { symbol: "sol", name: "Solana" },
   sui: { symbol: "sui", name: "Sui" },
@@ -175,11 +185,24 @@ export function brandLogoUrl(
   kind: BrandKind,
   opts: { name?: string | null; symbol?: string | null; src?: string | null },
 ) {
-  if (opts.src) return opts.src;
-  if ((kind === "security" || kind === "crypto") && opts.symbol) {
-    if (kind === "crypto") return cryptoLogoUrl(opts.symbol);
-    return securityLogoUrl(opts.symbol);
+  return brandLogoCandidates(kind, opts)[0] ?? null;
+}
+
+/** Ordered list of URLs to try; the mark falls through on 404 before showing an initial. */
+export function brandLogoCandidates(
+  kind: BrandKind,
+  opts: { name?: string | null; symbol?: string | null; src?: string | null },
+): string[] {
+  const out: string[] = [];
+  if (opts.src) out.push(opts.src);
+  if (kind === "crypto" && opts.symbol) out.push(...cryptoLogoCandidates(opts.symbol));
+  else if (kind === "security" && opts.symbol) out.push(securityLogoUrl(opts.symbol));
+  else if (kind === "institution") {
+    const u = institutionLogoUrl(opts.name);
+    if (u) out.push(u);
+  } else if (kind === "merchant") {
+    const u = merchantLogoUrl(opts.name);
+    if (u) out.push(u);
   }
-  if (kind === "institution") return institutionLogoUrl(opts.name);
-  return merchantLogoUrl(opts.name);
+  return out;
 }

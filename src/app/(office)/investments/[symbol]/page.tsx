@@ -3,6 +3,7 @@ import { PageHeader } from "@/components/page-header";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Money, Delta } from "@/components/money";
+import { Pills, Pill } from "@/components/pills";
 import { getSymbolDetail } from "@/lib/queries";
 import { getOwnerFilter } from "@/lib/request";
 import { formatDate } from "@/lib/format";
@@ -21,12 +22,18 @@ export default async function SymbolPage({ params }: { params: Promise<{ symbol:
   return (
     <>
       <PageHeader title={data.symbol} />
-      <div className="grid gap-4 sm:grid-cols-3">
-        <Stat label="Quantity" text={qty.toLocaleString()} />
-        <Stat label="Value" money={value} />
-        <Stat label="Cost basis" money={cost} />
-      </div>
-      <Card className="mt-4">
+      <Pills>
+        <Pill kicker="Quantity" accent="#A898CC">
+          {qty.toLocaleString()}
+        </Pill>
+        <Pill kicker="Value" accent="#7EABD4">
+          <Money value={value} />
+        </Pill>
+        <Pill kicker="Cost basis" accent="#D4BE7A">
+          <Money value={cost} />
+        </Pill>
+      </Pills>
+      <Card>
         <CardHeader>
           <CardTitle>Lots</CardTitle>
         </CardHeader>
@@ -36,11 +43,11 @@ export default async function SymbolPage({ params }: { params: Promise<{ symbol:
               <TableRow>
                 <TableHead>Account</TableHead>
                 <TableHead>Holder</TableHead>
-                <TableHead className="text-right">Qty</TableHead>
-                <TableHead className="text-right">Last</TableHead>
-                <TableHead className="text-right">Value</TableHead>
-                <TableHead className="text-right">Cost</TableHead>
-                <TableHead className="text-right">Day P/L</TableHead>
+                <TableHead className="num">Qty</TableHead>
+                <TableHead className="num">Last</TableHead>
+                <TableHead className="num">Value</TableHead>
+                <TableHead className="num">Cost</TableHead>
+                <TableHead className="num">Day P/L</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -50,21 +57,23 @@ export default async function SymbolPage({ params }: { params: Promise<{ symbol:
                 return (
                   <TableRow key={h.id}>
                     <TableCell>
-                      {h.account}
-                      <div className="text-xs text-muted-foreground">{h.institution}</div>
+                      <span className="cell-stack">
+                        <span>{h.account}</span>
+                        <span>{h.institution}</span>
+                      </span>
                     </TableCell>
                     <TableCell>{h.ownerLabel}</TableCell>
-                    <TableCell className="text-right font-mono tabular-nums">{h.quantity}</TableCell>
-                    <TableCell className="text-right">
+                    <TableCell className="num">{h.quantity}</TableCell>
+                    <TableCell className="num">
                       <Money value={last} />
                     </TableCell>
-                    <TableCell className="text-right">
+                    <TableCell className="num">
                       <Money value={val} />
                     </TableCell>
-                    <TableCell className="text-right">
+                    <TableCell className="num text-muted-foreground">
                       <Money value={h.costBasis} />
                     </TableCell>
-                    <TableCell className="text-right">
+                    <TableCell className="num">
                       <Delta value={h.quoteChange != null ? h.quoteChange * h.quantity : null} pct={h.quoteChangePct} />
                     </TableCell>
                   </TableRow>
@@ -74,7 +83,7 @@ export default async function SymbolPage({ params }: { params: Promise<{ symbol:
           </Table>
         </CardContent>
       </Card>
-      <Card className="mt-4">
+      <Card>
         <CardHeader>
           <CardTitle>Synced transactions</CardTitle>
         </CardHeader>
@@ -85,24 +94,29 @@ export default async function SymbolPage({ params }: { params: Promise<{ symbol:
                 <TableHead>Date</TableHead>
                 <TableHead>Type</TableHead>
                 <TableHead>Account</TableHead>
-                <TableHead className="text-right">Qty</TableHead>
-                <TableHead className="text-right">Price</TableHead>
-                <TableHead className="text-right">Amount</TableHead>
+                <TableHead className="num">Qty</TableHead>
+                <TableHead className="num">Price</TableHead>
+                <TableHead className="num">Amount</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {data.trades.map((t) => (
                 <TableRow key={t.id}>
-                  <TableCell className="font-mono tabular-nums">{formatDate(t.date)}</TableCell>
-                  <TableCell>
-                    {t.type} {t.subtype ?? ""}
+                  <TableCell className="whitespace-nowrap text-muted-foreground">
+                    <span className="num">{formatDate(t.date)}</span>
+                  </TableCell>
+                  <TableCell className="capitalize">
+                    {t.type}
+                    {t.subtype && t.subtype.toLowerCase() !== t.type.toLowerCase() ? (
+                      <span className="text-muted-foreground"> · {t.subtype}</span>
+                    ) : null}
                   </TableCell>
                   <TableCell>{t.accountLabel}</TableCell>
-                  <TableCell className="text-right font-mono tabular-nums">{t.quantity ?? "—"}</TableCell>
-                  <TableCell className="text-right">
+                  <TableCell className="num">{t.quantity ?? "—"}</TableCell>
+                  <TableCell className="num">
                     <Money value={t.price} />
                   </TableCell>
-                  <TableCell className="text-right">
+                  <TableCell className="num">
                     <Money value={t.amount} />
                   </TableCell>
                 </TableRow>
@@ -112,18 +126,5 @@ export default async function SymbolPage({ params }: { params: Promise<{ symbol:
         </CardContent>
       </Card>
     </>
-  );
-}
-
-function Stat({ label, money, text }: { label: string; money?: number; text?: string }) {
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle>{label}</CardTitle>
-      </CardHeader>
-      <CardContent className="text-xl font-medium">
-        {text ?? <Money value={money} />}
-      </CardContent>
-    </Card>
   );
 }

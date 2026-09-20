@@ -17,7 +17,7 @@ export function EmptyLedger({
       <div className="mb-5 flex h-10 w-10 items-center justify-center rounded-md border border-border text-muted-foreground">
         <Landmark className="h-5 w-5" />
       </div>
-      <h2 className="text-lg font-medium tracking-tight">{title}</h2>
+      <h2 className="text-base font-medium">{title}</h2>
       <p className="mt-2 max-w-md text-sm leading-6 text-muted-foreground">{body}</p>
       {showConnect && (
         <div className="mt-6">

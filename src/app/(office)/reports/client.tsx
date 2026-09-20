@@ -3,15 +3,15 @@
 import { useMemo, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Money } from "@/components/money";
+import { HeroCard } from "@/components/hero-card";
+import { Pills, Pill } from "@/components/pills";
+import { ChartCard } from "@/components/chart-card";
 import { AllocationChart, CashflowSankey, FROM_SAVINGS, OTHER_CATEGORIES, TO_SAVINGS } from "@/components/charts";
-import { formatDate } from "@/lib/format";
+import { formatDate, formatPct } from "@/lib/format";
 import { ReportRange } from "@/components/chart-range";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { asLocalDate, defaultReportWindow, inWindow, ymKey, type WindowKey } from "@/lib/range";
 import { format } from "date-fns";
-import { formatPct } from "@/lib/format";
-import { Delta } from "@/components/money";
-import { cn } from "@/lib/utils";
 import { CategoryMerchantDialog, aggregateMerchants, type MerchantLine } from "@/components/category-merchants";
 import { BrandLabel } from "@/components/brand-mark";
 
@@ -166,7 +166,7 @@ export function ReportsClient({
   return (
     <>
       <Tabs defaultValue="cashflow">
-        <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="section-head mb-4">
           <TabsList>
             <TabsTrigger value="cashflow">Cash flow</TabsTrigger>
             <TabsTrigger value="spending">Spending</TabsTrigger>
@@ -176,28 +176,20 @@ export function ReportsClient({
         </div>
 
         <TabsContent value="cashflow">
-          <div className="grid gap-4 sm:grid-cols-3">
-            <Stat label="Income" value={incomeAll} />
-            <Stat label="Spending" value={spendAll} />
-            <Card>
-              <CardHeader>
-                <CardTitle>Savings rate</CardTitle>
-              </CardHeader>
-              <CardContent
-                className={cn(
-                  "text-xl font-medium font-mono tabular-nums",
-                  incomeAll > 0 && savings > 0 && "text-positive",
-                  incomeAll > 0 && savings < 0 && "text-negative",
-                )}
-              >
-                {incomeAll > 0 ? formatPct((savings / incomeAll) * 100, 0, true) : "—"}
-              </CardContent>
-            </Card>
-          </div>
+          <Pills>
+            <Pill kicker="Income" accent="#7EABD4">
+              <Money value={incomeAll} />
+            </Pill>
+            <Pill kicker="Spending" accent="#D4928C">
+              <Money value={spendAll} />
+            </Pill>
+            <Pill kicker="Net Movement" accent="#7DB8A4">
+              <Money value={savings} signed />
+            </Pill>
+          </Pills>
           <Card className="mt-4">
-            <CardHeader className="flex flex-row items-center justify-between space-y-0">
+            <CardHeader row>
               <CardTitle>Where money moves</CardTitle>
-              <Delta value={savings} className="text-lg" />
             </CardHeader>
             <CardContent>
               <CashflowSankey
@@ -247,8 +239,8 @@ export function ReportsClient({
                     </div>
                     <div className="text-right">
                       <Money value={r.amount} className="text-sm" />
-                      <div className="text-[11px] text-muted-foreground">
-                        <Money value={r.annual} className="text-[11px]" /> / yr
+                      <div className="footnote">
+                        <Money value={r.annual} /> / yr
                       </div>
                     </div>
                   </div>
@@ -262,37 +254,37 @@ export function ReportsClient({
             </CardHeader>
             <CardContent className="px-0 pb-0">
               <div className="max-h-[min(28rem,calc(100dvh-18rem))] overflow-y-auto overscroll-contain">
-                <table className="w-full text-sm">
+                <table className="data-table">
                   <thead className="sticky top-0 z-10 bg-card">
-                    <tr className="border-b border-border text-[11px] uppercase tracking-[0.08em] text-muted-foreground">
-                      <th className="px-5 py-2 text-left font-medium">Month</th>
-                      <th className="px-5 py-2 text-right font-medium">Income</th>
-                      <th className="px-5 py-2 text-right font-medium">Spend</th>
-                      <th className="px-5 py-2 text-right font-medium">Saved</th>
-                      <th className="px-5 py-2 text-right font-medium">Rate</th>
+                    <tr className="border-b border-border">
+                      <th className="kicker">Month</th>
+                      <th className="kicker num">Income</th>
+                      <th className="kicker num">Spend</th>
+                      <th className="kicker num">Saved</th>
+                      <th className="kicker num">Rate</th>
                     </tr>
                   </thead>
                   <tbody>
                     {months.length === 0 ? (
                       <tr>
-                        <td colSpan={5} className="px-5 py-8 text-center text-muted-foreground">
+                        <td colSpan={5} className="py-8 text-center text-muted-foreground">
                           No cashflow yet.
                         </td>
                       </tr>
                     ) : (
                       months.map((m) => (
                         <tr key={m.month} className="border-b border-border last:border-0">
-                          <td className="px-5 py-2">{m.label}</td>
-                          <td className="px-5 py-2 text-right">
+                          <td>{m.label}</td>
+                          <td className="num">
                             <Money value={m.income} />
                           </td>
-                          <td className="px-5 py-2 text-right">
+                          <td className="num">
                             <Money value={m.spend} />
                           </td>
-                          <td className="px-5 py-2 text-right">
+                          <td className="num">
                             <Money value={m.savings} signed />
                           </td>
-                          <td className="px-5 py-2 text-right font-mono tabular-nums">
+                          <td className="num">
                             {m.income > 0 ? formatPct((m.savings / m.income) * 100, 0, true) : "—"}
                           </td>
                         </tr>
@@ -307,60 +299,42 @@ export function ReportsClient({
 
         <TabsContent value="spending">
           <div className="mb-4 flex flex-wrap items-end justify-between gap-3">
-            <div>
-              <div className="text-[12px] uppercase tracking-[0.1em] text-muted-foreground">Spending</div>
-              <div className="text-3xl font-medium font-mono tabular-nums">
-                <Money value={spend} />
-              </div>
-            </div>
+            <HeroCard kicker="Spending">
+              <Money value={spend} />
+            </HeroCard>
             <NetRefundsToggle checked={netRefunds} onChange={setNet} />
           </div>
-          <Card>
-            <CardHeader>
-              <CardTitle>By category</CardTitle>
-            </CardHeader>
-            <CardContent>
+          <ChartCard kicker="By category">
               <AllocationChart
                 key={netRefunds ? "spend-net" : "spend-raw"}
                 data={spendRows.map((r) => ({ key: r.label, value: r.value }))}
-                large
                 showPercent
                 selectable
                 selected={spendSel}
                 onToggle={(key) => toggle(spendSel, key, spendKeys, setSpendSel)}
                 onSliceClick={(label) => setPopup({ kind: "spend", title: label, from: "tabs" })}
               />
-            </CardContent>
-          </Card>
+          </ChartCard>
         </TabsContent>
 
         <TabsContent value="income">
           <div className="mb-4 flex flex-wrap items-end justify-between gap-3">
-            <div>
-              <div className="text-[12px] uppercase tracking-[0.1em] text-muted-foreground">Income</div>
-              <div className="text-3xl font-medium font-mono tabular-nums">
-                <Money value={income} />
-              </div>
-            </div>
+            <HeroCard kicker="Income">
+              <Money value={income} />
+            </HeroCard>
             <NetRefundsToggle checked={netRefunds} onChange={setNet} />
           </div>
-          <Card>
-            <CardHeader>
-              <CardTitle>By source</CardTitle>
-            </CardHeader>
-            <CardContent>
+          <ChartCard kicker="By source">
               <AllocationChart
                 key={netRefunds ? "income-net" : "income-raw"}
                 data={incomeRows.map((r) => ({ key: r.label, value: r.value }))}
-                large
                 showPercent
                 selectable
                 selected={incomeSel}
                 onToggle={(key) => toggle(incomeSel, key, incomeKeys, setIncomeSel)}
                 onSliceClick={(label) => setPopup({ kind: "income", title: label, from: "tabs" })}
               />
-            </CardContent>
-          </Card>
+          </ChartCard>
         </TabsContent>
       </Tabs>
       <CategoryMerchantDialog
@@ -497,15 +471,4 @@ function NetRefundsToggle({
   );
 }
 
-function Stat({ label, value }: { label: string; value: number }) {
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle>{label}</CardTitle>
-      </CardHeader>
-      <CardContent className="text-xl font-medium">
-        <Money value={value} />
-      </CardContent>
-    </Card>
-  );
-}
+

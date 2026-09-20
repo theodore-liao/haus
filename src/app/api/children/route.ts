@@ -9,7 +9,18 @@ export async function POST(req: Request) {
   await requireSession();
   const parsed = z.object({ name: z.string().min(1).max(40) }).safeParse(await req.json());
   if (!parsed.success) return NextResponse.json({ error: "Name required." }, { status: 400 });
-  const child = await prisma.child.create({ data: { name: parsed.data.name } });
+  const child = await prisma.child.create({ data: { name: parsed.data.name.trim() } });
+  return NextResponse.json({ ok: true, child });
+}
+
+export async function PATCH(req: Request) {
+  await requireSession();
+  const parsed = z.object({ id: z.string().min(1), name: z.string().min(1).max(40) }).safeParse(await req.json());
+  if (!parsed.success) return NextResponse.json({ error: "Invalid payload." }, { status: 400 });
+  const child = await prisma.child.update({
+    where: { id: parsed.data.id },
+    data: { name: parsed.data.name.trim() },
+  });
   return NextResponse.json({ ok: true, child });
 }
 

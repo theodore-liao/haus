@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { ownerOptions } from "@/lib/owners";
+import { givenName, ownerOptions } from "@/lib/owners";
 
 type Existing = {
   id: string;
@@ -22,9 +22,11 @@ type Existing = {
 export function ChildrenForms({
   names,
   existing,
+  actions = "all",
 }: {
   names: { nameA: string; nameB: string; children: { id: string; name: string }[] };
   existing?: Existing;
+  actions?: "all" | "child" | "entry";
 }) {
   const router = useRouter();
   const [childOpen, setChildOpen] = useState(false);
@@ -38,12 +40,16 @@ export function ChildrenForms({
         </Button>
       ) : (
         <>
-          <Button variant="outline" size="sm" onClick={() => setChildOpen(true)}>
-            Add child
-          </Button>
-          <Button size="sm" onClick={() => setAcctOpen(true)}>
-            Add account
-          </Button>
+          {actions !== "entry" ? (
+            <Button variant="outline" size="sm" onClick={() => setChildOpen(true)}>
+              Add child
+            </Button>
+          ) : null}
+          {actions !== "child" ? (
+            <Button variant="outline" size="sm" onClick={() => setAcctOpen(true)}>
+              {actions === "entry" ? "Add entry" : "Add account"}
+            </Button>
+          ) : null}
         </>
       )}
       <Dialog open={childOpen} onOpenChange={setChildOpen}>
@@ -141,8 +147,22 @@ export function ChildrenForms({
               </select>
             </div>
             <div>
-              <Label>Beneficiary</Label>
-              <Input className="mt-1" name="beneficiary" defaultValue={existing?.beneficiary} />
+              <Label>For child</Label>
+              <select
+                name="beneficiary"
+                defaultValue={childIdFor(existing?.beneficiary, names.children)}
+                className="mt-1 flex h-9 w-full rounded-md border border-border bg-card px-3 text-sm"
+              >
+                <option value="">Unassigned</option>
+                {names.children.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {givenName(c.name) || c.name}
+                  </option>
+                ))}
+              </select>
+              {names.children.length === 0 ? (
+                <p className="mt-1 text-xs text-muted-foreground">Add children under Settings → Household first.</p>
+              ) : null}
             </div>
             <div>
               <Label>Balance</Label>
@@ -158,4 +178,14 @@ export function ChildrenForms({
       </Dialog>
     </>
   );
+}
+
+function childIdFor(raw: string | undefined, children: { id: string; name: string }[]) {
+  const b = (raw ?? "").trim();
+  if (!b) return "";
+  if (children.some((c) => c.id === b)) return b;
+  const hit = children.find(
+    (c) => c.name.toLowerCase() === b.toLowerCase() || givenName(c.name).toLowerCase() === givenName(b).toLowerCase(),
+  );
+  return hit?.id ?? "";
 }

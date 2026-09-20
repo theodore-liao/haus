@@ -3,11 +3,11 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Money } from "@/components/money";
+import { Money, HeroMetric } from "@/components/money";
 import { BrandLabel } from "@/components/brand-mark";
 import { lotValue } from "@/lib/crypto-lots";
 import { ownerOptions } from "@/lib/owners";
@@ -34,12 +34,11 @@ export function ManualAddBox({
 
   return (
     <Card className="h-full border-dashed">
-      <CardHeader className="flex flex-row items-start justify-between space-y-0">
+      <CardHeader row className="flex-nowrap items-start">
         <div>
-          <CardTitle className="text-sm font-medium normal-case tracking-normal text-foreground">Manual lots</CardTitle>
-          <div className="mt-1 text-lg font-medium font-mono tabular-nums">
+          <HeroMetric label="Manual lots">
             <Money value={total} />
-          </div>
+          </HeroMetric>
         </div>
         <Button type="button" size="sm" variant={open ? "ghost" : "default"} onClick={() => setOpen((v) => !v)}>
           {open ? "Close" : "Add"}
@@ -118,7 +117,7 @@ export function ManualAddBox({
                     {c.notes ? <span className="ml-1 text-muted-foreground">· {c.notes}</span> : null}
                   </span>
                 </BrandLabel>
-                <span className="flex shrink-0 items-center gap-2 font-mono tabular-nums">
+                <span className="flex shrink-0 items-center gap-2 num">
                   <Money value={lotValue(c)} />
                   <RemoveCrypto id={c.id} />
                 </span>

@@ -1,6 +1,7 @@
 import { PageHeader } from "@/components/page-header";
 import { EmptyLedger } from "@/components/states";
 import { Money } from "@/components/money";
+import { HeroCard } from "@/components/hero-card";
 import { prisma } from "@/lib/db";
 import { getBrokerageCrypto, getNames } from "@/lib/queries";
 import { getOwnerFilter } from "@/lib/request";
@@ -10,22 +11,35 @@ import { lotValue } from "@/lib/crypto-lots";
 import { InvestmentsBoard, type HoldingRow } from "@/components/holdings-table";
 import { AddWallet, SyncAllWallets } from "./form";
 import { WalletGrid } from "./wallet-grid";
-import { enrichCryptoQuotes } from "@/lib/quotes";
+import { enrichCryptoQuotesInBackground } from "@/lib/quotes";
+import { getCryptoLogoMap } from "@/lib/crypto-logos";
+import { COINGECKO_IDS } from "@/lib/crypto-assets";
 
 export const dynamic = "force-dynamic";
 
 export default async function CryptoPage() {
   const owner = await getOwnerFilter();
-  const names = await getNames();
-  await enrichCryptoQuotes().catch(() => null);
+  enrichCryptoQuotesInBackground();
 
-  const wallets = (await prisma.cryptoWallet.findMany({ include: { assets: true }, orderBy: { createdAt: "asc" } })).filter(
-    (w) => matchesOwner(w.owner, owner),
-  );
-  const manuals = (await prisma.manualHolding.findMany({ where: { kind: "crypto" } })).filter((c) =>
-    matchesOwner(c.owner, owner),
-  );
-  const brokerage = await getBrokerageCrypto(owner);
+  const [names, allWallets, allManuals, brokerage] = await Promise.all([
+    getNames(),
+    prisma.cryptoWallet.findMany({ include: { assets: true }, orderBy: { createdAt: "asc" } }),
+    prisma.manualHolding.findMany({ where: { kind: "crypto" } }),
+    getBrokerageCrypto(owner),
+  ]);
+  const wallets = allWallets.filter((w) => matchesOwner(w.owner, owner));
+  const manuals = allManuals.filter((c) => matchesOwner(c.owner, owner));
+
+  const geckoId = (symbol: string, id?: string | null) => id ?? COINGECKO_IDS[symbol.toUpperCase()]?.id ?? null;
+  const logos = await getCryptoLogoMap([
+    ...wallets.flatMap((w) => w.assets.map((a) => geckoId(a.symbol, a.coingeckoId))),
+    ...manuals.map((c) => geckoId(c.symbol, c.coingeckoId)),
+    ...brokerage.flatMap((g) => g.assets.map((a) => geckoId(a.symbol))),
+  ]);
+  const logoFor = (symbol: string, id?: string | null) => {
+    const g = geckoId(symbol, id);
+    return g ? logos.get(g) ?? null : null;
+  };
 
   const rows: HoldingRow[] = [];
   for (const w of wallets) {
@@ -66,6 +80,7 @@ export default async function CryptoPage() {
         weight: 0,
         manual: false,
         brandKind: "crypto",
+        brandSrc: logoFor(a.symbol, a.coingeckoId),
       });
     }
   }
@@ -89,6 +104,7 @@ export default async function CryptoPage() {
         weight: 0,
         manual: false,
         brandKind: "crypto",
+        brandSrc: logoFor(a.symbol),
       });
     }
   }
@@ -112,6 +128,7 @@ export default async function CryptoPage() {
       weight: 0,
       manual: true,
       brandKind: "crypto",
+      brandSrc: logoFor(c.symbol, c.coingeckoId),
     });
   }
 
@@ -120,7 +137,7 @@ export default async function CryptoPage() {
   return (
     <>
       <PageHeader
-        title="Cryptocurrencies"
+        title="Crypto"
         actions={
           <>
             {wallets.length > 0 ? <SyncAllWallets /> : null}
@@ -135,17 +152,12 @@ export default async function CryptoPage() {
           body="Add a wallet address. Haus scans Bitcoin, Ethereum and other EVM chains, Solana, and TRON."
         />
       ) : (
-        <div className="mb-4">
-          <div className="text-[12px] uppercase tracking-[0.1em] text-muted-foreground">Wallet value</div>
-          <div className="text-3xl font-medium font-mono tabular-nums">
-            <Money value={total} />
-          </div>
-        </div>
+        <HeroCard kicker="Wallet value">
+          <Money value={total} />
+        </HeroCard>
       )}
       {rows.length > 0 ? (
-        <div className="mb-4">
           <InvestmentsBoard rows={rows} hideHero hideTable minValue={10} classMode="asset" />
-        </div>
       ) : null}
       <WalletGrid
         names={names}
@@ -166,6 +178,7 @@ export default async function CryptoPage() {
               name: a.name,
               quantity: a.quantity,
               quotePrice: a.quotePrice,
+              logo: logoFor(a.symbol),
             })),
           })),
           ...wallets.map((w) => {
@@ -202,6 +215,7 @@ export default async function CryptoPage() {
                 name: a.name,
                 quantity: a.quantity,
                 quotePrice: a.quotePrice,
+                logo: logoFor(a.symbol, a.coingeckoId),
               })),
           };
         }),

@@ -57,9 +57,13 @@ export type TxnRow = {
   isCcPayment: boolean;
 };
 
+/** Rows rendered at once. Sorting and filtering still run over the full set; only the DOM is capped. */
+const PAGE = 250;
+
 export function TransactionsTable({ rows }: { rows: TxnRow[] }) {
   const router = useRouter();
   const [q, setQ] = useState("");
+  const [limit, setLimit] = useState(PAGE);
   const [sorting, setSorting] = useState<SortingState>([{ id: "date", desc: true }]);
   const [merchantSel, setMerchantSel] = useState<Set<string> | null>(null);
   const [accountSel, setAccountSel] = useState<Set<string> | null>(null);
@@ -103,7 +107,7 @@ export function TransactionsTable({ rows }: { rows: TxnRow[] }) {
           </span>
         ),
         cell: ({ getValue }) => (
-          <span className="font-mono tabular-nums text-muted-foreground">{formatDate(getValue() as string)}</span>
+          <span className="num whitespace-nowrap text-muted-foreground">{formatDate(getValue() as string)}</span>
         ),
       },
       {
@@ -177,14 +181,10 @@ export function TransactionsTable({ rows }: { rows: TxnRow[] }) {
           </span>
         ),
         cell: ({ row }) => (
-          <div className="text-right">
+          <span className="inline-flex items-center justify-end gap-2">
+            {row.original.pending ? <Badge tone="accent">pending</Badge> : null}
             <Money value={-row.original.amount} signed={row.original.amount < 0} />
-            {row.original.pending ? (
-              <Badge className="ml-2" tone="accent">
-                pending
-              </Badge>
-            ) : null}
-          </div>
+          </span>
         ),
       },
     ],
@@ -226,14 +226,14 @@ export function TransactionsTable({ rows }: { rows: TxnRow[] }) {
 
   return (
     <>
-      <div className="mb-3 flex items-center gap-3">
+      <div className="section-head">
         <Input
           placeholder="Search merchant, account, category"
           value={q}
           onChange={(e) => setQ(e.target.value)}
           className="max-w-sm"
         />
-        <span className="text-xs text-muted-foreground font-mono tabular-nums">{filteredRows.length} rows</span>
+        <span className="footnote num ml-auto">{filteredRows.length.toLocaleString("en-US")} rows</span>
         <ResetFilters
           dirty={
             Boolean(q) ||
@@ -255,15 +255,26 @@ export function TransactionsTable({ rows }: { rows: TxnRow[] }) {
           }}
         />
       </div>
-      <div className="rounded-lg border border-border bg-card">
-        <Table containerClassName="max-h-[calc(100dvh-17rem)] overscroll-contain md:max-h-[calc(100dvh-14.5rem)]">
+      <div className="rounded-[var(--radius-card)] border border-border bg-card">
+        <Table
+          className="table-fixed min-w-[54rem]"
+          containerClassName="max-h-[calc(100dvh-17rem)] overscroll-contain md:max-h-[calc(100dvh-14.5rem)]"
+        >
+          <colgroup>
+            <col className="w-[7.5rem]" />
+            <col className="w-auto" />
+            <col className="w-auto" />
+            <col className="w-[6rem]" />
+            <col className="w-[11rem]" />
+            <col className="w-[9rem]" />
+          </colgroup>
           <TableHeader className="sticky top-0 z-10 bg-card [&_th]:bg-card">
             {table.getHeaderGroups().map((hg) => (
               <TableRow key={hg.id}>
                 {hg.headers.map((h) => (
                   <TableHead
                     key={h.id}
-                    className={h.column.id === "amount" ? "cursor-pointer text-right" : "cursor-pointer"}
+                    className={h.column.id === "amount" ? "num cursor-pointer" : "cursor-pointer"}
                     onClick={h.column.getToggleSortingHandler()}
                   >
                     <span className="inline-flex items-center gap-1">
@@ -287,7 +298,7 @@ export function TransactionsTable({ rows }: { rows: TxnRow[] }) {
                 </TableCell>
               </TableRow>
             ) : (
-              table.getRowModel().rows.map((row) => (
+              table.getRowModel().rows.slice(0, limit).map((row) => (
                 <TableRow
                   key={row.id}
                   className="cursor-pointer"
@@ -298,11 +309,26 @@ export function TransactionsTable({ rows }: { rows: TxnRow[] }) {
                   }}
                 >
                   {row.getVisibleCells().map((cell) => (
-                    <TableCell key={cell.id}>{flexRender(cell.column.columnDef.cell, cell.getContext())}</TableCell>
+                    <TableCell
+                      key={cell.id}
+                      className={cell.column.id === "amount" ? "num" : "overflow-hidden text-ellipsis whitespace-nowrap"}
+                    >
+                      {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                    </TableCell>
                   ))}
                 </TableRow>
               ))
             )}
+            {table.getRowModel().rows.length > limit ? (
+              <TableRow>
+                <TableCell colSpan={6} className="py-3 text-center">
+                  <Button type="button" variant="outline" size="sm" onClick={() => setLimit((n) => n + PAGE)}>
+                    Show {Math.min(PAGE, table.getRowModel().rows.length - limit).toLocaleString("en-US")} more of{" "}
+                    {(table.getRowModel().rows.length - limit).toLocaleString("en-US")} remaining
+                  </Button>
+                </TableCell>
+              </TableRow>
+            ) : null}
           </TableBody>
         </Table>
       </div>
@@ -319,11 +345,11 @@ export function TransactionsTable({ rows }: { rows: TxnRow[] }) {
               </SheetHeader>
               <div className="space-y-4">
                 <div>
-                  <div className="text-[12px] uppercase tracking-[0.08em] text-muted-foreground">Amount</div>
+                  <div className="kicker">Amount</div>
                   <Money value={-open.amount} signed={open.amount < 0} className="text-lg" />
                 </div>
                 <div>
-                  <div className="text-[12px] uppercase tracking-[0.08em] text-muted-foreground">Raw description</div>
+                  <div className="kicker">Raw description</div>
                   <p className="mt-1 text-sm">{open.name}</p>
                 </div>
                 <div>

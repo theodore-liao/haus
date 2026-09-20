@@ -15,6 +15,7 @@ type Existing = {
   year: number | null;
   make: string;
   model: string;
+  vin: string;
   estimate: number;
   loanBalance: number | null;
   asOfDate: string;
@@ -46,6 +47,7 @@ export function VehicleForm({
           year: fd.get("year") ? Number(fd.get("year")) : null,
           make: fd.get("make") || undefined,
           model: fd.get("model") || undefined,
+          vin: fd.get("vin") || undefined,
           estimate: Number(fd.get("estimate")),
           loanBalance: fd.get("loanBalance") ? Number(fd.get("loanBalance")) : 0,
           asOfDate: fd.get("asOfDate"),
@@ -66,7 +68,7 @@ export function VehicleForm({
   return (
     <>
       <div className="flex gap-2">
-        <Button variant={existing ? "outline" : "default"} size="sm" onClick={() => setOpen(true)}>
+        <Button variant="outline" size="sm" onClick={() => setOpen(true)}>
           {existing ? "Edit" : "Add vehicle"}
         </Button>
         {existing && (
@@ -109,6 +111,10 @@ export function VehicleForm({
                 <Label>Model</Label>
                 <Input className="mt-1" name="model" defaultValue={existing?.model} />
               </div>
+            </div>
+            <div>
+              <Label>VIN</Label>
+              <Input className="mt-1" name="vin" defaultValue={existing?.vin} autoComplete="off" />
             </div>
             <div>
               <Label>Market value (USD)</Label>

@@ -158,7 +158,7 @@ export function NavRail({
               <Link
                 href={item.href}
                 draggable={false}
-                className="flex min-w-0 flex-1 items-center gap-2.5 px-2.5 py-2 text-[0.9375rem]"
+                className="flex min-w-0 flex-1 items-center gap-2.5 px-2.5 py-2 text-sm"
                 onClick={(e) => {
                   if (drag) e.preventDefault();
                 }}
@@ -171,7 +171,7 @@ export function NavRail({
                 type="button"
                 aria-label={`Reorder ${item.label}`}
                 onPointerDown={(e) => onGripDown(e, item.href, index)}
-                className="cursor-grab touch-none px-1.5 py-2 text-muted-foreground opacity-20 hover:opacity-60 active:cursor-grabbing"
+                className="cursor-grab touch-none px-1.5 py-2 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-60 focus-visible:opacity-90 active:cursor-grabbing"
               >
                 <GripVertical className="h-3.5 w-3.5" />
               </button>
@@ -191,7 +191,7 @@ export function NavRail({
                 transform: "rotate(-1.2deg)",
               }}
             >
-              <span className="flex min-w-0 flex-1 items-center gap-2.5 px-2.5 py-2 text-[0.9375rem]">
+              <span className="flex min-w-0 flex-1 items-center gap-2.5 px-2.5 py-2 text-sm">
                 <span className="h-4 w-px rounded bg-primary" />
                 <dragged.icon className="h-4 w-4 shrink-0" />
                 <span className="truncate">{dragged.label}</span>

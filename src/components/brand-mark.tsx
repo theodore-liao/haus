@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, type ReactNode } from "react";
-import { brandLogoUrl, type BrandKind } from "@/lib/logos";
+import { brandLogoCandidates, type BrandKind } from "@/lib/logos";
 import { cn } from "@/lib/utils";
 
 export function BrandMark({
@@ -19,12 +19,14 @@ export function BrandMark({
   size?: number;
   className?: string;
 }) {
-  const [failed, setFailed] = useState(false);
-  const url = brandLogoUrl(kind, { name, symbol, src });
+  // Walk the candidate list on error; only after the last one 404s do we show the initial.
+  const [attempt, setAttempt] = useState(0);
+  const candidates = brandLogoCandidates(kind, { name, symbol, src });
+  const url = candidates[attempt] ?? null;
   const label = (symbol || name || "?").trim();
   const initial = label.charAt(0).toUpperCase();
 
-  if (!url || failed) {
+  if (!url) {
     return (
       <span
         className={cn(
@@ -48,7 +50,7 @@ export function BrandMark({
       height={size}
       className={cn("inline-block shrink-0 rounded-[3px] bg-white object-contain", className)}
       style={{ width: size, height: size }}
-      onError={() => setFailed(true)}
+      onError={() => setAttempt((a) => a + 1)}
     />
   );
 }

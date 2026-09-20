@@ -1,18 +1,10 @@
 import type { Metadata } from "next";
 import Script from "next/script";
-import { Geist, Geist_Mono } from "next/font/google";
+// Self-hosted. next/font/google fell back to Arial whenever fonts.googleapis.com was unreachable.
+import { GeistSans as geistSans } from "geist/font/sans";
+import { GeistMono as geistMono } from "geist/font/mono";
 import { Toaster } from "sonner";
 import "./globals.css";
-
-const geistSans = Geist({
-  variable: "--font-geist-sans",
-  subsets: ["latin"],
-});
-
-const geistMono = Geist_Mono({
-  variable: "--font-geist-mono",
-  subsets: ["latin"],
-});
 
 export const metadata: Metadata = {
   title: "Haus",
@@ -25,7 +17,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     <html lang="en" className={`${geistSans.variable} ${geistMono.variable} h-full dark`} suppressHydrationWarning>
       <body className="min-h-full bg-background font-sans text-foreground antialiased">
         <Script id="ui-scale" strategy="beforeInteractive">
-          {`try{var s=+localStorage.getItem("haus.uiScale");if(s>0&&s!==1)document.documentElement.style.fontSize=(Math.min(1.3,Math.max(0.85,s))*100)+"%"}catch(e){}`}
+          {`try{var s=+localStorage.getItem("haus.uiScale");if(s>0&&s!==1)document.documentElement.style.fontSize=(Math.min(1.3,Math.max(0.85,s))*100)+"%";if(localStorage.getItem("haus.privacy")==="1")document.documentElement.classList.add("privacy")}catch(e){}`}
         </Script>
         {children}
         <Toaster
@@ -33,9 +25,10 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           position="bottom-right"
           toastOptions={{
             style: {
-              background: "#10182A",
-              border: "1px solid rgba(148,163,184,0.16)",
-              color: "#E6EDF7",
+              background: "var(--card-elevated)",
+              border: "1px solid var(--border)",
+              color: "var(--foreground)",
+              fontFamily: "var(--font-geist-sans)",
             },
           }}
         />

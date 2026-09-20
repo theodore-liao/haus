@@ -54,32 +54,30 @@ export function AppShell({
       <UiScaleSync />
       <PlaidLinkHost />
       <aside className="fixed inset-y-0 left-0 z-30 hidden w-60 border-r border-border bg-sidebar md:flex md:flex-col">
-        <div className="px-5 pb-5 pt-7">
-          <div className="bg-gradient-to-r from-primary via-primary to-accent bg-clip-text text-xl font-medium tracking-[0.32em] text-transparent">
+        <div className="px-5 pb-6 pt-7">
+          <div className="bg-gradient-to-r from-primary via-primary to-accent bg-clip-text text-lg font-medium tracking-[0.32em] text-transparent">
             HAUS
           </div>
-          <div className="mt-1.5 text-sm text-muted-foreground">
+          <div className="mt-1 text-sm text-muted-foreground">
             {nameA} & {nameB}
           </div>
         </div>
         <NavRail items={items} pathname={pathname} onReorder={persist} />
-        <div className="border-t border-border px-5 py-4 text-[11px] leading-5 text-muted-foreground">
-          Last sync
-          <div className="font-mono tabular-nums text-foreground/80">{formatDateTime(lastSynced)}</div>
+        <div className="flex items-center justify-between gap-3 border-t border-border px-5 py-4">
+          <div className="footnote min-w-0">
+            Last sync
+            <div className="num truncate text-xs text-foreground/80">{formatDateTime(lastSynced)}</div>
+          </div>
+          <RefreshButton lastSynced={lastSynced} iconOnly />
         </div>
       </aside>
 
       <div className="md:pl-60">
-        <header className="sticky top-0 z-20 flex items-center justify-between gap-3 border-b border-border/80 bg-background/70 px-4 py-3 backdrop-blur-md md:px-8">
-          <div className="flex items-center gap-3 md:hidden">
-            <span className="text-base font-medium tracking-[0.28em] text-primary">HAUS</span>
-          </div>
-          <div className="hidden md:block" />
-          <div className="ml-auto flex items-center gap-2">
-            <RefreshButton lastSynced={lastSynced} />
-          </div>
+        <header className="sticky top-0 z-20 flex items-center justify-between gap-3 border-b border-border/80 bg-background/70 px-4 py-3 backdrop-blur-md md:hidden">
+          <span className="text-base font-medium tracking-[0.32em] text-primary">HAUS</span>
+          <RefreshButton lastSynced={lastSynced} autoSync={false} />
         </header>
-        <main className="px-4 py-5 pb-24 md:px-8 md:py-6 md:pb-10">{children}</main>
+        <main className="page-stack py-5 pb-24 md:py-8 md:pb-12">{children}</main>
       </div>
 
       <nav className="fixed inset-x-0 bottom-0 z-30 grid grid-cols-4 border-t border-border bg-sidebar md:hidden">

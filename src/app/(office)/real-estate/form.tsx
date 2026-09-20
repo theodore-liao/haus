@@ -198,7 +198,7 @@ export function PropertyForm({
               </select>
             </div>
 
-            <div className="mt-1 border-t border-border pt-3 text-[11px] uppercase tracking-[0.08em] text-muted-foreground">
+            <div className="mt-1 border-t border-border pt-3 kicker">
               Mortgage (from this month’s statement)
             </div>
             <div>
@@ -295,8 +295,8 @@ export function PropertyForm({
 function Stat({ k, v }: { k: string; v: string }) {
   return (
     <div>
-      <div className="text-[11px] uppercase tracking-[0.08em] text-muted-foreground">{k}</div>
-      <div className="font-mono tabular-nums">{v}</div>
+      <div className="kicker">{k}</div>
+      <div className="num">{v}</div>
     </div>
   );
 }

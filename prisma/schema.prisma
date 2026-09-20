@@ -11,6 +11,8 @@ model Household {
   id          String   @id @default("haus")
   nameA       String   @default("One")
   nameB       String   @default("Two")
+  birthdateA  DateTime?
+  birthdateB  DateTime?
   quoteApiKey String?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
@@ -220,6 +222,7 @@ model Vehicle {
   year           Int?
   make           String?
   model          String?
+  vin            String?
   estimate       Float
   asOfDate       DateTime
   owner          String   @default("joint")

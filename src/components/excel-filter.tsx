@@ -40,6 +40,64 @@ export function amountPasses(value: number, rule: AmountRule) {
 
 type Pos = { top: number; left: number };
 
+/** Cancel / Apply row every filter popover ends with. Outside clicks and Escape cancel; only Apply commits. */
+function FilterFooter({ onCancel, onApply }: { onCancel: () => void; onApply: () => void }) {
+  return (
+    <div className="mt-2 flex justify-end gap-1 border-t border-border pt-2">
+      <Button type="button" size="sm" variant="ghost" className="cursor-pointer" onClick={onCancel}>
+        Cancel
+      </Button>
+      <Button type="button" size="sm" className="cursor-pointer" onClick={onApply}>
+        Apply
+      </Button>
+    </div>
+  );
+}
+
+/** Shared open/close plumbing: anchor placement, outside-click and Escape both dismiss without applying. */
+function useFilterPanel(width: number, align: "left" | "right" = "left") {
+  const [open, setOpen] = useState(false);
+  const [pos, setPos] = useState<Pos>({ top: 0, left: 0 });
+  const btnRef = useRef<HTMLButtonElement>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
+
+  function place() {
+    const el = btnRef.current;
+    if (!el) return;
+    const r = el.getBoundingClientRect();
+    const left = align === "right" ? Math.max(8, r.right - width) : Math.min(r.left, window.innerWidth - width - 8);
+    setPos({ top: r.bottom + 4, left });
+  }
+
+  useEffect(() => {
+    if (!open) return;
+    place();
+    function onDown(e: MouseEvent) {
+      const t = e.target as Node;
+      if (btnRef.current?.contains(t) || panelRef.current?.contains(t)) return;
+      setOpen(false);
+    }
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape") setOpen(false);
+    }
+    window.addEventListener("mousedown", onDown);
+    window.addEventListener("keydown", onKey);
+    window.addEventListener("scroll", place, true);
+    window.addEventListener("resize", place);
+    return () => {
+      window.removeEventListener("mousedown", onDown);
+      window.removeEventListener("keydown", onKey);
+      window.removeEventListener("scroll", place, true);
+      window.removeEventListener("resize", place);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open]);
+
+  return { open, setOpen, pos, btnRef, panelRef };
+}
+
+const TRIGGER = "ml-1 cursor-pointer text-muted-foreground hover:text-foreground";
+
 export function DiscreteFilter({
   label,
   options,
@@ -53,12 +111,9 @@ export function DiscreteFilter({
   onChange: (next: Set<string> | null) => void;
   kind?: BrandKind;
 }) {
-  const [open, setOpen] = useState(false);
-  const [pos, setPos] = useState<Pos>({ top: 0, left: 0 });
+  const { open, setOpen, pos, btnRef, panelRef } = useFilterPanel(224);
   const [q, setQ] = useState("");
   const [draft, setDraft] = useState<Set<string> | null>(null);
-  const btnRef = useRef<HTMLButtonElement>(null);
-  const panelRef = useRef<HTMLDivElement>(null);
   const long = options.length > 12;
   const visible = useMemo(() => {
     const needle = q.trim().toLowerCase();
@@ -67,41 +122,6 @@ export function DiscreteFilter({
   const active = selected != null && selected.size !== options.length;
   const allOn = draft == null || (options.length > 0 && draft.size === options.length);
   const someOn = draft != null && draft.size > 0 && draft.size < options.length;
-
-  function place() {
-    const el = btnRef.current;
-    if (!el) return;
-    const r = el.getBoundingClientRect();
-    setPos({ top: r.bottom + 4, left: Math.min(r.left, window.innerWidth - 240) });
-  }
-
-  function close(apply: boolean) {
-    if (apply) onChange(draft);
-    setOpen(false);
-  }
-
-  useEffect(() => {
-    if (!open) return;
-    place();
-    function onDown(e: MouseEvent) {
-      const t = e.target as Node;
-      if (btnRef.current?.contains(t) || panelRef.current?.contains(t)) return;
-      close(true);
-    }
-    function onKey(e: KeyboardEvent) {
-      if (e.key === "Escape") close(false);
-    }
-    window.addEventListener("mousedown", onDown);
-    window.addEventListener("keydown", onKey);
-    window.addEventListener("scroll", place, true);
-    window.addEventListener("resize", place);
-    return () => {
-      window.removeEventListener("mousedown", onDown);
-      window.removeEventListener("keydown", onKey);
-      window.removeEventListener("scroll", place, true);
-      window.removeEventListener("resize", place);
-    };
-  }, [open, draft]);
 
   function openPanel(e: React.MouseEvent<HTMLButtonElement>) {
     e.stopPropagation();
@@ -158,6 +178,13 @@ export function DiscreteFilter({
             );
           })}
         </div>
+        <FilterFooter
+          onCancel={() => setOpen(false)}
+          onApply={() => {
+            onChange(draft);
+            setOpen(false);
+          }}
+        />
       </div>,
       document.body,
     );
@@ -167,10 +194,7 @@ export function DiscreteFilter({
       <button
         ref={btnRef}
         type="button"
-        className={cn(
-          "ml-1 cursor-pointer text-muted-foreground hover:text-foreground",
-          active && "text-primary",
-        )}
+        className={cn(TRIGGER, active && "text-primary")}
         onClick={openPanel}
         aria-label={`Filter ${label}`}
       >
@@ -242,8 +266,7 @@ export function DateFilter({
 }) {
   const groups = useMemo(() => yearGroupsFromDates(dates), [dates]);
   const allKeys = useMemo(() => groups.flatMap((g) => g.months.map((m) => m.key)), [groups]);
-  const [open, setOpen] = useState(false);
-  const [pos, setPos] = useState<Pos>({ top: 0, left: 0 });
+  const { open, setOpen, pos, btnRef, panelRef } = useFilterPanel(224);
   const [draft, setDraft] = useState<Set<string> | null>(null);
   const active = selected != null && selected.size !== allKeys.length;
   const allOn = draft == null || (allKeys.length > 0 && draft.size === allKeys.length);
@@ -282,6 +305,7 @@ export function DateFilter({
     open &&
     createPortal(
       <div
+        ref={panelRef}
         className="fixed z-[80] w-56 rounded-md border border-border bg-card-elevated p-2 shadow-lg"
         style={{ top: pos.top, left: pos.left }}
         onClick={(e) => e.stopPropagation()}
@@ -330,22 +354,13 @@ export function DateFilter({
             );
           })}
         </div>
-        <div className="mt-2 flex justify-end gap-1 border-t border-border pt-2">
-          <Button type="button" size="sm" variant="ghost" className="cursor-pointer" onClick={() => setOpen(false)}>
-            Cancel
-          </Button>
-          <Button
-            type="button"
-            size="sm"
-            className="cursor-pointer"
-            onClick={() => {
-              onChange(draft);
-              setOpen(false);
-            }}
-          >
-            Ok
-          </Button>
-        </div>
+        <FilterFooter
+          onCancel={() => setOpen(false)}
+          onApply={() => {
+            onChange(draft);
+            setOpen(false);
+          }}
+        />
       </div>,
       document.body,
     );
@@ -353,15 +368,11 @@ export function DateFilter({
   return (
     <span className="relative inline-flex items-center">
       <button
+        ref={btnRef}
         type="button"
-        className={cn(
-          "ml-1 cursor-pointer text-muted-foreground hover:text-foreground",
-          active && "text-primary",
-        )}
+        className={cn(TRIGGER, active && "text-primary")}
         onClick={(e) => {
           e.stopPropagation();
-          const r = e.currentTarget.getBoundingClientRect();
-          setPos({ top: r.bottom + 4, left: Math.min(r.left, window.innerWidth - 240) });
           setDraft(selected == null ? null : new Set(selected));
           setOpen(true);
         }}
@@ -381,8 +392,7 @@ export function AmountFilter({
   rule: AmountRule;
   onChange: (rule: AmountRule) => void;
 }) {
-  const [open, setOpen] = useState(false);
-  const [pos, setPos] = useState<Pos>({ top: 0, left: 0 });
+  const { open, setOpen, pos, btnRef, panelRef } = useFilterPanel(256, "right");
   const [draft, setDraft] = useState<AmountRule>(rule);
   const active = rule.op !== "any";
 
@@ -390,6 +400,7 @@ export function AmountFilter({
     open &&
     createPortal(
       <div
+        ref={panelRef}
         className="fixed z-[80] w-64 space-y-2 rounded-md border border-border bg-card-elevated p-3 shadow-lg"
         style={{ top: pos.top, left: pos.left }}
         onClick={(e) => e.stopPropagation()}
@@ -425,22 +436,13 @@ export function AmountFilter({
             onChange={(e) => setDraft({ ...draft, b: e.target.value })}
           />
         )}
-        <div className="flex justify-end gap-1 pt-1">
-          <Button type="button" size="sm" variant="ghost" className="cursor-pointer" onClick={() => setOpen(false)}>
-            Cancel
-          </Button>
-          <Button
-            type="button"
-            size="sm"
-            className="cursor-pointer"
-            onClick={() => {
-              onChange(draft);
-              setOpen(false);
-            }}
-          >
-            Ok
-          </Button>
-        </div>
+        <FilterFooter
+          onCancel={() => setOpen(false)}
+          onApply={() => {
+            onChange(draft);
+            setOpen(false);
+          }}
+        />
       </div>,
       document.body,
     );
@@ -448,15 +450,11 @@ export function AmountFilter({
   return (
     <span className="relative inline-flex items-center">
       <button
+        ref={btnRef}
         type="button"
-        className={cn(
-          "ml-1 cursor-pointer text-muted-foreground hover:text-foreground",
-          active && "text-primary",
-        )}
+        className={cn(TRIGGER, active && "text-primary")}
         onClick={(e) => {
           e.stopPropagation();
-          const r = e.currentTarget.getBoundingClientRect();
-          setPos({ top: r.bottom + 4, left: Math.max(8, r.right - 256) });
           setDraft(rule);
           setOpen(true);
         }}

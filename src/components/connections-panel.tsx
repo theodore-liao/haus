@@ -49,7 +49,7 @@ export function ConnectionsPanel({
 
   return (
     <Card>
-      <CardHeader className="flex-row items-center justify-between">
+      <CardHeader row>
         <div className="flex items-baseline gap-2">
           <CardTitle>Connections</CardTitle>
           <span className="text-xs font-normal normal-case tracking-normal text-muted-foreground tabular-nums">

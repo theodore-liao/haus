@@ -123,6 +123,9 @@ export function isInternalMove(t: {
   userMerchant?: string | null;
   name?: string | null;
 }) {
+  // An explicit household label beats Plaid's transfer flag: a paycheck that arrives as an
+  // account-to-account transfer and was relabelled INCOME is income, not an internal move.
+  if (t.userCategory && t.userCategory !== "TRANSFER_IN" && t.userCategory !== "TRANSFER_OUT") return false;
   if (t.isTransfer || isCreditCardPayment(t)) return true;
   const cat = effectiveCategory(t);
   return cat === "TRANSFER_IN" || cat === "TRANSFER_OUT";

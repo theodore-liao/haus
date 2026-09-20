@@ -2,11 +2,14 @@
 
 import { useMemo, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Money, Delta } from "@/components/money";
+import { Money } from "@/components/money";
+import { ObjectTitle, kickerClass } from "@/components/type";
+import { Pills, Pill } from "@/components/pills";
+import { ChartCard } from "@/components/chart-card";
 import { CashflowSankey, FROM_SAVINGS, OTHER_CATEGORIES, TO_SAVINGS } from "@/components/charts";
 import { formatPct } from "@/lib/format";
 import { ReportRange } from "@/components/chart-range";
-import { defaultReportWindow, inWindow, asLocalDate, type WindowKey } from "@/lib/range";
+import { defaultReportWindow, inWindow, asLocalDate, ymKey, type WindowKey } from "@/lib/range";
 import { format } from "date-fns";
 import { cn } from "@/lib/utils";
 import { CategoryMerchantDialog, aggregateMerchants, type MerchantLine } from "@/components/category-merchants";
@@ -38,53 +41,38 @@ export function CashFlowBlock({ flows }: { flows: FlowRow[] }) {
       else if (f.kind === "income") row.income += f.amount;
       byMonth[f.month] = row;
     }
-    return Object.keys(byMonth)
-      .sort()
-      .reverse()
-      .flatMap((month) => {
-        const v = byMonth[month];
-        if (v.income === 0 && v.spend === 0) return [];
-        return [
-          {
-            month,
-            label: format(asLocalDate(`${month}-01`), "MMM yyyy"),
-            income: v.income,
-            spend: v.spend,
-            savings: v.income - v.spend,
-          },
-        ];
-      });
+    const now = new Date();
+    const keys = [0, 1, 2].map((i) => ymKey(new Date(now.getFullYear(), now.getMonth() - i, 1)));
+    return keys.map((month) => {
+      const v = byMonth[month] ?? { income: 0, spend: 0 };
+      return {
+        month,
+        label: format(asLocalDate(`${month}-01`), "MMM yyyy"),
+        income: v.income,
+        spend: v.spend,
+        savings: v.income - v.spend,
+      };
+    });
   }, [flows]);
 
   return (
-    <div className="mt-4 space-y-4">
-      <div className="flex justify-end">
+    <section className="page-stack pt-2">
+      <div className="section-head">
+        <ObjectTitle>Cashflow</ObjectTitle>
         <ReportRange value={range} onChange={setRange} />
       </div>
-      <div className="grid gap-4 sm:grid-cols-3">
-        <Stat label="Income" value={incomeAll} />
-        <Stat label="Spending" value={spendAll} />
-        <Card>
-          <CardHeader>
-            <CardTitle>Savings rate</CardTitle>
-          </CardHeader>
-          <CardContent
-            className={cn(
-              "text-xl font-medium font-mono tabular-nums",
-              incomeAll > 0 && savings > 0 && "text-positive",
-              incomeAll > 0 && savings < 0 && "text-negative",
-            )}
-          >
-            {incomeAll > 0 ? formatPct((savings / incomeAll) * 100, 0, true) : "—"}
-          </CardContent>
-        </Card>
-      </div>
-      <Card>
-        <CardHeader className="flex flex-row items-center justify-between space-y-0">
-          <CardTitle>Where money moves</CardTitle>
-          <Delta value={savings} className="text-lg" />
-        </CardHeader>
-        <CardContent>
+      <Pills>
+        <Pill kicker="Income" accent="#7EABD4">
+          <Money value={incomeAll} />
+        </Pill>
+        <Pill kicker="Spending" accent="#D4928C">
+          <Money value={spendAll} />
+        </Pill>
+        <Pill kicker="Net Movement" accent="#7DB8A4">
+          <Money value={savings} signed />
+        </Pill>
+      </Pills>
+      <ChartCard kicker="Where money moves">
           <CashflowSankey
             income={agg.incomeRows}
             spend={agg.spendRows}
@@ -122,45 +110,44 @@ export function CashFlowBlock({ flows }: { flows: FlowRow[] }) {
               }
             }}
           />
-        </CardContent>
-      </Card>
+      </ChartCard>
       <Card>
         <CardHeader>
           <CardTitle>Month by month</CardTitle>
         </CardHeader>
         <CardContent className="px-0 pb-0">
           <div className="max-h-[min(24rem,calc(100dvh-18rem))] overflow-y-auto overscroll-contain">
-            <table className="w-full text-sm">
+            <table className="data-table">
               <thead className="sticky top-0 z-10 bg-card">
-                <tr className="border-b border-border text-[11px] uppercase tracking-[0.08em] text-muted-foreground">
-                  <th className="px-5 py-2 text-left font-medium">Month</th>
-                  <th className="px-5 py-2 text-right font-medium">Income</th>
-                  <th className="px-5 py-2 text-right font-medium">Spend</th>
-                  <th className="px-5 py-2 text-right font-medium">Saved</th>
-                  <th className="px-5 py-2 text-right font-medium">Rate</th>
+                <tr className={cn("border-b border-border", kickerClass)}>
+                  <th>Month</th>
+                  <th className="num">Income</th>
+                  <th className="num">Spend</th>
+                  <th className="num">Saved</th>
+                  <th className="num">Rate</th>
                 </tr>
               </thead>
               <tbody>
                 {months.length === 0 ? (
                   <tr>
-                    <td colSpan={5} className="px-5 py-8 text-center text-muted-foreground">
+                    <td colSpan={5} className="py-8 text-center text-muted-foreground">
                       No full months yet.
                     </td>
                   </tr>
                 ) : (
                   months.map((m) => (
                     <tr key={m.month} className="border-b border-border last:border-0">
-                      <td className="px-5 py-2">{m.label}</td>
-                      <td className="px-5 py-2 text-right">
+                      <td>{m.label}</td>
+                      <td className="num">
                         <Money value={m.income} />
                       </td>
-                      <td className="px-5 py-2 text-right">
+                      <td className="num">
                         <Money value={m.spend} />
                       </td>
-                      <td className="px-5 py-2 text-right">
+                      <td className="num">
                         <Money value={m.savings} signed />
                       </td>
-                      <td className="px-5 py-2 text-right font-mono tabular-nums">
+                      <td className="num text-muted-foreground">
                         {m.income > 0 ? formatPct((m.savings / m.income) * 100, 0, true) : "—"}
                       </td>
                     </tr>
@@ -178,7 +165,7 @@ export function CashFlowBlock({ flows }: { flows: FlowRow[] }) {
         note={popup?.note}
         onClose={() => setPopup(null)}
       />
-    </div>
+    </section>
   );
 }
 
@@ -197,15 +184,4 @@ function leftover(lines: MerchantLine[], ranked: { label: string }[], keep: numb
   }));
 }
 
-function Stat({ label, value }: { label: string; value: number }) {
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle>{label}</CardTitle>
-      </CardHeader>
-      <CardContent className="text-xl font-medium">
-        <Money value={value} />
-      </CardContent>
-    </Card>
-  );
-}
+

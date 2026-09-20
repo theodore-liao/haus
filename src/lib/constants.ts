@@ -88,13 +88,10 @@ export function incomeSourceLabel(t: {
   const merch = t.userMerchant || t.merchantName;
   const detailed = t.categoryDetailed || "";
   const interest = detailed.includes("INTEREST") || genericInterest(merch) || genericInterest(t.name);
-  if (interest) {
-    if (merch && !genericInterest(merch)) return merch;
-    if (t.accountName) return t.accountName;
-    if (merch) return merch;
-    if (t.name) return t.name;
-    return "Interest";
-  }
+  if (interest) return "Interest";
+  // A transfer the household relabelled as income is a paycheck routed through another account;
+  // Plaid's TRANSFER_IN_* detail must not leak through as the source name.
+  if (t.userCategory === "INCOME" && !detailed.startsWith("INCOME")) return categoryLabel("INCOME_SALARY");
   if (detailed && detailed !== "INCOME" && detailed !== "INCOME_OTHER_INCOME") {
     return categoryLabel(detailed);
   }

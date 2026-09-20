@@ -61,7 +61,7 @@ export function TradesTable({ rows }: { rows: Trade[] }) {
   function head(key: Key, label: string, extra?: ReactNode, right?: boolean) {
     return (
       <TableHead
-        className={right ? "cursor-pointer text-right" : "cursor-pointer"}
+        className={right ? "num cursor-pointer select-none" : "cursor-pointer select-none"}
         onClick={() => setSort((s) => ({ key, dir: s.key === key ? nextSortDir(s.dir) : "asc" }))}
       >
         <span className="inline-flex items-center gap-1">
@@ -73,25 +73,37 @@ export function TradesTable({ rows }: { rows: Trade[] }) {
     );
   }
 
-  if (!rows.length) return <p className="text-sm text-muted-foreground">No investment transactions in this slice.</p>;
+  if (!rows.length)
+    return <p className="px-[var(--space-card)] py-6 text-sm text-muted-foreground">No investment transactions in this slice.</p>;
 
   const filtersOn = typeSel != null || symSel != null || acctSel != null;
 
   return (
     <div>
-    <div className="mb-2 flex justify-end px-3">
-      <ResetFilters
-        dirty={filtersOn}
-        onReset={() => {
-          setTypeSel(null);
-          setSymSel(null);
-          setAcctSel(null);
-        }}
-      />
-    </div>
-    <div className="max-h-44 overflow-y-auto">
-    <Table>
-      <TableHeader>
+    {filtersOn ? (
+      <div className="flex justify-end px-[var(--space-card)] pb-2">
+        <ResetFilters
+          dirty={filtersOn}
+          onReset={() => {
+            setTypeSel(null);
+            setSymSel(null);
+            setAcctSel(null);
+          }}
+        />
+      </div>
+    ) : null}
+    <div className="max-h-72 overflow-y-auto">
+    <Table className="table-fixed min-w-[48rem]">
+      <colgroup>
+        <col className="w-[7.5rem]" />
+        <col className="w-[9rem]" />
+        <col className="w-auto" />
+        <col className="w-auto" />
+        <col className="w-[7rem]" />
+        <col className="w-[7rem]" />
+        <col className="w-[8rem]" />
+      </colgroup>
+      <TableHeader className="sticky top-0 z-10 bg-card [&_th]:bg-card">
         <TableRow>
           {head("date", "Date")}
           {head(
@@ -123,12 +135,16 @@ export function TradesTable({ rows }: { rows: Trade[] }) {
       <TableBody>
         {visible.slice(0, 80).map((t) => (
           <TableRow key={t.id}>
-            <TableCell className="font-mono tabular-nums text-muted-foreground">{formatDate(t.date)}</TableCell>
-            <TableCell>
-              {t.type}
-              {t.subtype ? <span className="text-muted-foreground"> · {t.subtype}</span> : null}
+            <TableCell className="whitespace-nowrap text-muted-foreground">
+              <span className="num">{formatDate(t.date)}</span>
             </TableCell>
-            <TableCell>
+            <TableCell className="overflow-hidden text-ellipsis whitespace-nowrap capitalize">
+              {t.type}
+              {t.subtype && t.subtype.toLowerCase() !== t.type.toLowerCase() ? (
+                <span className="text-muted-foreground"> · {t.subtype}</span>
+              ) : null}
+            </TableCell>
+            <TableCell className="overflow-hidden">
               {t.symbol ? (
                 <BrandLabel kind="security" symbol={t.symbol} name={t.name}>
                   {t.symbol}
@@ -137,16 +153,16 @@ export function TradesTable({ rows }: { rows: Trade[] }) {
                 "—"
               )}
             </TableCell>
-            <TableCell>
+            <TableCell className="overflow-hidden">
               <BrandLabel kind="institution" name={t.account}>
                 {t.account}
               </BrandLabel>
             </TableCell>
-            <TableCell className="text-right font-mono tabular-nums">{t.quantity ?? "—"}</TableCell>
-            <TableCell className="text-right">
+            <TableCell className="num">{t.quantity ?? "—"}</TableCell>
+            <TableCell className="num">
               <Money value={t.price} />
             </TableCell>
-            <TableCell className="text-right">
+            <TableCell className="num">
               <Money value={t.amount} />
             </TableCell>
           </TableRow>

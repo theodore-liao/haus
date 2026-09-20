@@ -211,6 +211,22 @@ async function fetchGeckoTokenPrices(platform: string, contracts: string[]): Pro
   return out;
 }
 
+const CRYPTO_QUOTE_TTL_MS = 5 * 60_000;
+let cryptoQuotesAt = 0;
+let cryptoQuotesInflight: Promise<number> | null = null;
+
+/** Page-render variant: quotes newer than five minutes are reused, otherwise a refresh starts in the
+ *  background and the page renders with the prices already on the ledger. Never blocks, never throws. */
+export function enrichCryptoQuotesInBackground() {
+  if (cryptoQuotesInflight || Date.now() - cryptoQuotesAt < CRYPTO_QUOTE_TTL_MS) return;
+  cryptoQuotesInflight = enrichCryptoQuotes()
+    .catch(() => 0)
+    .finally(() => {
+      cryptoQuotesAt = Date.now();
+      cryptoQuotesInflight = null;
+    });
+}
+
 export async function enrichCryptoQuotes() {
   const rows = await prisma.manualHolding.findMany({ where: { kind: "crypto" } });
   const assets = await prisma.cryptoWalletAsset.findMany();
@@ -542,6 +558,7 @@ async function fetchYahooHistoryRows(symbol: string, from: Date, to: Date) {
 export async function loadPriceMap(symbols: string[], from: Date, to: Date) {
   const rows = await prisma.pricePoint.findMany({
     where: { symbol: { in: symbols }, date: { gte: startOfDay(from), lte: startOfDay(to) } },
+    select: { symbol: true, date: true, close: true },
   });
   const map = new Map<string, number>();
   for (const r of rows) {

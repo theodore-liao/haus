@@ -15,7 +15,7 @@ export default async function InsightsPage() {
         <PageHeader title="Insights" />
         <EmptyLedger
           title="No signals yet"
-          body="Subscriptions, emergency-fund months, concentration, unusual spend, and insurance renewals appear after the first live sync."
+          body="Emergency-fund months appear after the first live sync, once cash and essential spending are in the ledger."
         />
       </>
     );

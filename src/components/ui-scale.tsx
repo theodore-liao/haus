@@ -57,7 +57,7 @@ export function UiScaleSlider() {
     <div className="min-w-[12rem]">
       <div className="flex items-center justify-between text-sm">
         <span>Text size</span>
-        <span className="font-mono tabular-nums text-muted-foreground">{Math.round(scale * 100)}%</span>
+        <span className="num text-muted-foreground">{Math.round(scale * 100)}%</span>
       </div>
       <input
         type="range"

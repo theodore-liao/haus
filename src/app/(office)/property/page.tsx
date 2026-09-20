@@ -1,12 +1,15 @@
 import { PageHeader } from "@/components/page-header";
 import { EmptyLedger } from "@/components/states";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Money } from "@/components/money";
+import { Card, CardContent, CardHeader } from "@/components/ui/card";
+import { ObjectTitle, OwnerTag, SectionLabel } from "@/components/type";
+import { Money, HeroMetric } from "@/components/money";
+import { HeroCard } from "@/components/hero-card";
+import { Pills, Pill } from "@/components/pills";
 import { prisma } from "@/lib/db";
 import { getNames, getRealEstate } from "@/lib/queries";
 import { getOwnerFilter } from "@/lib/request";
 import { matchesOwner, ownerLabel } from "@/lib/owners";
-import { formatDate, formatMoney, formatPct } from "@/lib/format";
+import { formatDate, formatMoney } from "@/lib/format";
 import { vehicleDebt } from "@/lib/property";
 import {
   housingEscrow,
@@ -56,28 +59,25 @@ export default async function PropertyPage() {
           body="Add a home with market value and mortgage terms, or a vehicle with a manual value. Equity does not move until you edit it."
         />
       ) : (
-        <div className="space-y-8">
-          <div className="flex flex-wrap gap-8">
-            <div>
-              <div className="text-[12px] uppercase tracking-[0.1em] text-muted-foreground">Real estate equity</div>
-              <div className="text-2xl">
-                <Money value={reEq} />
-              </div>
-            </div>
-            <div>
-              <div className="text-[12px] uppercase tracking-[0.1em] text-muted-foreground">Vehicle equity</div>
-              <div className="text-2xl">
-                <Money value={vehEq} />
-              </div>
-            </div>
-          </div>
+        <div className="page-stack">
+          <HeroCard kicker="Total equity">
+            <Money value={reEq + vehEq} />
+          </HeroCard>
+          <Pills>
+            <Pill kicker="Real estate" accent="#7EABD4">
+              <Money value={reEq} />
+            </Pill>
+            <Pill kicker="Vehicles" accent="#D4BE7A">
+              <Money value={vehEq} />
+            </Pill>
+          </Pills>
 
           <section>
-            <h2 className="mb-3 text-[12px] font-medium uppercase tracking-[0.12em] text-muted-foreground">Real estate</h2>
+            <SectionLabel>Real estate</SectionLabel>
             {re.rows.length === 0 ? (
               <p className="text-sm text-muted-foreground">No homes yet.</p>
             ) : (
-              <div className="grid gap-4 lg:grid-cols-2">
+              <div className="grid items-stretch gap-4 lg:grid-cols-2">
                 {re.rows.map((p) => {
                   const housing = housingEscrow({
                     taxAnnual: p.taxAnnual,
@@ -96,13 +96,13 @@ export default async function PropertyPage() {
                       : null;
                   const totalPay = p.piti ?? pi + housing.escrowAndPmi;
                   return (
-                    <Card key={p.id}>
-                      <CardHeader className="flex flex-row items-start justify-between space-y-0">
-                        <div>
-                          <CardTitle className="text-base font-medium normal-case tracking-normal text-foreground">
-                            {p.label}
-                          </CardTitle>
-                          <div className="mt-1 text-sm text-muted-foreground">{ownerLabel(p.owner, names)}</div>
+                    <Card key={p.id} className="h-full">
+                      <CardHeader row className="flex-nowrap">
+                        <div className="min-w-0 flex-1">
+                          <ObjectTitle title={`${p.label} - ${ownerLabel(p.owner, names)}`} className="flex items-baseline">
+                            <span className="truncate">{p.label}</span>
+                            <OwnerTag>{ownerLabel(p.owner, names)}</OwnerTag>
+                          </ObjectTitle>
                         </div>
                         <PropertyForm
                           names={names}
@@ -128,19 +128,25 @@ export default async function PropertyPage() {
                         />
                       </CardHeader>
                       <CardContent>
-                        <div className="text-[12px] uppercase tracking-[0.08em] text-muted-foreground">Equity</div>
-                        <div className="text-3xl font-medium font-mono tabular-nums">
+                        <HeroMetric label="Equity">
                           <Money value={p.equity} />
-                        </div>
+                        </HeroMetric>
                         <div className="mt-3 flex flex-wrap gap-x-6 gap-y-1 text-sm text-muted-foreground">
                           <span>
                             Principal <Money value={p.loanBalance} className="text-sm text-foreground" />
                           </span>
-                          <span>Rate {p.rate == null ? "—" : `${p.rate.toFixed(2)}%`}</span>
-                          <span>Payment {totalPay ? formatMoney(totalPay) : "—"}</span>
+                          <span>
+                            Rate <span className="num text-foreground">{p.rate == null ? "—" : `${p.rate.toFixed(2)}%`}</span>
+                          </span>
+                          <span>
+                            Payment <span className="num text-foreground">{totalPay ? formatMoney(totalPay) : "—"}</span>
+                          </span>
                           {n ? (
                             <span>
-                              {Math.floor(n / 12)} yr {n % 12} mo left
+                              <span className="num text-foreground">
+                                {Math.floor(n / 12)} yr {n % 12} mo
+                              </span>{" "}
+                              left
                             </span>
                           ) : null}
                           {schedule ? <span>Payoff {yearLabel(schedule.payoff)}</span> : null}
@@ -163,19 +169,19 @@ export default async function PropertyPage() {
           </section>
 
           <section>
-            <h2 className="mb-3 text-[12px] font-medium uppercase tracking-[0.12em] text-muted-foreground">Vehicles</h2>
+            <SectionLabel>Vehicles</SectionLabel>
             {vehRows.length === 0 ? (
               <p className="text-sm text-muted-foreground">No vehicles yet. Add one — the value stays until you edit it.</p>
             ) : (
-              <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+              <div className="grid items-stretch gap-4 lg:grid-cols-2">
                 {vehRows.map((v) => (
-                  <Card key={v.id}>
-                    <CardHeader className="flex flex-row items-start justify-between space-y-0">
-                      <div>
-                        <CardTitle className="text-base font-medium normal-case tracking-normal text-foreground">
-                          {v.label}
-                        </CardTitle>
-                        <div className="mt-1 text-sm text-muted-foreground">{ownerLabel(v.owner, names)}</div>
+                  <Card key={v.id} className="h-full">
+                    <CardHeader row className="flex-nowrap">
+                      <div className="min-w-0 flex-1">
+                        <ObjectTitle title={`${v.label} - ${ownerLabel(v.owner, names)}`} className="flex items-baseline">
+                          <span className="truncate">{v.label}</span>
+                          <OwnerTag>{ownerLabel(v.owner, names)}</OwnerTag>
+                        </ObjectTitle>
                       </div>
                       <VehicleForm
                         names={names}
@@ -187,17 +193,18 @@ export default async function PropertyPage() {
                           model: v.model ?? "",
                           estimate: v.estimate,
                           loanBalance: v.loanBalance,
+                          vin: v.vin ?? "",
                           asOfDate: v.asOfDate.toISOString().slice(0, 10),
                           owner: v.owner,
                         }}
                       />
                     </CardHeader>
                     <CardContent>
-                      <div className="text-[12px] uppercase tracking-[0.08em] text-muted-foreground">Equity</div>
-                      <div className="text-2xl font-medium font-mono tabular-nums">
+                      <HeroMetric label="Equity">
                         <Money value={v.equity} />
-                      </div>
+                      </HeroMetric>
                       <div className="mt-2 text-sm text-muted-foreground">
+                        {v.vin ? <span className="mb-1 block font-mono text-xs">VIN {v.vin}</span> : null}
                         Value <Money value={v.estimate} className="text-sm" />
                         {v.debt > 0 ? (
                           <>

@@ -103,6 +103,8 @@ export function RemainingPrincipalCurve({
       yMax,
       x0: xs[0],
       x1: xs[xs.length - 1],
+      // One tick per 1/2/5 years so a 30-year loan doesn't stack 30 rotated labels.
+      dtick: originalN > 15 * 12 ? "M60" : originalN > 8 * 12 ? "M24" : "M12",
     };
   }, [principal0, rate0, pi0, originationDate, originalTermMonths]);
 
@@ -171,7 +173,8 @@ export function RemainingPrincipalCurve({
             type: "date",
             tickformat: "%Y",
             hoverformat: "%b %Y",
-            dtick: "M12",
+            dtick: model.dtick,
+            tickangle: 0,
             range: [model.x0, model.x1],
             autorange: false,
             fixedrange: true,
@@ -262,13 +265,9 @@ export function RemainingPrincipalCurve({
   if (!principal0) return null;
 
   return (
-    <div className="mt-5 space-y-3">
-      <div className="text-sm">
-        P&amp;I <span className="font-mono tabular-nums text-accent">{model ? formatMoney(model.pi) : "—"}</span>
-        <span className="text-muted-foreground"> · remaining </span>
-        <span className="font-mono tabular-nums">
-          {model ? `${Math.floor(model.n / 12)} yr ${model.n % 12} mo` : "—"}
-        </span>
+    <div className="mt-4 space-y-2">
+      <div className="text-sm text-muted-foreground">
+        P&amp;I <span className="num text-foreground">{model ? formatMoney(model.pi) : "—"}</span> / mo
       </div>
       <div ref={mainEl} className="h-[320px] w-full" />
     </div>

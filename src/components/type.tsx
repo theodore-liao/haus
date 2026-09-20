@@ -17,7 +17,7 @@ export function ObjectTitle({ className, ...props }: ComponentProps<"h3">) {
   );
 }
 
-/** Who owns the thing: Teddy, Junia, Joint. Always faded and set apart from the name it follows. */
+/** Who owns the thing: primary, spouse, or joint. Always faded and set apart from the name it follows. */
 export function OwnerTag({ className, children, ...props }: ComponentProps<"span">) {
   if (!children) return null;
   return (

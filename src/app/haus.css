@@ -189,7 +189,7 @@ html.privacy .legend strong:hover {
   filter: none;
 }
 
-/* Ownership (Teddy / Junia / Joint) trails the name as faded subtext, never as part of the name itself. */
+/* Ownership (primary / spouse / joint) trails the name as faded subtext, never as part of the name itself. */
 .owner-tag {
   flex-shrink: 0;
   margin-left: 0.5rem;

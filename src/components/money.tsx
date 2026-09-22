@@ -1,6 +1,15 @@
-import type { ReactNode } from "react";
+"use client";
+
+import { createContext, useContext, type ReactNode } from "react";
 import { formatMoney, formatPct } from "@/lib/format";
 import { cn } from "@/lib/utils";
+
+const WholeDollars = createContext(false);
+
+/** Headline figures inside this tree render as whole dollars, rounded up. */
+export function WholeDollarsScope({ children }: { children: ReactNode }) {
+  return <WholeDollars.Provider value={true}>{children}</WholeDollars.Provider>;
+}
 
 export function HeroMetric({
   label,
@@ -14,7 +23,9 @@ export function HeroMetric({
   return (
     <div className={className}>
       <div className="kicker">{label}</div>
-      <div className="display-number">{children}</div>
+      <div className="display-number">
+        <WholeDollarsScope>{children}</WholeDollarsScope>
+      </div>
     </div>
   );
 }
@@ -28,6 +39,7 @@ export function Money({
   signed?: boolean;
   className?: string;
 }) {
+  const whole = useContext(WholeDollars);
   const n = value ?? null;
   const tone =
     n == null || !signed
@@ -37,7 +49,7 @@ export function Money({
         : n < 0
           ? "text-negative"
           : "";
-  return <span className={cn("num", tone, className)}>{formatMoney(n, { signed })}</span>;
+  return <span className={cn("num", tone, className)}>{formatMoney(n, { signed, whole })}</span>;
 }
 
 export function Delta({

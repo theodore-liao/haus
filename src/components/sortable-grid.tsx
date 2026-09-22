@@ -128,7 +128,8 @@ export function SortableGrid<T extends { id: string }>({
 
   return (
     <>
-      <div className={cn("grid gap-4 md:grid-cols-2", drag && "select-none", className)}>
+      {/* [&>*]:min-w-0 keeps one wide card (long address, big figure) from stretching a track past the viewport. */}
+      <div className={cn("grid gap-4 md:grid-cols-2 [&>*]:min-w-0", drag && "select-none", className)}>
         {items.map((item, index) => {
           let dx = 0;
           let dy = 0;

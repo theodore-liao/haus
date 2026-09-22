@@ -21,12 +21,14 @@ const schema = z.discriminatedUnion("mode", [
     mode: z.literal("shares"),
     symbol: z.string().min(1).max(12),
     quantity: z.coerce.number().positive(),
+    costPerShare: z.number().nonnegative().nullable().optional(),
     ...meta,
   }),
   z.object({
     mode: z.literal("value"),
     name: z.string().min(1).max(80),
     value: z.coerce.number().positive(),
+    costBasis: z.number().nonnegative().nullable().optional(),
     ...meta,
   }),
 ]);
@@ -65,15 +67,15 @@ export async function POST(req: Request) {
       quoteChange: spot.change,
       quoteChangePct: spot.changePct,
       quoteAsOf: spot.asOf,
+      costBasis: d.costPerShare == null ? null : d.costPerShare * d.quantity,
+      editedAt: new Date(),
+      assetClass: d.assetClass,
+      accountName: d.accountName.trim(),
     };
-    const row = d.id
-      ? await prisma.manualHolding.update({ where: { id: d.id }, data: payload })
-      : await prisma.manualHolding.create({ data: payload });
-    await prisma.$executeRaw`
-      UPDATE ManualHolding SET assetClass = ${d.assetClass}, accountName = ${d.accountName.trim()} WHERE id = ${row.id}
-    `;
+    if (d.id) await prisma.manualHolding.update({ where: { id: d.id }, data: payload });
+    else await prisma.manualHolding.create({ data: payload });
     await snapshotNetWorth().catch(() => null);
-    return NextResponse.json({ ok: true, row });
+    return NextResponse.json({ ok: true });
   }
 
   const payload = {
@@ -88,13 +90,13 @@ export async function POST(req: Request) {
     quoteChange: 0,
     quoteChangePct: 0,
     quoteAsOf: new Date(),
+    costBasis: d.costBasis ?? null,
+    editedAt: new Date(),
+    assetClass: d.assetClass,
+    accountName: d.accountName.trim(),
   };
-  const row = d.id
-    ? await prisma.manualHolding.update({ where: { id: d.id }, data: payload })
-    : await prisma.manualHolding.create({ data: payload });
-  await prisma.$executeRaw`
-    UPDATE ManualHolding SET assetClass = ${d.assetClass}, accountName = ${d.accountName.trim()} WHERE id = ${row.id}
-  `;
+  if (d.id) await prisma.manualHolding.update({ where: { id: d.id }, data: payload });
+  else await prisma.manualHolding.create({ data: payload });
   await snapshotNetWorth().catch(() => null);
-  return NextResponse.json({ ok: true, row });
+  return NextResponse.json({ ok: true });
 }

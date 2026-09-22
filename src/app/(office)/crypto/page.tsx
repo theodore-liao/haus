@@ -3,15 +3,16 @@ import { EmptyLedger } from "@/components/states";
 import { Money } from "@/components/money";
 import { HeroCard } from "@/components/hero-card";
 import { prisma } from "@/lib/db";
-import { getBrokerageCrypto, getNames } from "@/lib/queries";
+import { getBrokerageCrypto, getNames, getOverview } from "@/lib/queries";
 import { getOwnerFilter } from "@/lib/request";
 import { matchesOwner, ownerLabel } from "@/lib/owners";
 import { CHAIN_META, collapseDuplicateSpot, isDefiAsset, shortAddress } from "@/lib/onchain";
 import { lotValue } from "@/lib/crypto-lots";
 import { InvestmentsBoard, type HoldingRow } from "@/components/holdings-table";
+import { LargestMoves } from "@/components/largest-moves";
 import { AddWallet, SyncAllWallets } from "./form";
 import { WalletGrid } from "./wallet-grid";
-import { enrichCryptoQuotesInBackground } from "@/lib/quotes";
+import { cryptoDayMoves, refreshCryptoQuotes } from "@/lib/quotes";
 import { getCryptoLogoMap } from "@/lib/crypto-logos";
 import { COINGECKO_IDS } from "@/lib/crypto-assets";
 
@@ -19,23 +20,59 @@ export const dynamic = "force-dynamic";
 
 export default async function CryptoPage() {
   const owner = await getOwnerFilter();
-  enrichCryptoQuotesInBackground();
+  await refreshCryptoQuotes();
 
-  const [names, allWallets, allManuals, brokerage] = await Promise.all([
+  const [names, allWallets, allManuals, brokerage, overview] = await Promise.all([
     getNames(),
     prisma.cryptoWallet.findMany({ include: { assets: true }, orderBy: { createdAt: "asc" } }),
     prisma.manualHolding.findMany({ where: { kind: "crypto" } }),
     getBrokerageCrypto(owner),
+    getOverview(owner),
   ]);
   const wallets = allWallets.filter((w) => matchesOwner(w.owner, owner));
   const manuals = allManuals.filter((c) => matchesOwner(c.owner, owner));
 
-  const geckoId = (symbol: string, id?: string | null) => id ?? COINGECKO_IDS[symbol.toUpperCase()]?.id ?? null;
-  const logos = await getCryptoLogoMap([
-    ...wallets.flatMap((w) => w.assets.map((a) => geckoId(a.symbol, a.coingeckoId))),
-    ...manuals.map((c) => geckoId(c.symbol, c.coingeckoId)),
-    ...brokerage.flatMap((g) => g.assets.map((a) => geckoId(a.symbol))),
+  const geckoId = (symbol: string, id?: string | null) =>
+    id ?? COINGECKO_IDS[symbol.trim().toUpperCase().replace(/-USD$/, "")]?.id ?? null;
+  const missing = new Set<string>();
+  // A stored 0/0 is the old placeholder from a price feed that omitted the 24h move.
+  const needsLive = (change: number | null | undefined, pct: number | null | undefined) =>
+    change == null || (change === 0 && (pct == null || pct === 0));
+  const note = (
+    change: number | null | undefined,
+    pct: number | null | undefined,
+    symbol: string,
+    id?: string | null,
+  ) => {
+    if (!needsLive(change, pct)) return;
+    const g = geckoId(symbol, id);
+    if (g) missing.add(g);
+  };
+  for (const w of wallets) for (const a of w.assets) note(a.quoteChange, a.quoteChangePct, a.symbol, a.coingeckoId);
+  for (const c of manuals) note(c.quoteChange, c.quoteChangePct, c.symbol, c.coingeckoId);
+  for (const g of brokerage) for (const a of g.assets) note(a.quoteChange, a.quoteChangePct, a.symbol);
+  const [logos, moves] = await Promise.all([
+    getCryptoLogoMap([
+      ...wallets.flatMap((w) => w.assets.map((a) => geckoId(a.symbol, a.coingeckoId))),
+      ...manuals.map((c) => geckoId(c.symbol, c.coingeckoId)),
+      ...brokerage.flatMap((g) => g.assets.map((a) => geckoId(a.symbol))),
+    ]),
+    cryptoDayMoves([...missing]),
   ]);
+  const dayOf = (
+    change: number | null | undefined,
+    pct: number | null | undefined,
+    qty: number,
+    symbol: string,
+    id?: string | null,
+  ) => {
+    if (needsLive(change, pct)) {
+      const q = moves.get(geckoId(symbol, id) ?? "");
+      if (q) return { dayPl: q.change * qty, dayPct: q.changePct };
+    }
+    if (change != null) return { dayPl: change * qty, dayPct: pct ?? null };
+    return { dayPl: null as number | null, dayPct: null as number | null };
+  };
   const logoFor = (symbol: string, id?: string | null) => {
     const g = geckoId(symbol, id);
     return g ? logos.get(g) ?? null : null;
@@ -62,6 +99,7 @@ export default async function CryptoPage() {
       if (!keep.has(`${a.chain}:${a.tokenKey}`)) continue;
       const value = lotValue(a);
       if (value < 10) continue;
+      const day = dayOf(a.quoteChange, a.quoteChangePct, a.quantity, a.symbol, a.coingeckoId);
       rows.push({
         id: a.id,
         symbol: a.symbol,
@@ -74,9 +112,9 @@ export default async function CryptoPage() {
         last: a.quotePrice,
         value,
         costBasis: null,
-        dayPl: a.quoteChange != null ? a.quoteChange * a.quantity : null,
+        dayPl: day.dayPl,
         totalPl: null,
-        dayPct: a.quoteChangePct,
+        dayPct: day.dayPct,
         weight: 0,
         manual: false,
         brandKind: "crypto",
@@ -86,6 +124,7 @@ export default async function CryptoPage() {
   }
   for (const g of brokerage) {
     for (const a of g.assets) {
+      const day = dayOf(a.quoteChange, a.quoteChangePct, a.quantity, a.symbol);
       rows.push({
         id: a.id,
         symbol: a.symbol,
@@ -98,9 +137,9 @@ export default async function CryptoPage() {
         last: a.quotePrice,
         value: a.value,
         costBasis: null,
-        dayPl: null,
+        dayPl: day.dayPl,
         totalPl: null,
-        dayPct: null,
+        dayPct: day.dayPct,
         weight: 0,
         manual: false,
         brandKind: "crypto",
@@ -110,6 +149,7 @@ export default async function CryptoPage() {
   }
   for (const c of manuals) {
     const value = lotValue(c);
+    const day = dayOf(c.quoteChange, c.quoteChangePct, c.quantity, c.symbol, c.coingeckoId);
     rows.push({
       id: c.id,
       symbol: c.symbol,
@@ -122,11 +162,12 @@ export default async function CryptoPage() {
       last: c.quotePrice,
       value,
       costBasis: c.costBasis,
-      dayPl: c.quoteChange != null ? c.quoteChange * c.quantity : null,
+      dayPl: day.dayPl,
       totalPl: c.costBasis != null ? value - c.costBasis : null,
-      dayPct: c.quoteChangePct,
+      dayPct: day.dayPct,
       weight: 0,
       manual: true,
+      updatedAt: (c.editedAt ?? c.createdAt).toISOString(),
       brandKind: "crypto",
       brandSrc: logoFor(c.symbol, c.coingeckoId),
     });
@@ -157,7 +198,30 @@ export default async function CryptoPage() {
         </HeroCard>
       )}
       {rows.length > 0 ? (
-          <InvestmentsBoard rows={rows} hideHero hideTable minValue={10} classMode="asset" />
+          <InvestmentsBoard
+            rows={rows}
+            hideHero
+            hideTable
+            minValue={10}
+            classMode="asset"
+            accountSlot={
+              <LargestMoves
+                movers={overview.movers
+                  .filter((m) => m.kind === "crypto")
+                  .map((m) => {
+                    if (!m.symbol || (m.day.delta != null && m.day.delta !== 0)) return m;
+                    const q = moves.get(geckoId(m.symbol) ?? "");
+                    if (!q) return m;
+                    const qty =
+                      brokerage.flatMap((g) => g.assets).find((a) => a.id === m.id)?.quantity ??
+                      wallets.flatMap((w) => w.assets).find((a) => a.id === m.id)?.quantity ??
+                      manuals.find((c) => c.id === m.id)?.quantity;
+                    if (qty == null) return m;
+                    return { ...m, day: { delta: q.change * qty, pct: q.changePct } };
+                  })}
+              />
+            }
+          />
       ) : null}
       <WalletGrid
         names={names}
@@ -229,7 +293,7 @@ export default async function CryptoPage() {
           notes: c.notes,
         }))}
       />
-      {rows.length > 0 ? <InvestmentsBoard rows={rows} hideHero hideDonuts minValue={10} /> : null}
+      {rows.length > 0 ? <InvestmentsBoard rows={rows} hideHero hideDonuts hideCostTotal minValue={10} /> : null}
     </>
   );
 }

@@ -3,7 +3,7 @@ import { finnhubKey } from "./env";
 import { startOfDay } from "./format";
 import { COINGECKO_IDS } from "./crypto-assets";
 import { FIXED_USD_ID } from "./constants";
-import { fetchDexScreenerPrices, fetchJupiterPrices, fetchSpotUsd } from "./token-prices";
+import { fetchDexScreenerPrices, fetchJupiterPrices, fetchSpotUsd, geckoChangePct } from "./token-prices";
 
 type Quote = { price: number; change: number; changePct: number; asOf: Date };
 
@@ -27,19 +27,84 @@ async function fetchYahooQuote(symbol: string): Promise<(Quote & { name?: string
   const data = (await res.json()) as {
     chart?: {
       result?: {
-        meta?: { regularMarketPrice?: number; chartPreviousClose?: number; shortName?: string; symbol?: string };
+        meta?: { regularMarketPrice?: number; shortName?: string; symbol?: string };
+        indicators?: { quote?: { close?: (number | null)[] }[] };
       }[];
     };
   };
-  const meta = data.chart?.result?.[0]?.meta;
+  const result = data.chart?.result?.[0];
+  const meta = result?.meta;
   const price = Number(meta?.regularMarketPrice ?? 0);
   if (!(price > 0)) return null;
-  const prev = Number(meta?.chartPreviousClose ?? 0);
+  const closes = (result?.indicators?.quote?.[0]?.close ?? []).filter((c): c is number => c != null && c > 0);
+  const last = closes[closes.length - 1];
+  const before = closes[closes.length - 2];
+  // The last daily bar is today's print when it matches the live price; otherwise it is the prior close.
+  const prev =
+    last != null && Math.abs(last - price) / price < 0.003 ? (before ?? last) : (last ?? before ?? 0);
   const change = prev > 0 ? price - prev : 0;
   const changePct = prev > 0 ? (change / prev) * 100 : 0;
   const quote: Quote = { price, change, changePct, asOf: new Date() };
   quoteCache.set(`eq:${symbol}`, { quote, at: Date.now() });
   return { ...quote, name: meta?.shortName };
+}
+
+export function quoteSymbol(raw: string) {
+  return raw.trim().toUpperCase().replace(/\s+/g, "");
+}
+
+/** Common stock and ETF tickers, plus OCC option symbols (root, date, call or put, strike). */
+export function isQuotedSymbol(symbol: string) {
+  if (/^[A-Z0-9]{1,5}([.\-][A-Z0-9]{1,2})?$/.test(symbol)) return true;
+  return isOptionSymbol(symbol);
+}
+
+export function isOptionSymbol(symbol: string) {
+  return /^[A-Z]{1,6}\d{6}[CP]\d{8}$/.test(quoteSymbol(symbol));
+}
+
+/**
+ * Quote feeds price option premiums per share. A brokerage often stores the contract price instead.
+ * When those two prices differ by about 100x (or 10x for minis), scale the per-share move to match.
+ */
+export function optionPremiumScale(brokerPrice: number | null | undefined, sharePrice: number | null | undefined) {
+  if (brokerPrice == null || sharePrice == null || !(brokerPrice > 0) || !(sharePrice > 0)) return 1;
+  const ratio = brokerPrice / sharePrice;
+  if (ratio > 50 && ratio < 150) return 100;
+  if (ratio > 8 && ratio < 12) return 10;
+  return 1;
+}
+
+/** Prior-close move for each symbol. Cached for 15 minutes, so a page view does not depend on a Plaid refresh. */
+export async function equityDayMoves(symbols: string[]) {
+  const household = await prisma.household.findUnique({ where: { id: "haus" } });
+  const token = finnhubKey(household?.quoteApiKey);
+  const unique = [
+    ...new Set(
+      symbols
+        .map((s) => s.trim().toUpperCase())
+        .map((s) => s.replace(/\s+/g, ""))
+        .filter((s) => isQuotedSymbol(s)),
+    ),
+  ];
+  const out = new Map<string, Quote>();
+  let cursor = 0;
+  async function worker() {
+    while (cursor < unique.length) {
+      const symbol = unique[cursor++];
+      try {
+        const quote =
+          (!isOptionSymbol(symbol) && token ? await fetchFinnhubQuote(symbol, token) : null) ??
+          (await fetchYahooQuote(symbol));
+        if (quote && quote.price > 0) out.set(symbol, quote);
+      } catch {
+        /* this symbol stays without a day move */
+      }
+    }
+  }
+  const width = Math.min(8, unique.length);
+  if (width > 0) await Promise.all(Array.from({ length: width }, () => worker()));
+  return out;
 }
 
 export async function fetchEquitySpot(symbol: string): Promise<(Quote & { name?: string }) | null> {
@@ -72,10 +137,15 @@ async function fetchFinnhubQuote(symbol: string, token: string): Promise<Quote |
 
 async function fetchGeckoQuotes(ids: string[]): Promise<Map<string, Quote>> {
   const out = new Map<string, Quote>();
-  if (!ids.length) return out;
-  const unique = [...new Set(ids)];
-  for (let i = 0; i < unique.length; i += 40) {
-    const chunk = unique.slice(i, i + 40);
+  const now = Date.now();
+  const missing: string[] = [];
+  for (const id of new Set(ids.filter(Boolean))) {
+    const cached = quoteCache.get(`cg:${id}`);
+    if (cached && now - cached.at < TTL_MS) out.set(id, cached.quote);
+    else missing.push(id);
+  }
+  for (let i = 0; i < missing.length; i += 40) {
+    const chunk = missing.slice(i, i + 40);
     const url = `https://api.coingecko.com/api/v3/simple/price?ids=${encodeURIComponent(chunk.join(","))}&vs_currencies=usd&include_24hr_change=true`;
     const res = await fetch(url, { cache: "no-store", headers: { accept: "application/json" }, signal: AbortSignal.timeout(8000) });
     if (!res.ok) continue;
@@ -83,15 +153,21 @@ async function fetchGeckoQuotes(ids: string[]): Promise<Map<string, Quote>> {
     const asOf = new Date();
     for (const [id, row] of Object.entries(data)) {
       if (!row.usd || row.usd <= 0) continue;
-      const changePct = row.usd_24hr_change ?? 0;
-      out.set(id, {
-        price: row.usd,
-        change: row.usd * (changePct / 100),
-        changePct,
-        asOf,
-      });
+      const quote = quoteFromMove(row.usd, geckoChangePct(row), asOf);
+      out.set(id, quote);
+      if (Number.isFinite(quote.change)) quoteCache.set(`cg:${id}`, { quote, at: now });
     }
-    if (i + 40 < unique.length) await sleep(250);
+    if (i + 40 < missing.length) await sleep(250);
+  }
+  return out;
+}
+
+/** 24h move for CoinGecko ids. Cached for 15 minutes. Coins with a price but no change are omitted. */
+export async function cryptoDayMoves(ids: string[]) {
+  const quotes = await fetchGeckoQuotes(ids);
+  const out = new Map<string, Quote>();
+  for (const [id, quote] of quotes) {
+    if (Number.isFinite(quote.change)) out.set(id, quote);
   }
   return out;
 }
@@ -178,6 +254,21 @@ const GECKO_PLATFORM: Record<string, string> = {
   sui: "sui",
 };
 
+function quoteFromMove(price: number, changePct: number | null | undefined, asOf = new Date()): Quote {
+  const known = changePct != null && Number.isFinite(changePct);
+  return {
+    price,
+    change: known ? price * (changePct / 100) : Number.NaN,
+    changePct: known ? changePct : 0,
+    asOf,
+  };
+}
+
+function persistedChange(q: Quote) {
+  if (!Number.isFinite(q.change)) return { quoteChange: null as number | null, quoteChangePct: null as number | null };
+  return { quoteChange: q.change, quoteChangePct: q.changePct };
+}
+
 async function fetchGeckoTokenPrices(platform: string, contracts: string[]): Promise<Map<string, Quote>> {
   const out = new Map<string, Quote>();
   const unique = [...new Set(contracts.map((c) => c.toLowerCase()))];
@@ -195,13 +286,7 @@ async function fetchGeckoTokenPrices(platform: string, contracts: string[]): Pro
       const asOf = new Date();
       for (const [addr, row] of Object.entries(data)) {
         if (!row.usd || row.usd <= 0) continue;
-        const changePct = row.usd_24hr_change ?? 0;
-        out.set(addr.toLowerCase(), {
-          price: row.usd,
-          change: row.usd * (changePct / 100),
-          changePct,
-          asOf,
-        });
+        out.set(addr.toLowerCase(), quoteFromMove(row.usd, geckoChangePct(row), asOf));
       }
     } catch {
       /* skip chunk */
@@ -215,16 +300,23 @@ const CRYPTO_QUOTE_TTL_MS = 5 * 60_000;
 let cryptoQuotesAt = 0;
 let cryptoQuotesInflight: Promise<number> | null = null;
 
-/** Page-render variant: quotes newer than five minutes are reused, otherwise a refresh starts in the
- *  background and the page renders with the prices already on the ledger. Never blocks, never throws. */
-export function enrichCryptoQuotesInBackground() {
-  if (cryptoQuotesInflight || Date.now() - cryptoQuotesAt < CRYPTO_QUOTE_TTL_MS) return;
+/** Waits for a quote refresh when the last one is older than five minutes. */
+export async function refreshCryptoQuotes() {
+  if (cryptoQuotesInflight) return cryptoQuotesInflight;
+  if (cryptoQuotesAt && Date.now() - cryptoQuotesAt < CRYPTO_QUOTE_TTL_MS) return 0;
   cryptoQuotesInflight = enrichCryptoQuotes()
     .catch(() => 0)
     .finally(() => {
       cryptoQuotesAt = Date.now();
       cryptoQuotesInflight = null;
     });
+  return cryptoQuotesInflight;
+}
+
+/** Page-render variant: quotes newer than five minutes are reused, otherwise a refresh starts in the
+ *  background and the page renders with the prices already on the ledger. Never blocks, never throws. */
+export function enrichCryptoQuotesInBackground() {
+  void refreshCryptoQuotes();
 }
 
 export async function enrichCryptoQuotes() {
@@ -241,12 +333,7 @@ export async function enrichCryptoQuotes() {
     if (!q) {
       const spot = await fetchSpotUsd(row.symbol, row.coingeckoId);
       if (spot) {
-        q = {
-          price: spot.price,
-          change: spot.price * ((spot.changePct ?? 0) / 100),
-          changePct: spot.changePct ?? 0,
-          asOf: new Date(),
-        };
+        q = quoteFromMove(spot.price, spot.changePct);
       }
     }
     if (!q) continue;
@@ -254,8 +341,7 @@ export async function enrichCryptoQuotes() {
       where: { id: row.id },
       data: {
         quotePrice: q.price,
-        quoteChange: q.change,
-        quoteChangePct: q.changePct,
+        ...persistedChange(q),
         quoteAsOf: q.asOf,
       },
     });
@@ -305,20 +391,19 @@ export async function enrichCryptoQuotes() {
     }
     if (!q && a.contractAddress && a.chain === "solana") {
       const j = jup.get(a.contractAddress);
-      if (j) q = { price: j.price, change: j.price * ((j.changePct ?? 0) / 100), changePct: j.changePct ?? 0, asOf: new Date() };
+      if (j) q = quoteFromMove(j.price, j.changePct);
     }
     if (!q && a.contractAddress) {
       const key = `${a.chain}:${a.chain === "solana" ? a.contractAddress : a.contractAddress.toLowerCase()}`;
       const d = dex.get(key);
-      if (d) q = { price: d.price, change: d.price * ((d.changePct ?? 0) / 100), changePct: d.changePct ?? 0, asOf: new Date() };
+      if (d) q = quoteFromMove(d.price, d.changePct);
     }
     if (!q) continue;
     await prisma.cryptoWalletAsset.update({
       where: { id: a.id },
       data: {
         quotePrice: q.price,
-        quoteChange: q.change,
-        quoteChangePct: q.changePct,
+        ...persistedChange(q),
         quoteAsOf: q.asOf,
         coingeckoId: a.coingeckoId ?? COINGECKO_IDS[a.symbol.toUpperCase()]?.id ?? a.coingeckoId,
         symbol: a.symbol,

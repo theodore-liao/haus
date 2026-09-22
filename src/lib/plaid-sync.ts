@@ -13,6 +13,8 @@ import { enrichHoldingsQuotes } from "./quotes";
 import { loadCryptoLots, lotValue } from "./crypto-lots";
 import type { AccountBase, InvestmentsHoldingsGetResponse, Transaction } from "plaid";
 import { plaidAccessToken } from "./token-crypto";
+import { clearCardPaymentCache, loadCardPaymentFlags } from "./card-payments";
+import { merchantKey as normalizeMerchantKey, ruleKeyBase, ruleKeyIsMatched } from "./categories";
 
 function asTransfer(txn: Transaction) {
   const primary = txn.personal_finance_category?.primary ?? "";
@@ -28,7 +30,6 @@ function asCcPayment(txn: Transaction) {
   const blob = `${txn.name ?? ""} ${txn.merchant_name ?? ""}`.toLowerCase();
   if (detailed.includes("CREDIT_CARD_PAYMENT")) return true;
   if (primary === "LOAN_PAYMENTS" && /credit card/i.test(blob)) return true;
-  if (/\bbilt\s+card\b/.test(blob)) return true;
   if (/credit card payment|cc payment/.test(blob)) return true;
   return false;
 }
@@ -137,10 +138,6 @@ async function syncTransactions(accessToken: string, itemDbId: string, cursor: s
       const existing = await prisma.txn.findUnique({
         where: { plaidTransactionId: txn.transaction_id },
       });
-      const merchantKey = (txn.merchant_name || txn.name || "").toLowerCase();
-      const rule = merchantKey
-        ? await prisma.merchantRule.findUnique({ where: { merchantKey } })
-        : null;
       const data = {
         accountId,
         date: new Date(txn.date),
@@ -151,8 +148,8 @@ async function syncTransactions(accessToken: string, itemDbId: string, cursor: s
         pending: txn.pending,
         categoryPrimary: txn.personal_finance_category?.primary ?? null,
         categoryDetailed: txn.personal_finance_category?.detailed ?? null,
-        userCategory: existing?.userCategory ?? rule?.category ?? null,
-        userMerchant: existing?.userMerchant ?? rule?.displayName ?? null,
+        userCategory: existing?.userCategory ?? null,
+        userMerchant: existing?.userMerchant ?? null,
         isoCurrency: txn.iso_currency_code ?? "USD",
         isTransfer: asTransfer(txn),
         isCcPayment: asCcPayment(txn),
@@ -176,6 +173,39 @@ async function syncTransactions(accessToken: string, itemDbId: string, cursor: s
     where: { id: itemDbId },
     data: { transactionsCursor: next ?? null },
   });
+  await applyMatchedMerchantRules();
+}
+
+/** Fill a category only when the user has not chosen one, using the matched or unmatched rule. */
+async function applyMatchedMerchantRules() {
+  clearCardPaymentCache();
+  const [flags, rules, txns] = await Promise.all([
+    loadCardPaymentFlags(),
+    prisma.merchantRule.findMany(),
+    prisma.txn.findMany({
+      select: { id: true, name: true, merchantName: true, userCategory: true },
+    }),
+  ]);
+  for (const rule of rules) {
+    if (!rule.category && !rule.displayName) continue;
+    const matched = ruleKeyIsMatched(rule.merchantKey);
+    const base = ruleKeyBase(rule.merchantKey);
+    const ids = txns
+      .filter((t) => {
+        if (t.userCategory) return false;
+        if (normalizeMerchantKey(t.merchantName || t.name) !== base) return false;
+        return flags.paired.has(t.id) === matched;
+      })
+      .map((t) => t.id);
+    if (!ids.length) continue;
+    await prisma.txn.updateMany({
+      where: { id: { in: ids } },
+      data: {
+        userCategory: rule.category ?? undefined,
+        userMerchant: rule.displayName ?? undefined,
+      },
+    });
+  }
 }
 
 async function upsertSecurity(s: {

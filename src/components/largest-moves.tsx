@@ -10,6 +10,8 @@ export type AssetMover = {
   symbol: string | null;
   name: string;
   kind: "crypto" | "security";
+  /** Retirement lots stay out of the stocks list. */
+  retirement?: boolean;
   value: number;
   day: { delta: number | null; pct: number | null };
   week: { delta: number | null; pct: number | null };

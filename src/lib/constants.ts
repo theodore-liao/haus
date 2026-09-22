@@ -23,8 +23,9 @@ export const FIXED_USD_ID = "usd-fixed";
 
 export const PFC_LABELS: Record<string, string> = {
   INCOME: "Income",
-  TRANSFER_IN: "Transfer in",
-  TRANSFER_OUT: "Transfer out",
+  TRANSFER: "Transfer",
+  TRANSFER_IN: "Transfer",
+  TRANSFER_OUT: "Transfer",
   LOAN_PAYMENTS: "Loan payments",
   BANK_FEES: "Bank fees",
   ENTERTAINMENT: "Entertainment",
@@ -60,7 +61,7 @@ export const ESSENTIAL_CATEGORIES = new Set([
   "GROCERIES",
 ]);
 
-export const TRANSFER_CATEGORIES = new Set(["TRANSFER_IN", "TRANSFER_OUT"]);
+export const TRANSFER_CATEGORIES = new Set(["TRANSFER", "TRANSFER_IN", "TRANSFER_OUT"]);
 
 export function categoryLabel(code: string | null | undefined): string {
   if (!code) return "Uncategorized";

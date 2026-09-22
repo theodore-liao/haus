@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { Delta } from "./money";
+import { Delta, WholeDollarsScope } from "./money";
 
 export function HeroCard({
   kicker,
@@ -31,7 +31,9 @@ export function HeroCard({
       <section className="hero-card hero-card-split">
         <div className="min-w-0">
           <div className="kicker">{kicker}</div>
-          <div className="display-number">{children}</div>
+          <div className="display-number">
+            <WholeDollarsScope>{children}</WholeDollarsScope>
+          </div>
           {supporting ? <div className="supporting-line">{supporting}</div> : null}
           {deltaRow}
         </div>
@@ -43,7 +45,9 @@ export function HeroCard({
   return (
     <section className="hero-card">
       <div className="kicker">{kicker}</div>
-      <div className="display-number">{children}</div>
+      <div className="display-number">
+        <WholeDollarsScope>{children}</WholeDollarsScope>
+      </div>
       {supporting ? <div className="supporting-line">{supporting}</div> : null}
       {deltaRow ? (
         <>

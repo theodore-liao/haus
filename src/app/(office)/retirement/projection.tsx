@@ -5,7 +5,7 @@ import Link from "next/link";
 import { Area, AreaChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Money } from "@/components/money";
+import { Money, WholeDollarsScope } from "@/components/money";
 import { formatMoney } from "@/lib/format";
 
 export type Holder = { key: "A" | "B"; name: string; birthdate: string | null };
@@ -192,7 +192,9 @@ export function RetirementProjection({
 
       <div className="mt-4 flex flex-wrap items-baseline gap-x-3">
         <span className="display-number">
-          <Money value={end.balance} />
+          <WholeDollarsScope>
+            <Money value={end.balance} />
+          </WholeDollarsScope>
         </span>
         <span className="text-sm text-muted-foreground">
           in {end.year}

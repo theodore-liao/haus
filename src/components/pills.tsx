@@ -1,4 +1,5 @@
 import type { CSSProperties, ReactNode } from "react";
+import { WholeDollarsScope } from "./money";
 
 /** `compact` packs the pills two-up inside another card (see HeroCard aside). */
 export function Pills({ children, compact }: { children: ReactNode; compact?: boolean }) {
@@ -18,7 +19,9 @@ export function Pill({
     <div className="pill" style={{ "--pill-accent": accent } as CSSProperties}>
       <span className="pill-accent" />
       <div className="kicker">{kicker}</div>
-      <div className="display-number">{children}</div>
+      <div className="display-number">
+        <WholeDollarsScope>{children}</WholeDollarsScope>
+      </div>
     </div>
   );
 }

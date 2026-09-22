@@ -15,6 +15,8 @@ export default async function SettingsPage() {
         birthdateA={data.names.birthdateA}
         birthdateB={data.names.birthdateB}
         householdChildren={data.names.children}
+        pairCardPayments={data.names.pairCardPayments}
+        tabs={data.names.tabs}
         connectionCount={data.items.length}
         lastSynced={data.items.reduce<string | null>((latest, i) => {
           if (!i.lastSyncedAt) return latest;

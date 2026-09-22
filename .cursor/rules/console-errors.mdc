@@ -1,0 +1,12 @@
+---
+description: Check the browser console for errors after app changes
+alwaysApply: true
+---
+
+# Console errors
+
+Development builds record browser console errors and warnings to `.grok/console.jsonl`. The dev server log is `.next/dev/logs/next-development.log`.
+
+When working on this app, read `.grok/console.jsonl` if it exists before finishing. Fix every error and warning recorded there, including ones already firing on the page. Open the affected pages, confirm the console is clean, and mention what it showed. Do not wait for the errors to be pasted.
+
+Ignore `The destination stream closed early` in the server log. Next logs that when a render is cancelled because the browser navigated away.

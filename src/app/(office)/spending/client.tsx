@@ -100,17 +100,12 @@ export function SpendingClient({
           <HeroCard
             kicker="Spending"
             supporting={
-              off.size > 0 ? (
-                <>
-                  Selected categories <Money value={shownTotal} /> · unchecked{" "}
-                  <Money value={spendTotal - shownTotal} />
-                </>
-              ) : (
-                "All categories selected."
-              )
+              <>
+                Total spend <Money value={spendTotal} />
+              </>
             }
           >
-            <Money value={spendTotal} />
+            <Money value={shownTotal} />
           </HeroCard>
           <ChartCard kicker="By category">
             <AllocationChart

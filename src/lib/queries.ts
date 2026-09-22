@@ -11,7 +11,8 @@ import {
   isRetirementType,
 } from "./account-types";
 import { CONCENTRATION_FLAG, FIXED_USD_ID, HIGH_UTILIZATION, INSURANCE_RENEWAL_DAYS, IRS_LIMITS, IRS_LIMITS_YEAR, STALE_CONNECTION_HOURS, categoryLabel, incomeSourceLabel } from "./constants";
-import { effectiveCategory, isInternalMove, isInvestFunding, recurringMerchantKey, txnMerchantKey } from "./categories";
+import { loadCardPaymentFlags } from "./card-payments";
+import { effectiveCategory, isInternalMove, isInvestFunding, isTransferCategory, recurringMerchantKey, txnMerchantKey } from "./categories";
 import { dayKey, ymKey } from "./range";
 
 async function hiddenMerchantKeys() {
@@ -43,11 +44,11 @@ function notHidden<T extends { userMerchant?: string | null; merchantName?: stri
   return rows.filter((t) => !hidden.has(txnMerchantKey(t)));
 }
 import { parseJson } from "./utils";
-import { ellipsize, formatHoldingClass, startOfDay } from "./format";
+import { ellipsize, formatHoldingClass, formatMoney, startOfDay } from "./format";
 import { differenceInCalendarDays, subDays } from "date-fns";
 import { accountLabel } from "./account-label";
 import { reconstructNetWorthPath } from "./history";
-import { historyAgreesWithSpot, loadPriceMap, priceOnOrBefore } from "./quotes";
+import { equityDayMoves, historyAgreesWithSpot, isOptionSymbol, loadPriceMap, optionPremiumScale, priceOnOrBefore, quoteSymbol } from "./quotes";
 import { propertyDebt, vehicleDebt } from "./property";
 import { loadCryptoLots, lotValue } from "./crypto-lots";
 import type { BrandKind } from "./logos";
@@ -61,8 +62,24 @@ export async function getNames() {
     birthdateA: household.birthdateA?.toISOString().slice(0, 10) ?? null,
     birthdateB: household.birthdateB?.toISOString().slice(0, 10) ?? null,
     quoteApiKey: household.quoteApiKey,
+    pairCardPayments: household.pairCardPayments,
+    tabs: {
+      crypto: household.showCrypto,
+      retirement: household.showRetirement,
+      property: household.showProperty,
+      insurance: household.showInsurance,
+      insights: household.showInsights,
+    },
     children,
   };
+}
+
+async function withCardFlags<T extends { id: string }>(rows: T[]) {
+  const flags = await loadCardPaymentFlags();
+  return rows.map((t) => ({
+    ...t,
+    pairedTransfer: flags.enabled && flags.paired.has(t.id),
+  }));
 }
 
 export async function getConnectionCount() {
@@ -413,10 +430,17 @@ export async function getOverview(filter: OwnerFilter) {
   const equity = reEquity + vehicleEquity + (otherAssets - vehicleTotal);
   const unsecuredDebt = Math.max(0, liabilities - securedDebt);
 
+  const quotedManuals = stockManuals.filter(
+    (row) => matchesOwner(row.owner, filter) && row.coingeckoId !== FIXED_USD_ID,
+  );
   const holdingDayPl =
     holds.reduce((s, h) => (h.quoteChange != null ? s + h.quoteChange * h.quantity : s), 0) +
-    coins.reduce((s, c) => (c.quoteChange != null ? s + c.quoteChange * c.quantity : s), 0);
-  const hasQuoteMove = holds.some((h) => h.quoteChange != null) || coins.some((c) => c.quoteChange != null);
+    coins.reduce((s, c) => (c.quoteChange != null ? s + c.quoteChange * c.quantity : s), 0) +
+    quotedManuals.reduce((s, h) => (h.quoteChange != null ? s + h.quoteChange * h.quantity : s), 0);
+  const hasQuoteMove =
+    holds.some((h) => h.quoteChange != null) ||
+    coins.some((c) => c.quoteChange != null) ||
+    quotedManuals.some((h) => h.quoteChange != null);
 
   const now = new Date();
   const historyFrom = subDays(now, 42);
@@ -472,16 +496,29 @@ export async function getOverview(filter: OwnerFilter) {
     return { delta, pct };
   }
 
+  const dayMoves = await equityDayMoves(
+    valuedHolds
+      .filter((x) => x.h.quoteChange == null && x.h.symbol && !isCryptoHoldingType(x.h.type))
+      .map((x) => x.h.symbol as string),
+  );
+
   const movers = [
     ...valuedHolds.map(({ h, value, last }) => {
       const hist1 = periodMove(h.symbol, h.quantity, last, 1);
-      const dayDelta = h.quoteChange != null ? h.quoteChange * h.quantity : hist1.delta;
-      const dayPct = h.quoteChangePct ?? hist1.pct;
+      const live = h.symbol ? dayMoves.get(quoteSymbol(h.symbol)) : undefined;
+      const scale =
+        h.symbol && live && isOptionSymbol(h.symbol)
+          ? optionPremiumScale(h.institutionPrice ?? h.quotePrice, live.price)
+          : 1;
+      const dayDelta =
+        h.quoteChange != null ? h.quoteChange * h.quantity : live ? live.change * scale * h.quantity : hist1.delta;
+      const dayPct = h.quoteChangePct ?? live?.changePct ?? hist1.pct;
       return {
         id: h.id,
         symbol: h.symbol,
         name: h.name,
-        kind: (h.type === "cryptocurrency" ? "crypto" : "security") as "crypto" | "security",
+        kind: (isCryptoHoldingType(h.type) ? "crypto" : "security") as "crypto" | "security",
+        retirement: isRetirementAccount(h.account),
         value,
         day: { delta: dayDelta, pct: dayPct },
         week: periodMove(h.symbol, h.quantity, last, 7),
@@ -515,8 +552,12 @@ export async function getOverview(filter: OwnerFilter) {
   const pathAligned =
     latestPath != null &&
     Math.abs(latestPath.netWorth - netWorth) / Math.max(Math.abs(netWorth), 1) < 0.15;
-  const dayChange =
-    (pathAligned ? changeFromPath(path, netWorth, 1) : null) ?? (hasQuoteMove ? holdingDayPl : sumMoverWindow("day"));
+  // Day is the live quote move (prior close → now). The reconstructed path is the wrong baseline
+  // for one day: most symbols have no trustworthy history, so they are pinned at today's price
+  // and a rally disappears, and a weekend sample often lands on the wrong close.
+  const dayChange = hasQuoteMove
+    ? holdingDayPl
+    : (pathAligned ? changeFromPath(path, netWorth, 1) : null) ?? sumMoverWindow("day");
   const weekChange = (pathAligned ? changeFromPath(path, netWorth, 7) : null) ?? sumMoverWindow("week");
   const monthChange = (pathAligned ? changeFromPath(path, netWorth, 30) : null) ?? sumMoverWindow("month");
 
@@ -536,7 +577,7 @@ export async function getOverview(filter: OwnerFilter) {
     .sort((a, b) => Math.abs(b.delta) - Math.abs(a.delta))
     .slice(0, 8);
 
-  const largeTxns = txns
+  const largeTxns = (await withCardFlags(txns))
     .filter((t) => !isInternalMove(t) && Math.abs(t.amount) >= 500)
     .slice(0, 8)
     .map((t) => ({
@@ -729,7 +770,7 @@ export async function getCashflow(filter: OwnerFilter, month: Date, includeTrans
     hiddenMerchantKeys(),
     ignoredRecurringKeys(),
   ]);
-  const scoped = notHidden(txns, hidden).filter((t) => matchesOwner(t.account.owner, filter));
+  const scoped = await withCardFlags(notHidden(txns, hidden).filter((t) => matchesOwner(t.account.owner, filter)));
   const monthTxns = scoped.filter((t) => t.date >= start);
 
   const spendingOf = (t: (typeof txns)[number]) => {
@@ -743,7 +784,7 @@ export async function getCashflow(filter: OwnerFilter, month: Date, includeTrans
     if (!includeTransfers && isInternalMove(t)) return 0;
     const cat = effectiveCategory(t);
     if (cat === "INCOME") return Math.abs(t.amount);
-    if (t.amount < 0 && cat !== "TRANSFER_IN" && cat !== "TRANSFER_OUT") return -t.amount;
+    if (t.amount < 0 && !isTransferCategory(cat)) return -t.amount;
     return 0;
   };
 
@@ -877,7 +918,8 @@ export async function getTransactions(filter: OwnerFilter) {
     }),
     hiddenMerchantKeys(),
   ]);
-  return notHidden(txns, hidden).filter((t) => matchesOwner(t.account.owner, filter)).map((t) => ({
+  const visible = await withCardFlags(notHidden(txns, hidden).filter((t) => matchesOwner(t.account.owner, filter)));
+  return visible.map((t) => ({
     id: t.id,
     date: t.date.toISOString(),
     name: t.name,
@@ -894,6 +936,8 @@ export async function getTransactions(filter: OwnerFilter) {
     pending: t.pending,
     isTransfer: t.isTransfer,
     isCcPayment: t.isCcPayment,
+    internal: isInternalMove(t),
+    cardMatch: t.pairedTransfer ? ("matched" as const) : null,
   }));
 }
 
@@ -908,11 +952,20 @@ export async function getInvestments(filter: OwnerFilter) {
       !isRetirementAccount(h.account) &&
       !isCryptoHoldingType(h.type),
   );
+  const dayMoves = await equityDayMoves(
+    scoped.filter((h) => h.quoteChange == null && h.symbol).map((h) => h.symbol as string),
+  );
   const lots = scoped.map((h) => {
     const value = holdingValue(h);
     const last = holdingPrice(h);
     const cost = h.costBasis ?? null;
-    const dayPl = h.quoteChange != null ? h.quoteChange * h.quantity : null;
+    const live = h.symbol ? dayMoves.get(quoteSymbol(h.symbol)) : undefined;
+    const scale =
+      h.symbol && live && isOptionSymbol(h.symbol)
+        ? optionPremiumScale(h.institutionPrice ?? h.quotePrice, live.price)
+        : 1;
+    const perShare = h.quoteChange ?? (live ? live.change * scale : null);
+    const dayPl = perShare != null ? perShare * h.quantity : null;
     const totalPl = cost != null ? value - cost : null;
     return {
       id: h.id,
@@ -930,7 +983,7 @@ export async function getInvestments(filter: OwnerFilter) {
       costBasis: cost,
       dayPl,
       totalPl,
-      dayPct: h.quoteChangePct,
+      dayPct: h.quoteChangePct ?? live?.changePct ?? null,
       manual: false as boolean,
       accounts: [accountLabel(h.account.name, h.account.item.institutionName)],
       brandKind: (h.type === "cryptocurrency" ? "crypto" : "security") as BrandKind,
@@ -994,30 +1047,36 @@ export async function getInvestments(filter: OwnerFilter) {
       fees: t.fees,
     }));
 
-  const [manualRows, manualMeta] = await Promise.all([
-    prisma.manualHolding.findMany({ where: { kind: "security" } }),
-    prisma.$queryRaw<{ id: string; assetClass: string | null; accountName: string | null }[]>`
-      SELECT id, assetClass, accountName FROM ManualHolding WHERE kind = 'security'
-    `,
-  ]);
-  const metaById = new Map(manualMeta.map((m) => [m.id, m]));
+  const manualRows = await prisma.manualHolding.findMany({ where: { kind: "security" } });
+  const manualMoves = await equityDayMoves(
+    manualRows.filter((h) => h.quoteChange == null && h.coingeckoId !== FIXED_USD_ID).map((h) => h.symbol),
+  );
   const manuals = manualRows
     .filter((h) => matchesOwner(h.owner, filter))
     .map((h) => {
-      const meta = metaById.get(h.id);
+      const live = manualMoves.get(quoteSymbol(h.symbol));
+      const quoteChange = h.quoteChange ?? live?.change ?? null;
+      const quoteChangePct = h.quoteChangePct ?? live?.changePct ?? null;
       return {
         id: h.id,
         symbol: h.symbol,
         name: h.name,
         quantity: h.quantity,
-        quotePrice: h.quotePrice,
+        quotePrice: h.quotePrice ?? live?.price ?? null,
+        quoteChange,
+        quoteChangePct,
+        costBasis: h.costBasis,
         coingeckoId: h.coingeckoId,
         notes: h.notes,
-        assetClass: meta?.assetClass || "equity",
-        accountName: meta?.accountName || "Manual",
+        assetClass: h.assetClass || "equity",
+        accountName: h.accountName || "Manual",
         owner: h.owner,
         ownerLabel: ownerLabel(h.owner, names),
-        value: h.coingeckoId === FIXED_USD_ID ? (h.quotePrice ?? 0) : (h.quotePrice ?? 0) * h.quantity,
+        updatedAt: (h.editedAt ?? h.createdAt).toISOString(),
+        value:
+          h.coingeckoId === FIXED_USD_ID
+            ? (h.quotePrice ?? 0)
+            : (h.quotePrice ?? live?.price ?? 0) * h.quantity,
       };
     })
     .sort((a, b) => b.value - a.value);
@@ -1058,6 +1117,8 @@ export async function getBrokerageCrypto(filter: OwnerFilter) {
       name: string;
       quantity: number;
       quotePrice: number | null;
+      quoteChange: number | null;
+      quoteChangePct: number | null;
       value: number;
     }[];
   };
@@ -1085,6 +1146,8 @@ export async function getBrokerageCrypto(filter: OwnerFilter) {
       name: h.name,
       quantity: qty,
       quotePrice: qty ? value / qty : value,
+      quoteChange: h.quoteChange,
+      quoteChangePct: h.quoteChangePct,
       value,
     });
   }
@@ -1339,7 +1402,7 @@ export async function getReports(filter: OwnerFilter) {
     hiddenMerchantKeys(),
     ignoredRecurringKeys(),
   ]);
-  const txns = notHidden(allTxns, hidden).filter((t) => matchesOwner(t.account.owner, filter));
+  const txns = await withCardFlags(notHidden(allTxns, hidden).filter((t) => matchesOwner(t.account.owner, filter)));
 
   const flows: {
     date: string;
@@ -1622,6 +1685,8 @@ export async function getInsights(filter: OwnerFilter) {
     });
   }
 
+  cards.push(...spendingBehavior(reports.flows, now));
+
   return { cards };
 }
 
@@ -1640,8 +1705,8 @@ function isTakeHome(category: string) {
 }
 
 /**
- * Cluster deposits that land within ~20% of each other. A single employer often pays two
- * fixed streams (e.g. Microsoft $3,118 + $1,100) that look "unstable" if lumped together.
+ * Cluster deposits that land within ~20% of each other. One employer can pay two
+ * fixed streams that look unstable if they are lumped together.
  */
 function amountClusters(rows: { date: number; amount: number }[]) {
   const sorted = [...rows].sort((a, b) => a.amount - b.amount);
@@ -1699,6 +1764,179 @@ export function annualisedPaychecks(flows: Flow[]) {
 
 const FIXED_SPEND = new Set(["Loan payments", "Rent and utilities"]);
 
+function monthLabel(ym: string) {
+  const [y, m] = ym.split("-").map(Number);
+  return new Date(y, m - 1, 1).toLocaleString("en-US", { month: "short", year: "numeric" });
+}
+
+function daysInMonth(ym: string) {
+  const [y, m] = ym.split("-").map(Number);
+  return new Date(y, m, 0).getDate();
+}
+
+/**
+ * Personal-finance apps (Monarch, Copilot, YNAB) flag two things people actually act on:
+ * a category or merchant running well above its own recent baseline, and the direction of
+ * steerable spend from one complete month to the next. Fixed housing and debt service are
+ * left out of the trend cards.
+ */
+function spendingBehavior(flows: Flow[], now: Date): InsightCard[] {
+  const cards: InsightCard[] = [];
+  const spend = flows.filter((f) => f.kind === "spend");
+  if (!spend.length) return cards;
+  const current = ymKey(now);
+  const catMonth = new Map<string, Map<string, number>>();
+  const merchMonth = new Map<string, Map<string, { label: string; amount: number }>>();
+  for (const f of spend) {
+    const cats = catMonth.get(f.month) ?? new Map<string, number>();
+    cats.set(f.category, (cats.get(f.category) ?? 0) + f.amount);
+    catMonth.set(f.month, cats);
+    const key = recurringMerchantKey(f.merchant) || f.merchant.toLowerCase();
+    const merchs = merchMonth.get(f.month) ?? new Map<string, { label: string; amount: number }>();
+    const prev = merchs.get(key) ?? { label: f.merchant, amount: 0 };
+    prev.amount += f.amount;
+    merchs.set(key, prev);
+    merchMonth.set(f.month, merchs);
+  }
+  const sumMonth = (m: string) => [...(catMonth.get(m)?.values() ?? [])].reduce((s, v) => s + v, 0);
+  const months = [...catMonth.keys()].sort();
+  const complete = months.filter((m) => m < current);
+  const focusPartial = now.getDate() >= 7 && sumMonth(current) > 0;
+  const focus = focusPartial ? current : complete[complete.length - 1];
+  if (!focus) return cards;
+  const baseline = complete.filter((m) => m !== focus).slice(-2);
+  const scale = focusPartial ? daysInMonth(focus) / Math.max(1, now.getDate()) : 1;
+  const lastFull = [...complete].reverse().find((m) => m !== focus) ?? complete[complete.length - 1];
+
+  if (focusPartial && lastFull && sumMonth(lastFull) > 0) {
+    const soFar = sumMonth(current);
+    const projected = soFar * scale;
+    const prior = sumMonth(lastFull);
+    const drift = (projected - prior) / prior;
+    cards.push({
+      section: "Spending anomalies",
+      title: "This month's spending pace",
+      math: `${formatMath(soFar)} in ${now.getDate()} days, on pace for ${formatMath(projected)} vs ${formatMath(prior)} in ${monthLabel(lastFull)}`,
+      value: `${drift >= 0 ? "+" : "−"}${formatPctValue(Math.abs(drift))}`,
+      tone: drift > 0.15 ? "negative" : drift < -0.1 ? "positive" : "neutral",
+    });
+  }
+
+  if (baseline.length) {
+    const focusCats = catMonth.get(focus) ?? new Map<string, number>();
+    const allCats = new Set<string>(focusCats.keys());
+    for (const m of baseline) for (const c of catMonth.get(m)?.keys() ?? []) allCats.add(c);
+    const spikes: { cat: string; raw: number; base: number }[] = [];
+    for (const cat of allCats) {
+      const raw = focusCats.get(cat) ?? 0;
+      // A partial month is not scaled up. Rent and loan payments land once, and scaling them
+      // makes a normal bill look like a spike. Flag only spend that has already beaten a full month.
+      const baseVals = baseline.map((m) => catMonth.get(m)?.get(cat) ?? 0);
+      const base = baseVals.reduce((s, v) => s + v, 0) / baseVals.length;
+      const hot = focusPartial ? raw > base * 1.15 : raw > base * 1.4;
+      if (base <= 0 || !hot) continue;
+      const monthSpend = sumMonth(focus);
+      if (monthSpend <= 0 || raw / monthSpend < 0.05) continue;
+      spikes.push({ cat, raw, base });
+    }
+    spikes.sort((a, b) => b.raw - b.base - (a.raw - a.base));
+    for (const s of spikes.slice(0, 3)) {
+      cards.push({
+        section: "Spending anomalies",
+        title: `${s.cat} is running hot`,
+        math: focusPartial
+          ? `${formatMath(s.raw)} so far this month vs ${formatMath(s.base)} in a typical recent full month`
+          : `${formatMath(s.raw)} in ${monthLabel(focus)} vs ${formatMath(s.base)} over the prior ${baseline.length} month${baseline.length === 1 ? "" : "s"}`,
+        value: `+${formatPctValue((s.raw - s.base) / s.base)}`,
+        tone: "negative",
+      });
+    }
+
+    const focusMerch = merchMonth.get(focus) ?? new Map<string, { label: string; amount: number }>();
+    const merchSpikes: { label: string; raw: number; base: number; projected: number }[] = [];
+    for (const [key, row] of focusMerch) {
+      const baseVals = baseline.map((m) => merchMonth.get(m)?.get(key)?.amount ?? 0).filter((v) => v > 0);
+      if (!baseVals.length) continue;
+      const base = baseVals.reduce((s, v) => s + v, 0) / baseVals.length;
+      const compared = row.amount;
+      const hot = focusPartial ? compared > base * 1.5 : compared > base * 2;
+      if (base <= 0 || !hot) continue;
+      merchSpikes.push({ label: row.label, raw: row.amount, base, projected: compared });
+    }
+    merchSpikes.sort((a, b) => b.projected - b.base - (a.projected - a.base));
+    for (const s of merchSpikes.slice(0, 2)) {
+      cards.push({
+        section: "Spending anomalies",
+        title: `${s.label} is above its usual`,
+        math: focusPartial
+          ? `${formatMath(s.raw)} so far vs ${formatMath(s.base)} in a typical recent month`
+          : `${formatMath(s.raw)} in ${monthLabel(focus)} vs ${formatMath(s.base)} in a typical recent month`,
+        value: `+${formatPctValue((s.projected - s.base) / s.base)}`,
+        tone: "negative",
+      });
+    }
+  }
+
+  if (complete.length >= 2) {
+    const newer = complete[complete.length - 1];
+    const older = complete[complete.length - 2];
+    const cats = new Set<string>([...(catMonth.get(newer)?.keys() ?? []), ...(catMonth.get(older)?.keys() ?? [])]);
+    const moves: { cat: string; newerAmt: number; olderAmt: number; drift: number }[] = [];
+    for (const cat of cats) {
+      if (FIXED_SPEND.has(cat)) continue;
+      const newerAmt = catMonth.get(newer)?.get(cat) ?? 0;
+      const olderAmt = catMonth.get(older)?.get(cat) ?? 0;
+      if (newerAmt <= 0 || olderAmt <= 0) continue;
+      const drift = (newerAmt - olderAmt) / olderAmt;
+      if (Math.abs(drift) < 0.2) continue;
+      moves.push({ cat, newerAmt, olderAmt, drift });
+    }
+    const rising = moves.filter((m) => m.drift > 0).sort((a, b) => b.drift - a.drift).slice(0, 2);
+    const falling = moves.filter((m) => m.drift < 0).sort((a, b) => a.drift - b.drift).slice(0, 2);
+    for (const m of rising) {
+      cards.push({
+        section: "Spending trends",
+        title: `${m.cat} is rising`,
+        math: `${formatMath(m.newerAmt)} in ${monthLabel(newer)} vs ${formatMath(m.olderAmt)} in ${monthLabel(older)}`,
+        value: `+${formatPctValue(m.drift)}`,
+        tone: "negative",
+      });
+    }
+    for (const m of falling) {
+      cards.push({
+        section: "Spending trends",
+        title: `${m.cat} is falling`,
+        math: `${formatMath(m.newerAmt)} in ${monthLabel(newer)} vs ${formatMath(m.olderAmt)} in ${monthLabel(older)}`,
+        value: `−${formatPctValue(Math.abs(m.drift))}`,
+        tone: "positive",
+      });
+    }
+    const share = (m: string) => {
+      let total = 0;
+      let discretionary = 0;
+      for (const [cat, v] of catMonth.get(m) ?? []) {
+        total += v;
+        if (!FIXED_SPEND.has(cat)) discretionary += v;
+      }
+      return total > 0 ? discretionary / total : null;
+    };
+    const dNew = share(newer);
+    const dOld = share(older);
+    if (dNew != null && dOld != null) {
+      const drift = dNew - dOld;
+      cards.push({
+        section: "Spending trends",
+        title: "Discretionary share of spending",
+        math: `${formatPctValue(dNew)} in ${monthLabel(newer)} vs ${formatPctValue(dOld)} in ${monthLabel(older)}, excluding loan payments and rent & utilities`,
+        value: `${drift >= 0 ? "+" : "−"}${formatPctValue(Math.abs(drift))}`,
+        tone: drift > 0.05 ? "negative" : drift < -0.05 ? "positive" : "neutral",
+      });
+    }
+  }
+
+  return cards;
+}
+
 /** Spend over the most recent complete months, with the factor that scales it to a year.
  *  Capped at three because Plaid's initial pull covers ~90 days; older months are usually thin. */
 export function annualisedSpend(flows: Flow[], now: Date) {
@@ -1728,7 +1966,7 @@ export function annualisedSpend(flows: Flow[], now: Date) {
 }
 
 function formatMath(n: number) {
-  return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 }).format(n);
+  return formatMoney(n, { whole: true });
 }
 
 function formatPctValue(ratio: number) {

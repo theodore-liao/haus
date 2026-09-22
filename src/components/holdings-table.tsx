@@ -8,12 +8,13 @@ import { Input } from "./ui/input";
 import { Money, Delta } from "./money";
 import { HeroCard } from "./hero-card";
 import { ChartCard } from "./chart-card";
-import { formatHoldingClass, formatPct } from "@/lib/format";
+import { formatDateTime, formatHoldingClass, formatPct } from "@/lib/format";
 import { DiscreteFilter, nextSortDir, ResetFilters, SortMark, type SortDir } from "./excel-filter";
 import { BrandMark } from "./brand-mark";
 import type { BrandKind } from "@/lib/logos";
 import { RemoveCrypto } from "./add-crypto";
 import { AllocationChart } from "./charts";
+import { Button } from "./ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "./ui/card";
 import { cn } from "@/lib/utils";
 import { withHolder } from "@/lib/owners";
@@ -35,6 +36,8 @@ export type HoldingRow = {
   dayPct: number | null;
   weight: number;
   manual: boolean;
+  /** When the user last saved a manual entry. Quote refreshes do not move this. */
+  updatedAt?: string | null;
   accounts?: string[];
   brandKind?: BrandKind;
   /** Preferred logo (e.g. CoinGecko image); symbol-based sources are the fallback. */
@@ -42,6 +45,11 @@ export type HoldingRow = {
 };
 
 type SortKey = "symbol" | "name" | "class" | "account" | "ownerLabel" | "qty" | "last" | "value" | "costBasis" | "dayPl" | "totalPl" | "weight";
+
+function LastUpdated({ iso }: { iso?: string | null }) {
+  if (!iso) return null;
+  return <span className="footnote block">Last updated: {formatDateTime(iso)}</span>;
+}
 
 export function InvestmentsBoard({
   rows,
@@ -53,8 +61,10 @@ export function InvestmentsBoard({
   classMode = "class",
   accountOnly,
   besideAccount,
+  accountSlot,
   headerAction,
   onEditManual,
+  hideCostTotal,
   minValue = 10,
 }: {
   rows: HoldingRow[];
@@ -66,8 +76,12 @@ export function InvestmentsBoard({
   classMode?: "class" | "asset";
   accountOnly?: boolean;
   besideAccount?: ReactNode;
+  /** Replaces the "By account" donut (crypto uses largest moves here). */
+  accountSlot?: ReactNode;
   headerAction?: ReactNode;
   onEditManual?: (id: string) => void;
+  /** Crypto holdings have no cost basis, so those two columns stay off the table. */
+  hideCostTotal?: boolean;
   minValue?: number;
 }) {
   const material = useMemo(() => rows.filter((r) => Math.abs(r.value) >= minValue), [rows, minValue]);
@@ -161,7 +175,7 @@ export function InvestmentsBoard({
     <div className="page-stack">
       {hideHero ? null : (
         <HeroCard kicker="Market value">
-          {new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(total)}
+          <Money value={total} />
         </HeroCard>
       )}
       {hideDonuts ? null : accountOnly ? (
@@ -169,16 +183,20 @@ export function InvestmentsBoard({
         <ChartCard kicker="By account">
           <AllocationChart data={byAccount} />
         </ChartCard>
-        {besideAccount}
+        {besideAccount ? <div className="min-w-0">{besideAccount}</div> : null}
       </div>
       ) : (
       <div className="relative z-0 grid items-stretch gap-4 lg:grid-cols-2">
         <ChartCard kicker={classMode === "asset" ? "By asset" : "By class"}>
           <AllocationChart data={byClass} />
         </ChartCard>
-        <ChartCard kicker="By account">
-          <AllocationChart data={byAccount} />
-        </ChartCard>
+        {accountSlot ? (
+          <div className="min-w-0">{accountSlot}</div>
+        ) : (
+          <ChartCard kicker="By account">
+            <AllocationChart data={byAccount} />
+          </ChartCard>
+        )}
       </div>
       )}
       {beforeTable ? <div className="relative z-0">{beforeTable}</div> : null}
@@ -191,9 +209,9 @@ export function InvestmentsBoard({
               placeholder="Search symbol, name, account"
               value={q}
               onChange={(e) => setQ(e.target.value)}
-              className="h-8 w-56 text-sm"
+              className="h-8 w-full text-sm sm:w-56"
             />
-            {headerAction}
+            {headerAction ? <div className="flex flex-wrap items-center gap-2">{headerAction}</div> : null}
             <ResetFilters
               dirty={filtersOn}
               onReset={() => {
@@ -205,7 +223,66 @@ export function InvestmentsBoard({
           </div>
         </CardHeader>
         <CardContent className="px-0 pb-0">
-          <Table className="table-fixed min-w-[60rem]" containerClassName="max-h-[min(30rem,calc(100dvh-18rem))] overscroll-contain">
+          {/* Phones get a compact list (asset, account, value, total P/L); the ten-column table needs a desktop. */}
+          <ul className="max-h-[calc(100dvh-16rem)] overflow-y-auto overscroll-contain md:hidden">
+            {visible.length === 0 ? (
+              <li className="py-8 text-center text-sm text-muted-foreground">No holdings match this filter.</li>
+            ) : (
+              visible.map((r) => {
+                const brandKind = r.brandKind ?? (r.class === "crypto" ? "crypto" : "security");
+                const body = (
+                  <>
+                    <BrandMark kind={brandKind} symbol={r.symbol} name={r.name} src={r.brandSrc} size={22} />
+                    <span className="min-w-0 flex-1">
+                      <span className={cn("block truncate text-sm font-medium", r.symbol && !r.manual && "text-primary")}>
+                        {r.symbol ?? r.name}
+                      </span>
+                      <span className="block truncate text-xs text-muted-foreground">
+                        {r.account} · {r.ownerLabel}
+                      </span>
+                      {r.manual ? <LastUpdated iso={r.updatedAt} /> : null}
+                    </span>
+                    <span className="shrink-0 text-right">
+                      <span className="num block text-sm">
+                        <Money value={r.value} />
+                      </span>
+                      <span className="num block text-xs">
+                        <Delta value={hideCostTotal ? r.dayPl : r.totalPl} />
+                      </span>
+                    </span>
+                  </>
+                );
+                const rowClass = cn(
+                  "flex w-full items-center gap-3 px-4 py-2.5 text-left",
+                  r.manual && "bg-secondary/40",
+                );
+                return (
+                  <li key={`m:${r.id}:${r.symbol ?? ""}:${r.account}`} className="border-b border-border last:border-0">
+                    {r.manual && onEditManual ? (
+                      <div className={rowClass}>
+                        <button type="button" className="flex min-w-0 flex-1 items-center gap-3 text-left" onClick={() => onEditManual(r.id)}>
+                          {body}
+                        </button>
+                        <Button type="button" size="sm" variant="outline" className="h-7 shrink-0 px-2" onClick={() => onEditManual(r.id)}>
+                          Edit
+                        </Button>
+                      </div>
+                    ) : r.symbol && !r.manual ? (
+                      <Link href={`/investments/${encodeURIComponent(r.symbol)}`} className={rowClass}>
+                        {body}
+                      </Link>
+                    ) : (
+                      <div className={rowClass}>{body}</div>
+                    )}
+                  </li>
+                );
+              })
+            )}
+          </ul>
+          <Table
+            className="hidden table-fixed min-w-[60rem] md:table"
+            containerClassName="hidden max-h-[min(30rem,calc(100dvh-18rem))] overscroll-contain md:block"
+          >
             <colgroup>
               {/* Text columns take what the figures leave; figures never wrap. Day P/L waits for a 2xl viewport. */}
               <col className="w-auto" />
@@ -214,9 +291,9 @@ export function InvestmentsBoard({
               <col className="w-[6rem]" />
               <col className="w-[6rem]" />
               <col className="w-[7rem]" />
-              <col className="w-[6.75rem]" />
+              {hideCostTotal ? null : <col className="w-[6.75rem]" />}
               <col className={DAY_COL} />
-              <col className="w-[7.25rem]" />
+              {hideCostTotal ? null : <col className="w-[7.25rem]" />}
               <col className="w-[4rem]" />
             </colgroup>
             <TableHeader className="sticky top-0 z-10 bg-card [&_th]:bg-card">
@@ -241,16 +318,16 @@ export function InvestmentsBoard({
                 {head("qty", "Qty", undefined, true)}
                 {head("last", "Last", undefined, true)}
                 {head("value", "Value", undefined, true)}
-                {head("costBasis", "Cost", undefined, true)}
+                {hideCostTotal ? null : head("costBasis", "Cost", undefined, true)}
                 {head("dayPl", "Day", undefined, true, DAY_CELL)}
-                {head("totalPl", "Total", undefined, true)}
+                {hideCostTotal ? null : head("totalPl", "Total", undefined, true)}
                 {head("weight", "Wt", undefined, true)}
               </TableRow>
             </TableHeader>
             <TableBody>
               {visible.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={10} className="py-8 text-center text-muted-foreground">
+                  <TableCell colSpan={hideCostTotal ? 8 : 10} className="py-8 text-center text-muted-foreground">
                     No holdings match this filter.
                   </TableCell>
                 </TableRow>
@@ -265,6 +342,7 @@ export function InvestmentsBoard({
                           {r.symbol ?? r.name}
                         </span>
                         {r.symbol ? <span>{r.name}</span> : null}
+                        {r.manual ? <LastUpdated iso={r.updatedAt} /> : null}
                       </span>
                     </span>
                   );
@@ -294,6 +372,17 @@ export function InvestmentsBoard({
                             <span>{r.account}</span>
                             <span>{r.ownerLabel}</span>
                           </span>
+                          {r.manual && onEditManual ? (
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant="outline"
+                              className="h-7 shrink-0 px-2"
+                              onClick={() => onEditManual(r.id)}
+                            >
+                              Edit
+                            </Button>
+                          ) : null}
                           {r.manual ? <RemoveCrypto id={r.id} /> : null}
                         </span>
                       </TableCell>
@@ -306,15 +395,19 @@ export function InvestmentsBoard({
                       <TableCell className="num">
                         <Money value={r.value} />
                       </TableCell>
-                      <TableCell className="num text-muted-foreground">
-                        <Money value={r.costBasis} />
-                      </TableCell>
+                      {hideCostTotal ? null : (
+                        <TableCell className="num text-muted-foreground">
+                          <Money value={r.costBasis} />
+                        </TableCell>
+                      )}
                       <TableCell className={cn("num", DAY_CELL)}>
                         <Delta value={r.dayPl} />
                       </TableCell>
-                      <TableCell className="num">
-                        <Delta value={r.totalPl} />
-                      </TableCell>
+                      {hideCostTotal ? null : (
+                        <TableCell className="num">
+                          <Delta value={r.totalPl} />
+                        </TableCell>
+                      )}
                       <TableCell className="num text-muted-foreground">{formatPct(r.weight * 100, 1, false)}</TableCell>
                     </TableRow>
                   );

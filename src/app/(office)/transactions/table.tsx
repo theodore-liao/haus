@@ -55,7 +55,20 @@ export type TxnRow = {
   pending: boolean;
   isTransfer: boolean;
   isCcPayment: boolean;
+  /** True when the row is excluded from spending. */
+  internal: boolean;
+  /** Set when this row was paired with the same amount on another linked account. */
+  cardMatch: "matched" | null;
 };
+
+function CardMatchNote({ match }: { match: TxnRow["cardMatch"] }) {
+  if (match !== "matched") return null;
+  return <span className="block text-xs font-normal text-muted-foreground">Matches another account</span>;
+}
+
+function merchantGroup(r: TxnRow) {
+  return r.cardMatch === "matched" ? `${r.merchant} · matches another account` : r.merchant;
+}
 
 /** Rows rendered at once. Sorting and filtering still run over the full set; only the DOM is capped. */
 const PAGE = 250;
@@ -76,7 +89,14 @@ export function TransactionsTable({ rows }: { rows: TxnRow[] }) {
   const [category, setCategory] = useState("");
   const [applyAll, setApplyAll] = useState(true);
 
-  const merchantOpts = useMemo(() => [...new Set(rows.map((r) => r.merchant))].sort(), [rows]);
+  function edit(t: TxnRow) {
+    setOpen(t);
+    setMerchant(t.merchant);
+    setCategory(t.category ?? "");
+    setApplyAll(true);
+  }
+
+  const merchantOpts = useMemo(() => [...new Set(rows.map((r) => merchantGroup(r)))].sort(), [rows]);
   const accountOpts = useMemo(() => [...new Set(rows.map((r) => r.account))].sort(), [rows]);
   const ownerOpts = useMemo(() => [...new Set(rows.map((r) => r.ownerLabel))].sort(), [rows]);
   const catOpts = useMemo(
@@ -87,7 +107,7 @@ export function TransactionsTable({ rows }: { rows: TxnRow[] }) {
   const filteredRows = useMemo(() => {
     return rows.filter((r) => {
       if (dateSel && !dateSel.has(dateMonthKey(r.date))) return false;
-      if (merchantSel && !merchantSel.has(r.merchant)) return false;
+      if (merchantSel && !merchantSel.has(merchantGroup(r))) return false;
       if (accountSel && !accountSel.has(r.account)) return false;
       if (ownerSel && !ownerSel.has(r.ownerLabel)) return false;
       if (catSel && !catSel.has(categoryLabel(r.category))) return false;
@@ -126,7 +146,8 @@ export function TransactionsTable({ rows }: { rows: TxnRow[] }) {
         ),
         cell: ({ row }) => (
           <BrandLabel kind="merchant" name={row.original.merchant}>
-            {row.original.merchant}
+            <span className="block truncate">{row.original.merchant}</span>
+            <CardMatchNote match={row.original.cardMatch} />
           </BrandLabel>
         ),
       },
@@ -209,7 +230,7 @@ export function TransactionsTable({ rows }: { rows: TxnRow[] }) {
     const res = await fetch("/api/transactions", {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
+        body: JSON.stringify({
         id: open.id,
         userMerchant: merchant || null,
         userCategory: category || null,
@@ -255,7 +276,50 @@ export function TransactionsTable({ rows }: { rows: TxnRow[] }) {
           }}
         />
       </div>
-      <div className="rounded-[var(--radius-card)] border border-border bg-card">
+      {/* Phones get a two-line list; the wide table needs a desktop. Same rows, same sort, same edit sheet. */}
+      <div className="rounded-[var(--radius-card)] border border-border bg-card md:hidden">
+        {table.getRowModel().rows.length === 0 ? (
+          <p className="py-10 text-center text-sm text-muted-foreground">No transactions match this filter.</p>
+        ) : (
+          <ul>
+            {table.getRowModel().rows.slice(0, limit).map((row) => {
+              const t = row.original;
+              return (
+                <li key={row.id} className="border-b border-border last:border-0">
+                  <button
+                    type="button"
+                    className="flex w-full items-center gap-3 px-4 py-3 text-left"
+                    onClick={() => edit(t)}
+                  >
+                    <div className="min-w-0 flex-1">
+                      <BrandLabel kind="merchant" name={t.merchant}>
+                        <span className="truncate text-sm">{t.merchant}</span>
+                        <CardMatchNote match={t.cardMatch} />
+                      </BrandLabel>
+                      <div className="mt-0.5 truncate text-xs text-muted-foreground">
+                        <span className="num">{formatDate(t.date)}</span> · {categoryLabel(t.category)} · {t.account}
+                      </div>
+                    </div>
+                    <div className="flex shrink-0 items-center gap-2">
+                      {t.pending ? <Badge tone="accent">pending</Badge> : null}
+                      <Money value={-t.amount} signed={t.amount < 0} className="text-sm" />
+                    </div>
+                  </button>
+                </li>
+              );
+            })}
+            {table.getRowModel().rows.length > limit ? (
+              <li className="py-3 text-center">
+                <Button type="button" variant="outline" size="sm" onClick={() => setLimit((n) => n + PAGE)}>
+                  Show {Math.min(PAGE, table.getRowModel().rows.length - limit).toLocaleString("en-US")} more
+                </Button>
+              </li>
+            ) : null}
+          </ul>
+        )}
+      </div>
+
+      <div className="hidden rounded-[var(--radius-card)] border border-border bg-card md:block">
         <Table
           className="table-fixed min-w-[54rem]"
           containerClassName="max-h-[calc(100dvh-17rem)] overscroll-contain md:max-h-[calc(100dvh-14.5rem)]"
@@ -302,11 +366,7 @@ export function TransactionsTable({ rows }: { rows: TxnRow[] }) {
                 <TableRow
                   key={row.id}
                   className="cursor-pointer"
-                  onClick={() => {
-                    setOpen(row.original);
-                    setMerchant(row.original.merchant);
-                    setCategory(row.original.category ?? "");
-                  }}
+                  onClick={() => edit(row.original)}
                 >
                   {row.getVisibleCells().map((cell) => (
                     <TableCell
@@ -341,6 +401,7 @@ export function TransactionsTable({ rows }: { rows: TxnRow[] }) {
                 <SheetTitle>{open.merchant}</SheetTitle>
                 <SheetDescription>
                   {formatDate(open.date)} · {open.account} · {open.institution}
+                  {open.cardMatch === "matched" ? " · Matches another account" : ""}
                 </SheetDescription>
               </SheetHeader>
               <div className="space-y-4">
@@ -378,6 +439,11 @@ export function TransactionsTable({ rows }: { rows: TxnRow[] }) {
                   <Switch checked={applyAll} onCheckedChange={setApplyAll} />
                   Always categorize this merchant this way
                 </label>
+                {open.cardMatch === "matched" ? (
+                  <p className="text-sm text-negative">
+                    The same amount landed in another linked account, so this is marked Transfer. If you recategorize, the auto-detected Transfer will be overwritten.
+                  </p>
+                ) : null}
                 <div className="flex flex-wrap gap-2">
                   <Button onClick={save}>Save</Button>
                   <Button

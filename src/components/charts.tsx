@@ -1,6 +1,6 @@
 "use client";
 
-import { useId, useMemo, useState, type CSSProperties } from "react";
+import { useEffect, useId, useMemo, useRef, useState, type CSSProperties } from "react";
 import {
   Area,
   AreaChart,
@@ -623,16 +623,65 @@ export function CashflowSankey({
   }
 
   return (
-    <div className="h-[32rem] w-full">
+    <CashflowSankeyChart
+      nodes={nodes}
+      links={links}
+      outflows={outflows}
+      sources={sources}
+      onSpendClick={onSpendClick}
+      onIncomeClick={onIncomeClick}
+      onBalanceClick={onBalanceClick}
+    />
+  );
+}
+
+function CashflowSankeyChart({
+  nodes,
+  links,
+  outflows,
+  sources,
+  onSpendClick,
+  onIncomeClick,
+  onBalanceClick,
+}: {
+  nodes: { name: string; label: string; color: string }[];
+  links: { source: number; target: number; value: number }[];
+  outflows: { label: string; value: number }[];
+  sources: { label: string; value: number }[];
+  onSpendClick?: (label: string) => void;
+  onIncomeClick?: (label: string) => void;
+  onBalanceClick?: (kind: "from-savings" | "to-savings" | "to-investments") => void;
+}) {
+  const box = useRef<HTMLDivElement>(null);
+  const [width, setWidth] = useState(0);
+  useEffect(() => {
+    const el = box.current;
+    if (!el) return;
+    const apply = () => setWidth(el.clientWidth);
+    apply();
+    const ro = new ResizeObserver(apply);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+  // Phone widths cannot spare ~250px of side labels. Draw the flows edge to edge and list names below.
+  const compact = width > 0 && width < 640;
+  const spendNames = new Set(outflows.map((s) => s.label));
+  const incomeNames = new Set(sources.map((s) => s.label));
+  const legend = nodes.filter((n) => n.name !== "hub");
+
+  return (
+    <div ref={box} className="w-full min-w-0">
+      <div className={compact ? "h-80 w-full" : "h-[32rem] w-full"}>
+      {width > 0 ? (
       <ResponsiveContainer>
         <Sankey
           data={{ nodes, links }}
           nameKey="name"
-          nodeWidth={12}
-          nodePadding={26}
+          nodeWidth={compact ? 10 : 12}
+          nodePadding={compact ? 10 : 26}
           linkCurvature={0.5}
           iterations={16}
-          margin={{ left: 116, right: 132, top: 16, bottom: 16 }}
+          margin={compact ? { left: 8, right: 8, top: 8, bottom: 8 } : { left: 116, right: 132, top: 16, bottom: 16 }}
           node={(props) => (
             <SankeyNode
               x={props.x}
@@ -640,11 +689,12 @@ export function CashflowSankey({
               width={props.width}
               height={props.height}
               payload={props.payload}
+              compact={compact}
               onSpendClick={onSpendClick}
               onIncomeClick={onIncomeClick}
               onBalanceClick={onBalanceClick}
-              spendNames={new Set(outflows.map((s) => s.label))}
-              incomeNames={new Set(sources.map((s) => s.label))}
+              spendNames={spendNames}
+              incomeNames={incomeNames}
             />
           )}
           link={(props) => (
@@ -660,8 +710,8 @@ export function CashflowSankey({
               onSpendClick={onSpendClick}
               onIncomeClick={onIncomeClick}
               onBalanceClick={onBalanceClick}
-              spendNames={new Set(outflows.map((s) => s.label))}
-              incomeNames={new Set(sources.map((s) => s.label))}
+              spendNames={spendNames}
+              incomeNames={incomeNames}
             />
           )}
         >
@@ -688,6 +738,43 @@ export function CashflowSankey({
           />
         </Sankey>
       </ResponsiveContainer>
+      ) : null}
+      </div>
+      {compact ? (
+        <ul className="mt-3 grid grid-cols-2 gap-x-3 gap-y-1.5">
+          {legend.map((n) => {
+            const swatch = (
+              <>
+                <span className="size-2 shrink-0 rounded-sm" style={{ background: n.color }} />
+                <span className="truncate">{n.label}</span>
+              </>
+            );
+            if (n.label === TO_SAVINGS) {
+              return (
+                <li key={n.name}>
+                  <div className="flex min-w-0 max-w-full items-center gap-2 text-left text-xs">{swatch}</div>
+                </li>
+              );
+            }
+            return (
+            <li key={n.name}>
+              <button
+                type="button"
+                className="flex min-w-0 max-w-full cursor-pointer items-center gap-2 text-left text-xs"
+                onClick={() => {
+                  if (n.label === FROM_SAVINGS) onBalanceClick?.("from-savings");
+                  else if (n.label === TO_INVESTMENTS) onBalanceClick?.("to-investments");
+                  else if (spendNames.has(n.label)) onSpendClick?.(n.label);
+                  else if (incomeNames.has(n.label)) onIncomeClick?.(n.label);
+                }}
+              >
+                {swatch}
+              </button>
+            </li>
+            );
+          })}
+        </ul>
+      ) : null}
     </div>
   );
 }
@@ -762,7 +849,6 @@ function RainbowLink({
     (onSpendClick && spendNames?.has(tgtName)) ||
     (onIncomeClick && incomeNames?.has(srcName)) ||
     tgtName === FROM_SAVINGS ||
-    tgtName === TO_SAVINGS ||
     tgtName === TO_INVESTMENTS;
   const leaf = !isSankeyHub(tgtName) ? payload?.target : payload?.source;
   const stroke = nodeColor(leaf as { color?: string; name?: string; label?: string }) ?? colorFor(tgtName || srcName);
@@ -776,7 +862,6 @@ function RainbowLink({
       className={clickable ? "cursor-pointer" : undefined}
       onClick={() => {
         if (tgtName === FROM_SAVINGS) onBalanceClick?.("from-savings");
-        else if (tgtName === TO_SAVINGS) onBalanceClick?.("to-savings");
         else if (tgtName === TO_INVESTMENTS) onBalanceClick?.("to-investments");
         else if (onSpendClick && spendNames?.has(tgtName)) onSpendClick(tgtName);
         else if (onIncomeClick && incomeNames?.has(srcName)) onIncomeClick(srcName);
@@ -791,12 +876,14 @@ function SankeyNode({
   width,
   height,
   payload,
+  compact,
   onSpendClick,
   onIncomeClick,
   onBalanceClick,
   spendNames,
   incomeNames,
 }: Pick<SankeyNodeProps, "x" | "y" | "width" | "height" | "payload"> & {
+  compact?: boolean;
   onSpendClick?: (label: string) => void;
   onIncomeClick?: (label: string) => void;
   onBalanceClick?: (kind: "from-savings" | "to-savings" | "to-investments") => void;
@@ -814,7 +901,7 @@ function SankeyNode({
   const h = Number(height ?? 0);
   const spend = Boolean(onSpendClick && spendNames?.has(name));
   const income = Boolean(onIncomeClick && incomeNames?.has(name));
-  const balance = name === FROM_SAVINGS || name === TO_SAVINGS || name === TO_INVESTMENTS;
+  const balance = name === FROM_SAVINGS || name === TO_INVESTMENTS;
   const clickable = spend || income || balance;
   const lines = wrapLabel(name, 16);
   const labelW = 116;
@@ -828,7 +915,6 @@ function SankeyNode({
       className={clickable ? "cursor-pointer" : undefined}
       onClick={() => {
         if (name === FROM_SAVINGS) onBalanceClick?.("from-savings");
-        else if (name === TO_SAVINGS) onBalanceClick?.("to-savings");
         else if (name === TO_INVESTMENTS) onBalanceClick?.("to-investments");
         else if (spend && onSpendClick) onSpendClick(name);
         else if (income && onIncomeClick) onIncomeClick(name);
@@ -842,7 +928,8 @@ function SankeyNode({
         fill={nodeColor(payload as { color?: string; name?: string; label?: string }) ?? colorFor(name)}
         rx={1}
       />
-      {clickable ? <rect x={labelX} y={labelY} width={labelW} height={labelH} fill="transparent" /> : null}
+      {compact || !clickable ? null : <rect x={labelX} y={labelY} width={labelW} height={labelH} fill="transparent" />}
+      {compact ? null : (
       <text
         x={textX}
         y={textY}
@@ -858,6 +945,7 @@ function SankeyNode({
           </tspan>
         ))}
       </text>
+      )}
     </g>
   );
 }

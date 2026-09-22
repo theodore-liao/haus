@@ -2,8 +2,7 @@
 
 import type { LucideIcon } from "lucide-react";
 import {
-  ArrowDownLeft,
-  ArrowUpRight,
+  ArrowLeftRight,
   Banknote,
   Building2,
   Car,
@@ -40,8 +39,9 @@ const BY_CODE: Record<string, LucideIcon> = {
   LOAN_PAYMENTS: Landmark,
   BANK_FEES: Receipt,
   GOVERNMENT_AND_NON_PROFIT: Building2,
-  TRANSFER_IN: ArrowDownLeft,
-  TRANSFER_OUT: ArrowUpRight,
+  TRANSFER: ArrowLeftRight,
+  TRANSFER_IN: ArrowLeftRight,
+  TRANSFER_OUT: ArrowLeftRight,
   INCOME: Banknote,
   OTHER: CircleDashed,
   INCOME_WAGES: Banknote,

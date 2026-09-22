@@ -6,7 +6,7 @@ import { Money } from "@/components/money";
 import { ObjectTitle, kickerClass } from "@/components/type";
 import { Pills, Pill } from "@/components/pills";
 import { ChartCard } from "@/components/chart-card";
-import { CashflowSankey, FROM_SAVINGS, OTHER_CATEGORIES, TO_SAVINGS } from "@/components/charts";
+import { CashflowSankey, FROM_SAVINGS, OTHER_CATEGORIES } from "@/components/charts";
 import { formatPct } from "@/lib/format";
 import { ReportRange } from "@/components/chart-range";
 import { defaultReportWindow, inWindow, asLocalDate, ymKey, type WindowKey } from "@/lib/range";
@@ -95,19 +95,12 @@ export function CashFlowBlock({ flows }: { flows: FlowRow[] }) {
               })
             }
             onBalanceClick={(kind) => {
-              if (kind === "from-savings") {
-                setPopup({
-                  title: FROM_SAVINGS,
-                  note: "Spending exceeded income in this window.",
-                  lines: agg.spendRows.map((r) => ({ category: r.label, merchant: r.label, amount: r.value })),
-                });
-              } else {
-                setPopup({
-                  title: TO_SAVINGS,
-                  note: "Income left after spending.",
-                  lines: agg.incomeRows.map((r) => ({ category: r.label, merchant: r.label, amount: r.value })),
-                });
-              }
+              if (kind !== "from-savings") return;
+              setPopup({
+                title: FROM_SAVINGS,
+                note: "Spending exceeded income in this window.",
+                lines: agg.spendRows.map((r) => ({ category: r.label, merchant: r.label, amount: r.value })),
+              });
             }}
           />
       </ChartCard>
@@ -124,7 +117,8 @@ export function CashFlowBlock({ flows }: { flows: FlowRow[] }) {
                   <th className="num">Income</th>
                   <th className="num">Spend</th>
                   <th className="num">Saved</th>
-                  <th className="num">Rate</th>
+                  {/* Rate is derivable from Saved/Income; phones drop it so the table fits without scrolling. */}
+                  <th className="num hidden sm:table-cell">Rate</th>
                 </tr>
               </thead>
               <tbody>
@@ -147,7 +141,7 @@ export function CashFlowBlock({ flows }: { flows: FlowRow[] }) {
                       <td className="num">
                         <Money value={m.savings} signed />
                       </td>
-                      <td className="num text-muted-foreground">
+                      <td className="num hidden text-muted-foreground sm:table-cell">
                         {m.income > 0 ? formatPct((m.savings / m.income) * 100, 0, true) : "—"}
                       </td>
                     </tr>

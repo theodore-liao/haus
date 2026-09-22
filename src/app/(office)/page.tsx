@@ -51,17 +51,17 @@ export default async function OverviewPage() {
         ]}
         aside={
           <Pills compact>
-            <Pill kicker="Investments" accent="#D4BE7A">
-              <Money value={data.tiles.investments} />
+            <Pill kicker="Equities" accent="#D4BE7A">
+              <Money value={data.allocation.stocks + data.allocation.crypto + data.allocation.retirement} />
             </Pill>
             <Pill kicker="Cash" accent="#7DB8A4">
               <Money value={data.tiles.cash} />
             </Pill>
-            <Pill kicker="Equity" accent="#7EABD4">
-              <Money value={data.tiles.equity} />
+            <Pill kicker="Property" accent="#7EABD4">
+              <Money value={data.tiles.realEstateGross} />
             </Pill>
-            <Pill kicker="Unsecured debt" accent="#D4928C">
-              <Money value={-Math.abs(data.tiles.unsecuredDebt)} />
+            <Pill kicker="Liabilities" accent="#D4928C">
+              <Money value={-Math.abs(data.tiles.liabilities)} />
             </Pill>
           </Pills>
         }

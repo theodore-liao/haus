@@ -16,6 +16,7 @@ export default async function OfficeLayout({ children }: { children: React.React
       nameA={givenName(names.nameA) || names.nameA}
       nameB={givenName(names.nameB) || names.nameB}
       lastSynced={latest?.lastSyncedAt?.toISOString() ?? null}
+      tabs={names.tabs}
     >
       {children}
     </AppShell>

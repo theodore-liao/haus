@@ -27,7 +27,7 @@ export default async function SpendingPage() {
       <SpendingClient
         flows={reports.flows}
         recurring={reports.recurring}
-        txns={txns.filter((t) => t.amount > 0 && !t.isTransfer && !t.isCcPayment)}
+        txns={txns.filter((t) => t.amount > 0 && !t.internal)}
       />
     </>
   );

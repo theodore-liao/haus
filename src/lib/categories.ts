@@ -14,8 +14,7 @@ export const HAUS_CATEGORIES: { code: string; label: string }[] = [
   { code: "LOAN_PAYMENTS", label: "Loan payments" },
   { code: "BANK_FEES", label: "Bank fees" },
   { code: "GOVERNMENT_AND_NON_PROFIT", label: "Government and non-profit" },
-  { code: "TRANSFER_IN", label: "Transfer in" },
-  { code: "TRANSFER_OUT", label: "Transfer out" },
+  { code: "TRANSFER", label: "Transfer" },
   { code: "INCOME", label: "Income" },
   { code: "OTHER", label: "Other" },
 ];
@@ -88,7 +87,6 @@ export function isCreditCardPayment(t: {
 }) {
   if (t.isCcPayment) return true;
   const blob = paymentBlob(t);
-  if (/\bbilt\s+card\b/.test(blob)) return true;
   if (/credit card payment|cc payment|payment to (your )?credit/.test(blob)) return true;
   return false;
 }
@@ -109,7 +107,12 @@ export function isInvestFunding(t: {
   if (!/robinhood|fidelity|vanguard|schwab|wealthfront|betterment|e-?trade|m1 finance|sofi invest|acorns|public\.com|coinbase/.test(blob)) {
     return false;
   }
-  return isInternalMove(t) || effectiveCategory(t) === "TRANSFER_OUT";
+  return isInternalMove(t) || isTransferCategory(effectiveCategory(t));
+}
+
+/** Transfer in and transfer out are the same category. Older rows may still store either code. */
+export function isTransferCategory(code: string | null | undefined) {
+  return code === "TRANSFER" || code === "TRANSFER_IN" || code === "TRANSFER_OUT";
 }
 
 export function isInternalMove(t: {
@@ -122,13 +125,14 @@ export function isInternalMove(t: {
   merchantName?: string | null;
   userMerchant?: string | null;
   name?: string | null;
+  /** Same amount moved between two linked accounts. */
+  pairedTransfer?: boolean;
 }) {
-  // An explicit household label beats Plaid's transfer flag: a paycheck that arrives as an
-  // account-to-account transfer and was relabelled INCOME is income, not an internal move.
-  if (t.userCategory && t.userCategory !== "TRANSFER_IN" && t.userCategory !== "TRANSFER_OUT") return false;
+  // A category chosen on this transaction wins. General merchandise stays general merchandise.
+  if (t.userCategory && !isTransferCategory(t.userCategory)) return false;
+  if (t.pairedTransfer) return true;
   if (t.isTransfer || isCreditCardPayment(t)) return true;
-  const cat = effectiveCategory(t);
-  return cat === "TRANSFER_IN" || cat === "TRANSFER_OUT";
+  return isTransferCategory(effectiveCategory(t));
 }
 
 export function effectiveCategory(t: {
@@ -139,16 +143,36 @@ export function effectiveCategory(t: {
   merchantName?: string | null;
   userMerchant?: string | null;
   name?: string | null;
+  pairedTransfer?: boolean;
 }): string {
-  if (t.userCategory) return t.userCategory;
+  if (t.userCategory && !isTransferCategory(t.userCategory)) return t.userCategory;
+  if (t.pairedTransfer || (t.userCategory && isTransferCategory(t.userCategory))) return "TRANSFER";
   const merch = t.merchant || t.userMerchant || t.merchantName || t.name || "";
   const detailed = (t.categoryDetailed || "").toUpperCase();
   if (detailed.includes("GROCER") || groceryMerchant(merch)) return "GROCERIES";
-  return t.categoryPrimary || "OTHER";
+  const primary = t.categoryPrimary || "OTHER";
+  return isTransferCategory(primary) ? "TRANSFER" : primary;
 }
 
 export function merchantKey(name: string | null | undefined) {
   return (name || "").toLowerCase().trim();
+}
+
+const MATCHED_RULE = "\u0001matched";
+
+/** Matched transfers are a separate merchant from the same description when it does not match. */
+export function ruleKeyFor(name: string | null | undefined, matched: boolean) {
+  const key = merchantKey(name);
+  if (!key) return "";
+  return matched ? `${key}${MATCHED_RULE}` : key;
+}
+
+export function ruleKeyIsMatched(key: string) {
+  return key.endsWith(MATCHED_RULE);
+}
+
+export function ruleKeyBase(key: string) {
+  return ruleKeyIsMatched(key) ? key.slice(0, -MATCHED_RULE.length) : key;
 }
 
 export function recurringMerchantKey(name: string | null | undefined) {
@@ -161,4 +185,45 @@ export function txnMerchantKey(t: {
   name?: string | null;
 }) {
   return merchantKey(t.userMerchant || t.merchantName || t.name);
+}
+
+export type MerchantScope = {
+  merchantKey: string;
+  accountId: string;
+  nameContains: string;
+  category: string | null;
+  displayName: string | null;
+};
+
+/** How many extra constraints a scoped rule carries. Higher wins over a looser match. */
+export function scopeScore(rule: { accountId: string; nameContains: string }) {
+  return (rule.accountId ? 2 : 0) + (rule.nameContains ? 1 : 0);
+}
+
+/**
+ * A scoped merchant rule matches when the merchant lines up and every constraint that
+ * was set (this account, a phrase in the description) holds. Used so two payments that
+ * share a bank description can be categorized differently.
+ */
+export function scopeMatches(
+  rule: { merchantKey: string; accountId: string; nameContains: string },
+  txn: { accountId: string; name: string; merchantName?: string | null; userMerchant?: string | null },
+) {
+  if (!rule.accountId && !rule.nameContains) return false;
+  const blob = `${txn.name} ${txn.merchantName ?? ""} ${txn.userMerchant ?? ""}`.toLowerCase();
+  const keys = [txn.merchantName, txn.name, txn.userMerchant].map((x) => merchantKey(x)).filter(Boolean);
+  const merchantOk = keys.includes(rule.merchantKey) || (rule.merchantKey.length >= 3 && blob.includes(rule.merchantKey));
+  if (!merchantOk) return false;
+  if (rule.accountId && rule.accountId !== txn.accountId) return false;
+  if (rule.nameContains && !blob.includes(rule.nameContains.trim().toLowerCase())) return false;
+  return true;
+}
+
+export function bestScope<T extends MerchantScope>(rules: T[], txn: Parameters<typeof scopeMatches>[1]): T | null {
+  let best: T | null = null;
+  for (const rule of rules) {
+    if (!scopeMatches(rule, txn)) continue;
+    if (!best || scopeScore(rule) > scopeScore(best)) best = rule;
+  }
+  return best;
 }

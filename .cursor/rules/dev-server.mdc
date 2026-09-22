@@ -1,0 +1,10 @@
+---
+description: Stop the local dev server after changes
+alwaysApply: true
+---
+
+# Dev server
+
+Aurin runs `npm run dev` in their own PowerShell. Do not leave a dev server running when a turn ends.
+
+If a server is needed to verify a change, start it, check the work, then stop that process and anything still listening on port 3000 before finishing. Say that localhost was stopped so they can start it themselves.

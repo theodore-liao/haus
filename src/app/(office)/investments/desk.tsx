@@ -21,7 +21,9 @@ export function InvestmentsDesk({
   const [open, setOpen] = useState(false);
   const [edit, setEdit] = useState<ManualStock | null>(null);
   const byId = useMemo(() => new Map(manuals.map((m) => [m.id, m])), [manuals]);
-  const manualRows: HoldingRow[] = manuals.map((h) => ({
+  const manualRows: HoldingRow[] = manuals.map((h) => {
+    const value = h.coingeckoId === FIXED_USD_ID ? (h.quotePrice ?? 0) : (h.quotePrice ?? 0) * h.quantity;
+    return {
     id: h.id,
     symbol: h.coingeckoId === FIXED_USD_ID ? null : h.symbol,
     name: h.name,
@@ -31,16 +33,18 @@ export function InvestmentsDesk({
     ownerLabel: h.ownerLabel,
     qty: h.coingeckoId === FIXED_USD_ID ? 0 : h.quantity,
     last: h.coingeckoId === FIXED_USD_ID ? null : h.quotePrice,
-    value: h.coingeckoId === FIXED_USD_ID ? (h.quotePrice ?? 0) : (h.quotePrice ?? 0) * h.quantity,
-    costBasis: null,
-    dayPl: null,
-    totalPl: null,
-    dayPct: null,
+    value,
+    costBasis: h.costBasis ?? null,
+    dayPl: h.quoteChange != null ? h.quoteChange * h.quantity : null,
+    totalPl: h.costBasis != null ? value - h.costBasis : null,
+    dayPct: h.quoteChangePct ?? null,
     weight: 0,
     manual: true,
+    updatedAt: h.updatedAt ?? null,
     accounts: [h.accountName || "Manual"],
     brandKind: "security",
-  }));
+  };
+  });
   const donutRows = [...manualRows, ...rows];
 
   return (
@@ -49,7 +53,7 @@ export function InvestmentsDesk({
         rows={donutRows}
         tableRows={donutRows}
         accountOnly
-        besideAccount={<LargestMoves movers={movers} />}
+        besideAccount={<LargestMoves movers={movers.filter((m) => m.kind === "security" && !m.retirement)} />}
         onEditManual={(id) => {
           const row = byId.get(id);
           if (!row) return;

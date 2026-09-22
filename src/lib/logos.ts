@@ -98,22 +98,22 @@ function matchDomain(name: string, map: Record<string, string>) {
   return best?.domain ?? null;
 }
 
-function slugDomain(name: string) {
-  const slug = name
-    .toLowerCase()
-    .replace(/&/g, "and")
-    .replace(/\b(inc|llc|corp|co|ltd|the|store|market)\b/g, "")
-    .replace(/[^a-z0-9]+/g, "");
-  if (slug.length < 4) return null;
-  return `${slug}.com`;
-}
-
 export function faviconUrl(domain: string) {
   return `https://www.google.com/s2/favicons?domain=${encodeURIComponent(domain)}&sz=64`;
 }
 
+export function logoTicker(symbol: string): string | null {
+  const raw = symbol.trim().toUpperCase().replace(/\s+/g, "");
+  const occ = raw.match(/^([A-Z]{1,6})\d{6}[CP]\d{8}$/);
+  const ticker = occ?.[1] ?? raw;
+  if (!/^[A-Z]{1,5}([.\-][A-Z])?$/.test(ticker)) return null;
+  return ticker;
+}
+
 export function securityLogoUrl(symbol: string) {
-  return `https://assets.parqet.com/logos/symbol/${encodeURIComponent(symbol.toUpperCase())}`;
+  const ticker = logoTicker(symbol);
+  if (!ticker) return null;
+  return `/api/symbol-logo?symbol=${encodeURIComponent(ticker)}`;
 }
 
 export function cryptoLogoUrl(symbol: string) {
@@ -169,13 +169,13 @@ export function chainBrand(addressType: string, assetChains?: string[]) {
 
 export function institutionLogoUrl(name: string | null | undefined) {
   if (!name) return null;
-  const domain = matchDomain(name, INSTITUTION_DOMAINS) ?? slugDomain(name);
+  const domain = matchDomain(name, INSTITUTION_DOMAINS);
   return domain ? faviconUrl(domain) : null;
 }
 
 export function merchantLogoUrl(name: string | null | undefined) {
   if (!name) return null;
-  const domain = matchDomain(name, MERCHANT_DOMAINS) ?? slugDomain(name);
+  const domain = matchDomain(name, MERCHANT_DOMAINS);
   return domain ? faviconUrl(domain) : null;
 }
 
@@ -196,7 +196,10 @@ export function brandLogoCandidates(
   const out: string[] = [];
   if (opts.src) out.push(opts.src);
   if (kind === "crypto" && opts.symbol) out.push(...cryptoLogoCandidates(opts.symbol));
-  else if (kind === "security" && opts.symbol) out.push(securityLogoUrl(opts.symbol));
+  else if (kind === "security" && opts.symbol) {
+    const logo = securityLogoUrl(opts.symbol);
+    if (logo) out.push(logo);
+  }
   else if (kind === "institution") {
     const u = institutionLogoUrl(opts.name);
     if (u) out.push(u);

@@ -1,23 +1,34 @@
 import { format } from "date-fns";
 
+/** Next whole dollar, away from zero. $10.01 → $11, −$10.01 → −$11. */
+export function roundUpDollars(n: number) {
+  const sign = n < 0 ? -1 : 1;
+  const abs = Math.abs(n);
+  const whole = Math.floor(abs);
+  const frac = abs - whole;
+  return sign * (frac > 0.001 ? whole + 1 : whole);
+}
+
 export function formatMoney(
   n: number | null | undefined,
-  opts?: { signed?: boolean },
+  opts?: { signed?: boolean; whole?: boolean },
 ): string {
   if (n == null || Number.isNaN(n)) return "—";
-  const abs = Math.abs(n);
+  const value = opts?.whole ? roundUpDollars(n) : n;
+  const abs = Math.abs(value);
+  const digits = opts?.whole ? 0 : 2;
   const body = new Intl.NumberFormat("en-US", {
     style: "currency",
     currency: "USD",
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
+    minimumFractionDigits: digits,
+    maximumFractionDigits: digits,
   }).format(abs);
   if (opts?.signed) {
-    if (n > 0) return `+${body}`;
-    if (n < 0) return `-${body}`;
+    if (value > 0) return `+${body}`;
+    if (value < 0) return `-${body}`;
     return body;
   }
-  return n < 0 ? `-${body}` : body;
+  return value < 0 ? `-${body}` : body;
 }
 
 export function formatPct(

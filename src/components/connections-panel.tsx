@@ -67,7 +67,7 @@ export function ConnectionsPanel({
         )}
         {plaidReady && (
           <p className="text-sm text-muted-foreground">
-            One Link session covers banks, cards, and brokerages. Chase starts with no accounts selected — check every
+            One Link session covers banks, cards, and brokerages. Some institutions start with no accounts selected, so check every
             account you want included.
           </p>
         )}

@@ -14,6 +14,13 @@ model Household {
   birthdateA  DateTime?
   birthdateB  DateTime?
   quoteApiKey String?
+  /// When on, the same amount leaving one linked account and arriving in another is marked Transfer.
+  pairCardPayments Boolean @default(true)
+  showCrypto      Boolean @default(false)
+  showRetirement  Boolean @default(true)
+  showProperty    Boolean @default(true)
+  showInsurance   Boolean @default(false)
+  showInsights    Boolean @default(true)
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 }
@@ -106,6 +113,19 @@ model MerchantRule {
   displayName      String?
   hidden           Boolean @default(false)
   ignoreRecurring  Boolean @default(false)
+}
+
+/// A narrower "always categorize this merchant" rule. accountId and nameContains
+/// are empty when that constraint is unused. At least one of them is set.
+model MerchantMatch {
+  id           String @id @default(cuid())
+  merchantKey  String
+  accountId    String @default("")
+  nameContains String @default("")
+  category     String?
+  displayName  String?
+
+  @@unique([merchantKey, accountId, nameContains])
 }
 
 model Security {
@@ -295,6 +315,8 @@ model ManualHolding {
   quoteChange    Float?
   quoteChangePct Float?
   quoteAsOf      DateTime?
+  /// When the user last saved this entry. Quote refreshes do not change it.
+  editedAt       DateTime?
   createdAt      DateTime  @default(now())
   updatedAt      DateTime  @updatedAt
 

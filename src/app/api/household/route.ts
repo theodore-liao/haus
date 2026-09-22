@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { requireSession } from "@/lib/auth";
+import { clearCardPaymentCache } from "@/lib/card-payments";
 import { ensureHousehold, prisma } from "@/lib/db";
 import { ownerOptions } from "@/lib/owners";
 
@@ -35,6 +36,12 @@ const patchSchema = z.object({
   birthdateA: isoDay,
   birthdateB: isoDay,
   quoteApiKey: z.string().nullable().optional(),
+  pairCardPayments: z.boolean().optional(),
+  showCrypto: z.boolean().optional(),
+  showRetirement: z.boolean().optional(),
+  showProperty: z.boolean().optional(),
+  showInsurance: z.boolean().optional(),
+  showInsights: z.boolean().optional(),
 });
 
 function toDate(s: string | null | undefined) {
@@ -48,6 +55,7 @@ export async function PATCH(req: Request) {
   if (!parsed.success) return NextResponse.json({ error: "Invalid payload." }, { status: 400 });
   await ensureHousehold();
   const { birthdateA, birthdateB, ...rest } = parsed.data;
+  if (parsed.data.pairCardPayments !== undefined) clearCardPaymentCache();
   const household = await prisma.household.update({
     where: { id: "haus" },
     data: { ...rest, birthdateA: toDate(birthdateA), birthdateB: toDate(birthdateB) },

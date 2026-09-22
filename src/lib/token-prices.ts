@@ -4,6 +4,12 @@ export const MIN_TOKEN_USD = 10;
 
 export type PricedToken = { price: number; symbol?: string; name?: string; changePct?: number };
 
+/** CoinGecko renamed usd_24hr_change to usd_24h_change. Read whichever the response includes. */
+export function geckoChangePct(row: { usd_24hr_change?: number | null; usd_24h_change?: number | null } | null | undefined) {
+  const n = row?.usd_24h_change ?? row?.usd_24hr_change;
+  return typeof n === "number" && Number.isFinite(n) ? n : undefined;
+}
+
 const GECKO_PLATFORM: Record<string, string> = {
   ethereum: "ethereum",
   base: "base",
@@ -100,7 +106,7 @@ export async function fetchGeckoIdPrices(ids: string[]): Promise<Map<string, Pri
     const data = (await getJson(url)) as Record<string, { usd?: number; usd_24hr_change?: number }> | null;
     for (const [id, row] of Object.entries(data ?? {})) {
       if (!row.usd || row.usd <= 0) continue;
-      out.set(id, { price: row.usd, changePct: row.usd_24hr_change });
+      out.set(id, { price: row.usd, changePct: geckoChangePct(row) });
     }
     if (i + 40 < unique.length) await sleep(200);
   }
@@ -116,7 +122,7 @@ export async function fetchGeckoContractPrices(platform: string, contracts: stri
     const data = (await getJson(url)) as Record<string, { usd?: number; usd_24hr_change?: number }> | null;
     for (const [addr, row] of Object.entries(data ?? {})) {
       if (!row.usd || row.usd <= 0) continue;
-      out.set(addr.toLowerCase(), { price: row.usd, changePct: row.usd_24hr_change });
+      out.set(addr.toLowerCase(), { price: row.usd, changePct: geckoChangePct(row) });
     }
     if (i + 30 < unique.length) await sleep(200);
   }
@@ -159,6 +165,7 @@ export async function fetchDexScreenerPrices(chain: string, addresses: string[])
       | {
           chainId?: string;
           priceUsd?: string;
+          priceChange?: { h24?: number };
           liquidity?: { usd?: number };
           baseToken?: { address?: string; symbol?: string; name?: string };
           quoteToken?: { address?: string; symbol?: string; name?: string };
@@ -177,7 +184,12 @@ export async function fetchDexScreenerPrices(chain: string, addresses: string[])
       if (prev && prev.liq >= liq) continue;
       best.set(key, {
         liq,
-        token: { price, symbol: pair.baseToken?.symbol, name: pair.baseToken?.name },
+        token: {
+          price,
+          symbol: pair.baseToken?.symbol,
+          name: pair.baseToken?.name,
+          changePct: pair.priceChange?.h24,
+        },
       });
     }
     for (const [k, v] of best) out.set(k, v.token);

@@ -4,6 +4,7 @@ import Script from "next/script";
 import { GeistSans as geistSans } from "geist/font/sans";
 import { GeistMono as geistMono } from "geist/font/mono";
 import { Toaster } from "sonner";
+import { ConsoleTap } from "@/components/console-tap";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -20,6 +21,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           {`try{var s=+localStorage.getItem("haus.uiScale");if(s>0&&s!==1)document.documentElement.style.fontSize=(Math.min(1.3,Math.max(0.85,s))*100)+"%";if(localStorage.getItem("haus.privacy")==="1")document.documentElement.classList.add("privacy")}catch(e){}`}
         </Script>
         {children}
+        <ConsoleTap />
         <Toaster
           theme="dark"
           position="bottom-right"

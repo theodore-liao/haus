@@ -41,6 +41,7 @@ export async function POST(req: Request) {
     quoteChange: spot ? spot.price * ((spot.changePct ?? 0) / 100) : undefined,
     quoteChangePct: spot?.changePct ?? undefined,
     quoteAsOf: spot ? new Date() : undefined,
+    editedAt: new Date(),
   };
   const row = d.id
     ? await prisma.manualHolding.update({ where: { id: d.id }, data })

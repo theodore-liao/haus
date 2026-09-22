@@ -73,26 +73,28 @@ export function RetirementBoard({
             <TableHeader>
               <TableRow>
                 <TableHead>Account</TableHead>
-                <TableHead>Holder</TableHead>
-                <TableHead>Type</TableHead>
-                <TableHead>Holdings</TableHead>
+                {/* Holder / type / holdings wait for wider screens; phones show account and value. */}
+                <TableHead className="hidden sm:table-cell">Holder</TableHead>
+                <TableHead className="hidden md:table-cell">Type</TableHead>
+                <TableHead className="hidden lg:table-cell">Holdings</TableHead>
                 <TableHead className="num">Value</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {rows.map((r) => (
                 <TableRow key={r.id}>
-                  <TableCell>
+                  {/* w-full + max-w-0 lets long plan names truncate instead of widening the table past the phone. */}
+                  <TableCell className="w-full max-w-0">
                     <div className="flex min-w-0 items-center gap-2">
-                      <BrandLabel kind="institution" name={r.institution}>
-                        {r.name}
+                      <BrandLabel className="min-w-0" kind="institution" name={r.institution}>
+                        <span className="truncate">{r.name}</span>
                       </BrandLabel>
                       {r.manual ? <RemoveHsa id={r.id} /> : null}
                     </div>
                   </TableCell>
-                  <TableCell>{r.ownerLabel}</TableCell>
-                  <TableCell className="text-muted-foreground">{hausTypeLabel(r.kind)}</TableCell>
-                  <TableCell className="max-w-[18rem] truncate text-muted-foreground">
+                  <TableCell className="hidden sm:table-cell">{r.ownerLabel}</TableCell>
+                  <TableCell className="hidden text-muted-foreground md:table-cell">{hausTypeLabel(r.kind)}</TableCell>
+                  <TableCell className="hidden max-w-[18rem] truncate text-muted-foreground lg:table-cell">
                     {(r.holdings ?? []).length === 0
                       ? "—"
                       : (r.holdings ?? [])

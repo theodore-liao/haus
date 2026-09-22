@@ -4,7 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 import { Menu } from "lucide-react";
-import { NAV, MOBILE_PRIMARY, NAV_ORDER_KEY, type NavItem } from "@/lib/nav";
+import { NAV, MOBILE_PRIMARY, NAV_ORDER_KEY, mergeVisibleOrder, visibleNav, type NavItem, type TabVisibility } from "@/lib/nav";
 import { cn } from "@/lib/utils";
 import { RefreshButton } from "./refresh-button";
 import { PlaidLinkHost } from "./plaid-link-host";
@@ -25,15 +25,18 @@ export function AppShell({
   nameA,
   nameB,
   lastSynced,
+  tabs,
 }: {
   children: React.ReactNode;
   nameA: string;
   nameB: string;
   lastSynced?: string | null;
+  tabs: TabVisibility;
 }) {
   const pathname = usePathname();
   const [more, setMore] = useState(false);
   const [items, setItems] = useState<NavItem[]>(NAV);
+  const shown = visibleNav(items, tabs);
 
   useEffect(() => {
     try {
@@ -45,8 +48,9 @@ export function AppShell({
   }, []);
 
   function persist(next: NavItem[]) {
-    setItems(next);
-    localStorage.setItem(NAV_ORDER_KEY, JSON.stringify(next.map((n) => n.href)));
+    const merged = mergeVisibleOrder(items, next);
+    setItems(merged);
+    localStorage.setItem(NAV_ORDER_KEY, JSON.stringify(merged.map((n) => n.href)));
   }
 
   return (
@@ -62,7 +66,7 @@ export function AppShell({
             {nameA} & {nameB}
           </div>
         </div>
-        <NavRail items={items} pathname={pathname} onReorder={persist} />
+        <NavRail items={shown} pathname={pathname} onReorder={persist} />
         <div className="flex items-center justify-between gap-3 border-t border-border px-5 py-4">
           <div className="footnote min-w-0">
             Last sync
@@ -117,7 +121,7 @@ export function AppShell({
             <SheetTitle>Household</SheetTitle>
           </SheetHeader>
           <div className="grid grid-cols-2 gap-2 pb-4">
-            {items.map((item) => {
+            {shown.map((item) => {
               const Icon = item.icon;
               return (
                 <Link

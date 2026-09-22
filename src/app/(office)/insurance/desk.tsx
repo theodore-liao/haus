@@ -136,7 +136,7 @@ export function InsuranceDesk({
                 </div>
                 {members.map((m) => (
                   <TabsContent key={m.id} value={m.id}>
-                    <div className="grid grid-cols-3 gap-4">
+                    <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
                       {HEALTH_KINDS.map((kind) => {
                         const card = policies.find((p) => p.type === kind.id && policyCoversMember(p, m.id));
                         return (
@@ -163,7 +163,7 @@ export function InsuranceDesk({
               {vehicles.length === 0 ? (
                 <p className="text-sm text-muted-foreground">Add vehicles on the Vehicles page to attach insurance cards here.</p>
               ) : (
-                <div className="grid grid-cols-3 gap-4">
+                <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
                   {vehicles.map((v) => {
                     const card = policies.find((p) => p.type === "vehicle" && p.vehicleId === v.id);
                     return (
@@ -185,7 +185,7 @@ export function InsuranceDesk({
         const card = policies.find((p) => p.type === s.id && !p.vehicleId);
         return (
           <TabsContent key={s.id} value={s.id}>
-            <div className="grid grid-cols-3 gap-4">
+            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
               <CardSlot
                 title={s.label}
                 policy={card}
@@ -256,7 +256,7 @@ function CardSlot({
             if (f) onFile(f);
           }}
         />
-        <div className="flex items-center gap-1">
+        <div className="flex flex-wrap items-center gap-1">
           <Button variant="outline" size="sm" disabled={busy} onClick={() => inputRef.current?.click()}>
             {busy ? "Saving…" : policy ? "Reupload" : "Upload"}
           </Button>

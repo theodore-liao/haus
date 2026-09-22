@@ -7,9 +7,11 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
 import { DisplayPrefs } from "@/components/display-prefs";
 import { RefreshButton } from "@/components/refresh-button";
 import { formatDateTime } from "@/lib/format";
+import { NAV, OPTIONAL_NAV, type TabVisibility } from "@/lib/nav";
 import Link from "next/link";
 
 type ChildRow = { id: string; name: string };
@@ -20,6 +22,8 @@ export function SettingsClient({
   birthdateA,
   birthdateB,
   householdChildren: initialChildren,
+  pairCardPayments,
+  tabs: initialTabs,
   connectionCount,
   lastSynced,
 }: {
@@ -28,6 +32,8 @@ export function SettingsClient({
   birthdateA: string | null;
   birthdateB: string | null;
   householdChildren: ChildRow[];
+  pairCardPayments: boolean;
+  tabs: TabVisibility;
   connectionCount: number;
   lastSynced: string | null;
 }) {
@@ -39,6 +45,8 @@ export function SettingsClient({
   const [kids, setKids] = useState(initialChildren);
   const [newChild, setNewChild] = useState("");
   const [busy, setBusy] = useState(false);
+  const [pairCards, setPairCards] = useState(pairCardPayments);
+  const [tabs, setTabs] = useState(initialTabs);
 
   async function saveNames() {
     setBusy(true);
@@ -116,6 +124,37 @@ export function SettingsClient({
     }
   }
 
+  async function setCardPairing(on: boolean) {
+    setPairCards(on);
+    const res = await fetch("/api/household", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ pairCardPayments: on }),
+    });
+    if (!res.ok) {
+      setPairCards(!on);
+      toast.error("Could not save that setting.");
+      return;
+    }
+    router.refresh();
+  }
+
+  async function setTab(field: (typeof OPTIONAL_NAV)[number]["field"], key: (typeof OPTIONAL_NAV)[number]["key"], on: boolean) {
+    const previous = tabs[key];
+    setTabs((cur) => ({ ...cur, [key]: on }));
+    const res = await fetch("/api/household", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ [field]: on }),
+    });
+    if (!res.ok) {
+      setTabs((cur) => ({ ...cur, [key]: previous }));
+      toast.error("Could not save that setting.");
+      return;
+    }
+    router.refresh();
+  }
+
   async function logout() {
     await fetch("/api/auth/logout", { method: "POST" });
     window.location.href = "/lock";
@@ -123,7 +162,7 @@ export function SettingsClient({
 
   return (
     <div className="grid items-start gap-4 lg:grid-cols-2">
-      <Card className="lg:row-span-3">
+      <Card>
         <CardHeader>
           <CardTitle>Household</CardTitle>
         </CardHeader>
@@ -202,12 +241,35 @@ export function SettingsClient({
         </CardContent>
       </Card>
 
+      <div className="grid gap-4">
       <Card>
         <CardHeader>
           <CardTitle>Display</CardTitle>
         </CardHeader>
         <CardContent>
           <DisplayPrefs />
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Tabs</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <p className="text-sm text-muted-foreground">Choose which sections appear in the sidebar.</p>
+          {OPTIONAL_NAV.map((tab) => {
+            const label = NAV.find((item) => item.href === tab.href)?.label ?? tab.key;
+            return (
+              <label key={tab.key} className="flex items-center justify-between gap-3">
+                <span className="text-sm text-foreground">{label}</span>
+                <Switch
+                  checked={tabs[tab.key]}
+                  onCheckedChange={(on) => void setTab(tab.field, tab.key, on)}
+                  aria-label={`Show ${label}`}
+                />
+              </label>
+            );
+          })}
         </CardContent>
       </Card>
 
@@ -226,6 +288,15 @@ export function SettingsClient({
               <div className="num mt-1">{formatDateTime(lastSynced)}</div>
             </div>
           </div>
+          <label className="flex items-start gap-3">
+            <Switch checked={pairCards} onCheckedChange={(on) => void setCardPairing(on)} className="mt-0.5" />
+            <span>
+              <span className="block text-foreground">Match transfers across linked accounts</span>
+              <span className="mt-1 block text-muted-foreground">
+                When the same amount leaves one linked account and arrives in another within a few days, both transactions are marked Transfer. A category you set yourself, such as General merchandise, is kept. Turn this off to stop automatic matching.
+              </span>
+            </span>
+          </label>
           <div className="flex flex-wrap items-center gap-2">
             <RefreshButton lastSynced={lastSynced} autoSync={false} />
             <Button variant="outline" size="sm" asChild>
@@ -249,6 +320,7 @@ export function SettingsClient({
           </Button>
         </CardContent>
       </Card>
+      </div>
     </div>
   );
 }

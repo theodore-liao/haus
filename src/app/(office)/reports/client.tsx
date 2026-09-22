@@ -6,7 +6,7 @@ import { Money } from "@/components/money";
 import { HeroCard } from "@/components/hero-card";
 import { Pills, Pill } from "@/components/pills";
 import { ChartCard } from "@/components/chart-card";
-import { AllocationChart, CashflowSankey, FROM_SAVINGS, OTHER_CATEGORIES, TO_SAVINGS } from "@/components/charts";
+import { AllocationChart, CashflowSankey, FROM_SAVINGS, OTHER_CATEGORIES } from "@/components/charts";
 import { formatDate, formatPct } from "@/lib/format";
 import { ReportRange } from "@/components/chart-range";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -198,21 +198,13 @@ export function ReportsClient({
                 onSpendClick={(label) => setPopup({ kind: "spend", title: label, from: "cash" })}
                 onIncomeClick={(label) => setPopup({ kind: "income", title: label, from: "cash" })}
                 onBalanceClick={(kind) => {
-                  if (kind === "from-savings") {
-                    setPopup({
-                      kind: "note",
-                      title: FROM_SAVINGS,
-                      note: "Spending exceeded income in this window. This is the gap, covered from cash on hand — not extra income.",
-                      lines: cash.spendRows.map((r) => ({ category: r.label, merchant: r.label, amount: r.value })),
-                    });
-                  } else {
-                    setPopup({
-                      kind: "note",
-                      title: TO_SAVINGS,
-                      note: "Income exceeded spending. This is what was left after bills — it is not a spend category.",
-                      lines: cash.incomeRows.map((r) => ({ category: r.label, merchant: r.label, amount: r.value })),
-                    });
-                  }
+                  if (kind !== "from-savings") return;
+                  setPopup({
+                    kind: "note",
+                    title: FROM_SAVINGS,
+                    note: "Spending exceeded income in this window. This is the gap, covered from cash on hand — not extra income.",
+                    lines: cash.spendRows.map((r) => ({ category: r.label, merchant: r.label, amount: r.value })),
+                  });
                 }}
               />
             </CardContent>

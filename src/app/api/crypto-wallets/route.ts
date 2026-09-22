@@ -34,6 +34,18 @@ export async function POST(req: Request) {
     }
   }
 
+  if (action === "rename") {
+    const id = (body as { id?: string }).id;
+    const label = (body as { label?: string | null }).label;
+    if (!id) return NextResponse.json({ error: "id required" }, { status: 400 });
+    const trimmed = typeof label === "string" ? label.trim() : "";
+    const row = await prisma.cryptoWallet.update({
+      where: { id },
+      data: { label: trimmed || null },
+    });
+    return NextResponse.json({ ok: true, row });
+  }
+
   const parsed = schema.safeParse(body);
   if (!parsed.success) return NextResponse.json({ error: "Enter a wallet address." }, { status: 400 });
   try {

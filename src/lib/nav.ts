@@ -56,6 +56,30 @@ export function visibleNav(items: NavItem[], tabs: TabVisibility): NavItem[] {
   return items.filter((item) => !OPTIONAL_NAV.some((tab) => tab.href === item.href && !tabs[tab.key]));
 }
 
+/**
+ * Saved drag order, with any tab the user has not placed yet inserted where it
+ * sits in NAV. Turning a section on therefore opens it in the default slot.
+ */
+export function resolveNavOrder(saved: string[] | null): NavItem[] {
+  const known = NAV.map((item) => item.href);
+  const placed = (saved ?? []).filter((href) => known.includes(href));
+  const seen = new Set(placed);
+  for (const href of known) {
+    if (seen.has(href)) continue;
+    const atDefault = known.indexOf(href);
+    let at = placed.length;
+    for (let i = 0; i < placed.length; i++) {
+      if (known.indexOf(placed[i]) > atDefault) {
+        at = i;
+        break;
+      }
+    }
+    placed.splice(at, 0, href);
+    seen.add(href);
+  }
+  return placed.map((href) => NAV.find((item) => item.href === href)!);
+}
+
 /** Keep hidden tabs in their places while the visible ones take a new order. */
 export function mergeVisibleOrder(full: NavItem[], visibleNext: NavItem[]): NavItem[] {
   const queue = [...visibleNext];

@@ -2,7 +2,7 @@
 export const HAUS_CATEGORIES: { code: string; label: string }[] = [
   { code: "GROCERIES", label: "Groceries" },
   { code: "FOOD_AND_DRINK", label: "Dining" },
-  { code: "GENERAL_MERCHANDISE", label: "General merchandise" },
+  { code: "GENERAL_MERCHANDISE", label: "Shopping" },
   { code: "ENTERTAINMENT", label: "Entertainment" },
   { code: "TRANSPORTATION", label: "Transportation" },
   { code: "TRAVEL", label: "Travel" },
@@ -128,7 +128,7 @@ export function isInternalMove(t: {
   /** Same amount moved between two linked accounts. */
   pairedTransfer?: boolean;
 }) {
-  // A category chosen on this transaction wins. General merchandise stays general merchandise.
+  // A category chosen on this transaction wins. Shopping stays shopping.
   if (t.userCategory && !isTransferCategory(t.userCategory)) return false;
   if (t.pairedTransfer) return true;
   if (t.isTransfer || isCreditCardPayment(t)) return true;

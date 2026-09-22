@@ -12,7 +12,7 @@ import { chainBrand } from "@/lib/logos";
 import { SortableGrid, useStoredOrder } from "@/components/sortable-grid";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Eye, EyeOff } from "lucide-react";
-import { WalletActions } from "./form";
+import { WalletActions, RenameWallet } from "./form";
 import { ManualAddBox } from "./manual-add";
 
 export type WalletCard = {
@@ -86,7 +86,11 @@ export function WalletGrid({
                   className="flex items-center gap-2"
                 >
                   <BrandMark kind={brand.kind} symbol={brand.symbol} src={brand.src} name={brand.name} />
-                  <span className="truncate">{w.label || shortAddress(w.address)}</span>
+                  {w.brokerage ? (
+                    <span className="truncate">{w.label || shortAddress(w.address)}</span>
+                  ) : (
+                    <RenameWallet id={w.id} address={w.address} label={w.label} />
+                  )}
                   <OwnerTag className="ml-0">{w.ownerLabel}</OwnerTag>
                 </ObjectTitle>
               </div>

@@ -2,7 +2,7 @@ import { prisma } from "./db";
 import { matchesOwner, type OwnerFilter } from "./owners";
 import { isCashType, isInvestmentType, isLiabilityType } from "./account-types";
 import { startOfDay } from "./format";
-import { historyAgreesWithSpot, loadPriceMap, priceOnOrBefore } from "./quotes";
+import { historyAgreesWithSpot, loadPriceMap, priceOnOrBefore, RECENT_CLOSE_DAYS } from "./quotes";
 import { propertyDebt, vehicleDebt } from "./property";
 import { loadCryptoLots } from "./crypto-lots";
 import { FIXED_USD_ID } from "./constants";
@@ -170,7 +170,7 @@ async function buildNetWorthPath(filter: OwnerFilter): Promise<PathPoint[]> {
 
   // A symbol's history is trusted only if its latest close agrees with the spot we hold today.
   const trustHistory = (sym: string | null | undefined, spot: number | null) =>
-    Boolean(sym) && historyAgreesWithSpot(priceOnOrBefore(priceMap, sym!, to, 3), spot);
+    Boolean(sym) && historyAgreesWithSpot(priceOnOrBefore(priceMap, sym!, to, RECENT_CLOSE_DAYS), spot);
 
   type Lot = { sym: string | null; spot: number | null; useHist: boolean; qtyNow: number; qtyEvents: AfterSum };
   const invAccounts: { current: number; residual: number; lots: Lot[] }[] = [];

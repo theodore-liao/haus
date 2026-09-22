@@ -4,6 +4,7 @@ import { getConnectionCount, getRetirement } from "@/lib/queries";
 import { getOwnerFilter } from "@/lib/request";
 import { IRS_LIMITS_YEAR } from "@/lib/constants";
 import { hausTypeLabel, isChildAccountType } from "@/lib/account-types";
+import { readProjectionPrefs } from "@/lib/projection-prefs";
 import { RetirementBoard } from "./board";
 import { AddHsa } from "./hsa-form";
 import { ChildrenForms } from "../children/forms";
@@ -14,8 +15,11 @@ export const dynamic = "force-dynamic";
 
 export default async function RetirementPage() {
   const owner = await getOwnerFilter();
-  const connections = await getConnectionCount();
-  const data = await getRetirement(owner);
+  const [connections, data, projectionPrefs] = await Promise.all([
+    getConnectionCount(),
+    getRetirement(owner),
+    readProjectionPrefs(),
+  ]);
   const custodial = data.rows.filter((r) => isChildAccountType(r.kind));
   const retirement = data.rows.filter((r) => !isChildAccountType(r.kind));
   if (!connections && data.rows.length === 0) {
@@ -59,6 +63,7 @@ export default async function RetirementPage() {
         <RetirementBoard
           rows={retirement}
           today={new Date().toISOString().slice(0, 10)}
+          projectionPrefs={projectionPrefs}
           holders={[
             { key: "A", name: data.names.nameA, birthdate: data.names.birthdateA },
             { key: "B", name: data.names.nameB, birthdate: data.names.birthdateB },
@@ -67,7 +72,7 @@ export default async function RetirementPage() {
       )}
       <Card>
           <CardHeader row>
-            <CardTitle>Children</CardTitle>
+            <CardTitle>Child Accounts</CardTitle>
             <ChildrenForms names={data.names} actions="entry" />
           </CardHeader>
           <CardContent className="space-y-3">

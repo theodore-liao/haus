@@ -1,7 +1,7 @@
 import { PrismaClient } from "@prisma/client";
 import { encryptSecret } from "./token-crypto";
 
-const PRISMA_REV = 8;
+const PRISMA_REV = 10;
 const globalForPrisma = globalThis as unknown as { prisma?: PrismaClient; prismaRev?: number };
 
 if (globalForPrisma.prismaRev !== PRISMA_REV) {

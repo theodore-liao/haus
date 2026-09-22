@@ -4,7 +4,6 @@ import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { ObjectTitle, OwnerTag, SectionLabel } from "@/components/type";
 import { Money, HeroMetric } from "@/components/money";
 import { HeroCard } from "@/components/hero-card";
-import { Pills, Pill } from "@/components/pills";
 import { prisma } from "@/lib/db";
 import { getNames, getRealEstate } from "@/lib/queries";
 import { getOwnerFilter } from "@/lib/request";
@@ -60,17 +59,16 @@ export default async function PropertyPage() {
         />
       ) : (
         <div className="page-stack">
-          <HeroCard kicker="Total equity">
+          <HeroCard
+            kicker="Total equity"
+            supporting={
+              <>
+                Real estate <Money value={reEq} /> + Vehicles <Money value={vehEq} />
+              </>
+            }
+          >
             <Money value={reEq + vehEq} />
           </HeroCard>
-          <Pills>
-            <Pill kicker="Real estate" accent="#7EABD4">
-              <Money value={reEq} />
-            </Pill>
-            <Pill kicker="Vehicles" accent="#D4BE7A">
-              <Money value={vehEq} />
-            </Pill>
-          </Pills>
 
           <section>
             <SectionLabel>Real estate</SectionLabel>
@@ -139,7 +137,7 @@ export default async function PropertyPage() {
                             Rate <span className="num text-foreground">{p.rate == null ? "—" : `${p.rate.toFixed(2)}%`}</span>
                           </span>
                           <span>
-                            Payment <span className="num text-foreground">{totalPay ? formatMoney(totalPay) : "—"}</span>
+                            Payment <span className="num money text-foreground">{totalPay ? formatMoney(totalPay) : "—"}</span>
                           </span>
                           {n ? (
                             <span>

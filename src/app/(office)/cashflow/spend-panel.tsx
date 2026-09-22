@@ -4,7 +4,8 @@ import { useMemo, useState } from "react";
 import { CategoryBars } from "@/components/charts";
 import { ChartRange } from "@/components/chart-range";
 import { DEFAULT_RANGE, inRange, type RangeKey } from "@/lib/range";
-import { CategoryMerchantDialog, aggregateMerchants, type MerchantLine } from "@/components/category-merchants";
+import { CategoryMerchantDialog } from "@/components/category-merchants";
+import { aggregateMerchants, type MerchantLine } from "@/lib/merchant-lines";
 
 export function SpendPanel({
   cats,

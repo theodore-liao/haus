@@ -2,6 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useState } from "react";
+import { format } from "date-fns";
 import { toast } from "sonner";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -10,9 +11,12 @@ import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { DisplayPrefs } from "@/components/display-prefs";
 import { RefreshButton } from "@/components/refresh-button";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { formatDateTime } from "@/lib/format";
 import { NAV, OPTIONAL_NAV, type TabVisibility } from "@/lib/nav";
+import type { TxnRow } from "@/lib/txn-row";
 import Link from "next/link";
+import { TransactionsTable } from "../transactions/table";
 
 type ChildRow = { id: string; name: string };
 
@@ -23,6 +27,8 @@ export function SettingsClient({
   birthdateB,
   householdChildren: initialChildren,
   pairCardPayments,
+  keepTransactions,
+  transactionsStoredSince,
   tabs: initialTabs,
   connectionCount,
   lastSynced,
@@ -33,6 +39,8 @@ export function SettingsClient({
   birthdateB: string | null;
   householdChildren: ChildRow[];
   pairCardPayments: boolean;
+  keepTransactions: boolean;
+  transactionsStoredSince: string | null;
   tabs: TabVisibility;
   connectionCount: number;
   lastSynced: string | null;
@@ -46,7 +54,14 @@ export function SettingsClient({
   const [newChild, setNewChild] = useState("");
   const [busy, setBusy] = useState(false);
   const [pairCards, setPairCards] = useState(pairCardPayments);
+  const [keepTxns, setKeepTxns] = useState(keepTransactions);
+  const [storedSince, setStoredSince] = useState(transactionsStoredSince);
   const [tabs, setTabs] = useState(initialTabs);
+  const [showSaved, setShowSaved] = useState(false);
+  const [savedRows, setSavedRows] = useState<TxnRow[] | null>(null);
+  const [savedError, setSavedError] = useState(false);
+  const [confirmWipe, setConfirmWipe] = useState(false);
+  const [wiping, setWiping] = useState(false);
 
   async function saveNames() {
     setBusy(true);
@@ -139,6 +154,65 @@ export function SettingsClient({
     router.refresh();
   }
 
+  async function setKeep(on: boolean) {
+    setKeepTxns(on);
+    const res = await fetch("/api/household", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ keepTransactions: on }),
+    });
+    const data = (await res.json().catch(() => ({}))) as {
+      error?: string;
+      syncError?: string;
+      transactionsStoredSince?: string | null;
+    };
+    if (!res.ok) {
+      setKeepTxns(!on);
+      toast.error(data.error ?? "Could not save that setting.");
+      return;
+    }
+    if (data.transactionsStoredSince) setStoredSince(data.transactionsStoredSince);
+    if (data.syncError) toast.error(data.syncError);
+    else if (on) toast.success("Transaction history is being stored.");
+    router.refresh();
+  }
+
+  async function openSaved() {
+    setShowSaved(true);
+    setSavedRows(null);
+    setSavedError(false);
+    const res = await fetch("/api/saved-transactions");
+    if (!res.ok) {
+      setSavedError(true);
+      return;
+    }
+    const data = (await res.json()) as { rows?: TxnRow[] };
+    setSavedRows(data.rows ?? []);
+  }
+
+  async function wipeSaved() {
+    setWiping(true);
+    try {
+      const res = await fetch("/api/saved-transactions", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ confirm: true }),
+      });
+      if (!res.ok) {
+        toast.error("Could not delete saved transactions.");
+        return;
+      }
+      toast.success("Local transaction history deleted.");
+      setSavedRows([]);
+      setKeepTxns(false);
+      setStoredSince(null);
+      setConfirmWipe(false);
+      router.refresh();
+    } finally {
+      setWiping(false);
+    }
+  }
+
   async function setTab(field: (typeof OPTIONAL_NAV)[number]["field"], key: (typeof OPTIONAL_NAV)[number]["key"], on: boolean) {
     const previous = tabs[key];
     setTabs((cur) => ({ ...cur, [key]: on }));
@@ -161,7 +235,7 @@ export function SettingsClient({
   }
 
   return (
-    <div className="grid items-start gap-4 lg:grid-cols-2">
+    <div className="grid min-w-0 items-start gap-4 lg:grid-cols-2 [&>*]:min-w-0">
       <Card>
         <CardHeader>
           <CardTitle>Household</CardTitle>
@@ -188,7 +262,7 @@ export function SettingsClient({
           </p>
           <div className="space-y-3 sm:col-span-2">
             <div>
-              <Label>Children</Label>
+              <Label>Child Accounts</Label>
               <p className="mt-1 text-xs text-muted-foreground">
                 Used to label 529s, custodial accounts, and Trump Accounts.
               </p>
@@ -288,15 +362,46 @@ export function SettingsClient({
               <div className="num mt-1">{formatDateTime(lastSynced)}</div>
             </div>
           </div>
-          <label className="flex items-start gap-3">
-            <Switch checked={pairCards} onCheckedChange={(on) => void setCardPairing(on)} className="mt-0.5" />
-            <span>
-              <span className="block text-foreground">Match transfers across linked accounts</span>
-              <span className="mt-1 block text-muted-foreground">
-                When the same amount leaves one linked account and arrives in another within a few days, both transactions are marked Transfer. A category you set yourself, such as General merchandise, is kept. Turn this off to stop automatic matching.
-              </span>
-            </span>
-          </label>
+          <div className="flex items-start justify-between gap-4">
+            <div className="min-w-0 flex-1">
+              <div className="text-foreground">Auto label transfers</div>
+              <p className="mt-1 text-muted-foreground">
+                Automatically categorizes transactions as &quot;Transfer&quot; when money flows between connected accounts.
+              </p>
+            </div>
+            <Switch
+              checked={pairCards}
+              onCheckedChange={(on) => void setCardPairing(on)}
+              className="mt-0.5 shrink-0"
+              aria-label="Auto label transfers"
+            />
+          </div>
+          <div className="space-y-2">
+            <div className="flex items-start justify-between gap-4">
+              <div className="min-w-0 flex-1">
+                <div className="text-foreground">Store transaction history</div>
+                {storedSince ? (
+                  <p className="mt-1 text-xs text-muted-foreground">Since {format(new Date(storedSince), "d MMM yyyy")}</p>
+                ) : null}
+                <p className="mt-1 text-muted-foreground">
+                  Saves your transaction history directly in the app to bypass data limits set by certain banks connected through
+                  Plaid.
+                </p>
+              </div>
+              <Switch
+                checked={keepTxns}
+                onCheckedChange={(on) => {
+                  if (on) void setKeep(true);
+                  else setConfirmWipe(true);
+                }}
+                className="mt-0.5 shrink-0"
+                aria-label="Store transaction history"
+              />
+            </div>
+            <Button type="button" variant="outline" size="sm" className="h-7" onClick={() => void openSaved()}>
+              Show saved transactions
+            </Button>
+          </div>
           <div className="flex flex-wrap items-center gap-2">
             <RefreshButton lastSynced={lastSynced} autoSync={false} />
             <Button variant="outline" size="sm" asChild>
@@ -321,6 +426,41 @@ export function SettingsClient({
         </CardContent>
       </Card>
       </div>
+      <Dialog open={showSaved} onOpenChange={setShowSaved}>
+        <DialogContent className="flex max-h-[min(90vh,820px)] max-w-[min(96vw,88rem)] flex-col overflow-hidden">
+          <DialogHeader>
+            <DialogTitle>Saved transactions</DialogTitle>
+            <DialogDescription>Posted transactions kept in this app. This list is read-only.</DialogDescription>
+          </DialogHeader>
+          {savedError ? (
+            <p className="text-sm text-muted-foreground">Could not load saved transactions.</p>
+          ) : savedRows == null ? (
+            <p className="text-sm text-muted-foreground">Loading…</p>
+          ) : savedRows.length === 0 ? (
+            <p className="text-sm text-muted-foreground">No saved transactions yet.</p>
+          ) : (
+            <TransactionsTable rows={savedRows} readOnly containerClassName="max-h-[min(62vh,36rem)]" />
+          )}
+        </DialogContent>
+      </Dialog>
+      <Dialog open={confirmWipe} onOpenChange={setConfirmWipe}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Delete all locally saved transactions?</DialogTitle>
+            <DialogDescription className="text-negative">
+              Warning: This permanently deletes your local transaction history. Turning this feature back on will not recover transactions that exceed your financial institution&apos;s download limits.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex flex-wrap gap-2">
+            <Button type="button" variant="destructive" disabled={wiping} onClick={() => void wipeSaved()}>
+              Delete all
+            </Button>
+            <Button type="button" variant="outline" disabled={wiping} onClick={() => setConfirmWipe(false)}>
+              Cancel
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

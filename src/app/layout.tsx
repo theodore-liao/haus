@@ -18,7 +18,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     <html lang="en" className={`${geistSans.variable} ${geistMono.variable} h-full dark`} suppressHydrationWarning>
       <body className="min-h-full bg-background font-sans text-foreground antialiased">
         <Script id="ui-scale" strategy="beforeInteractive">
-          {`try{var s=+localStorage.getItem("haus.uiScale");if(s>0&&s!==1)document.documentElement.style.fontSize=(Math.min(1.3,Math.max(0.85,s))*100)+"%";if(localStorage.getItem("haus.privacy")==="1")document.documentElement.classList.add("privacy")}catch(e){}`}
+          {`try{var s=+localStorage.getItem("haus.uiScale");var v=localStorage.getItem("haus.uiScaleV");if(!(s>0))s=1;else if(v!=="2"){s=Math.min(1.5,Math.max(0.75,s/1.3));localStorage.setItem("haus.uiScale",String(s));localStorage.setItem("haus.uiScaleV","2")}else s=Math.min(1.5,Math.max(0.75,s));document.documentElement.style.fontSize=(s*130)+"%";if(localStorage.getItem("haus.privacy")==="1")document.documentElement.classList.add("privacy")}catch(e){}`}
         </Script>
         {children}
         <ConsoleTap />

@@ -4,7 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 import { Menu } from "lucide-react";
-import { NAV, MOBILE_PRIMARY, NAV_ORDER_KEY, mergeVisibleOrder, visibleNav, type NavItem, type TabVisibility } from "@/lib/nav";
+import { NAV, MOBILE_PRIMARY, NAV_ORDER_KEY, mergeVisibleOrder, resolveNavOrder, visibleNav, type NavItem, type TabVisibility } from "@/lib/nav";
 import { cn } from "@/lib/utils";
 import { RefreshButton } from "./refresh-button";
 import { PlaidLinkHost } from "./plaid-link-host";
@@ -12,13 +12,6 @@ import { UiScaleSync } from "./ui-scale";
 import { formatDateTime } from "@/lib/format";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "./ui/sheet";
 import { NavRail } from "./nav-rail";
-
-function orderedNav(saved: string[] | null): NavItem[] {
-  const known = NAV.map((n) => n.href);
-  const base = saved?.filter((h) => known.includes(h)) ?? [];
-  for (const h of known) if (!base.includes(h)) base.push(h);
-  return base.map((h) => NAV.find((n) => n.href === h)!);
-}
 
 export function AppShell({
   children,
@@ -41,7 +34,7 @@ export function AppShell({
   useEffect(() => {
     try {
       const raw = localStorage.getItem(NAV_ORDER_KEY);
-      setItems(orderedNav(raw ? (JSON.parse(raw) as string[]) : null));
+      setItems(resolveNavOrder(raw ? (JSON.parse(raw) as string[]) : null));
     } catch {
       setItems(NAV);
     }
@@ -57,7 +50,7 @@ export function AppShell({
     <div className="min-h-screen bg-background">
       <UiScaleSync />
       <PlaidLinkHost />
-      <aside className="fixed inset-y-0 left-0 z-30 hidden w-60 border-r border-border bg-sidebar md:flex md:flex-col">
+      <aside className="fixed inset-y-0 left-0 z-30 hidden w-[var(--nav-width)] border-r border-border bg-sidebar md:flex md:flex-col">
         <div className="px-5 pb-6 pt-7">
           <div className="bg-gradient-to-r from-primary via-primary to-accent bg-clip-text text-lg font-medium tracking-[0.32em] text-transparent">
             HAUS
@@ -76,7 +69,7 @@ export function AppShell({
         </div>
       </aside>
 
-      <div className="md:pl-60">
+      <div className="min-w-0 md:pl-[var(--nav-width)]">
         <header className="sticky top-0 z-20 flex items-center justify-between gap-3 border-b border-border/80 bg-background/70 px-4 py-3 backdrop-blur-md md:hidden">
           <span className="text-base font-medium tracking-[0.32em] text-primary">HAUS</span>
           <RefreshButton lastSynced={lastSynced} autoSync={false} />

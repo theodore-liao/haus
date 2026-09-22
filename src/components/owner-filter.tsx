@@ -18,7 +18,7 @@ export function OwnerFilterBar({
     { value: "all", label: "All" },
     { value: "a", label: givenName(nameA) || nameA },
     { value: "b", label: givenName(nameB) || nameB },
-    { value: "children", label: "Children" },
+    { value: "children", label: "Child Accounts" },
   ];
 
   function setFilter(v: OwnerFilter) {

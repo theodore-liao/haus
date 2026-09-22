@@ -6,16 +6,31 @@ import { Money } from "@/components/money";
 import { ObjectTitle, kickerClass } from "@/components/type";
 import { Pills, Pill } from "@/components/pills";
 import { ChartCard } from "@/components/chart-card";
-import { CashflowSankey, FROM_SAVINGS, OTHER_CATEGORIES } from "@/components/charts";
+import { CashflowSankey } from "@/components/charts";
+import { FROM_SAVINGS, OTHER_CATEGORIES } from "@/lib/flow-labels";
 import { formatPct } from "@/lib/format";
 import { ReportRange } from "@/components/chart-range";
-import { defaultReportWindow, inWindow, asLocalDate, ymKey, type WindowKey } from "@/lib/range";
+import {
+  asLocalDate,
+  cashflowTableMonths,
+  defaultReportWindow,
+  inWindow,
+  type WindowKey,
+} from "@/lib/range";
 import { format } from "date-fns";
 import { cn } from "@/lib/utils";
-import { CategoryMerchantDialog, aggregateMerchants, type MerchantLine } from "@/components/category-merchants";
+import { CategoryMerchantDialog } from "@/components/category-merchants";
+import { aggregateMerchants, type MerchantLine } from "@/lib/merchant-lines";
 import { applyMerchantRefunds, aggregateFlows, type FlowRow } from "@/lib/spend-net";
 
-export function CashFlowBlock({ flows }: { flows: FlowRow[] }) {
+export function CashFlowBlock({
+  flows,
+  archiveCoversFrom = null,
+}: {
+  flows: FlowRow[];
+  /** First day the saved archive covers every institution. Older months before this are incomplete. */
+  archiveCoversFrom?: string | null;
+}) {
   const [range, setRange] = useState<WindowKey>(defaultReportWindow());
   const [popup, setPopup] = useState<{ title: string; lines: MerchantLine[]; note?: string } | null>(null);
 
@@ -33,17 +48,18 @@ export function CashFlowBlock({ flows }: { flows: FlowRow[] }) {
     .filter((f) => f.kind === "income")
     .map((f) => ({ category: f.category, merchant: f.merchant, amount: f.amount }));
 
+  // The latest three months always show. Older months appear only when the saved archive
+  // covers that month from the first day, so a fresh ~90-day pull does not pad the table.
   const months = useMemo(() => {
     const byMonth: Record<string, { income: number; spend: number }> = {};
     for (const f of flows) {
+      if (f.kind !== "spend" && f.kind !== "income") continue;
       const row = byMonth[f.month] ?? { income: 0, spend: 0 };
       if (f.kind === "spend") row.spend += f.amount;
-      else if (f.kind === "income") row.income += f.amount;
+      else row.income += f.amount;
       byMonth[f.month] = row;
     }
-    const now = new Date();
-    const keys = [0, 1, 2].map((i) => ymKey(new Date(now.getFullYear(), now.getMonth() - i, 1)));
-    return keys.map((month) => {
+    return cashflowTableMonths(Object.keys(byMonth), archiveCoversFrom).map((month) => {
       const v = byMonth[month] ?? { income: 0, spend: 0 };
       return {
         month,
@@ -53,7 +69,7 @@ export function CashFlowBlock({ flows }: { flows: FlowRow[] }) {
         savings: v.income - v.spend,
       };
     });
-  }, [flows]);
+  }, [flows, archiveCoversFrom]);
 
   return (
     <section className="page-stack pt-2">

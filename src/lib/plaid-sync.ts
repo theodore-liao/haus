@@ -15,6 +15,7 @@ import type { AccountBase, InvestmentsHoldingsGetResponse, Transaction } from "p
 import { plaidAccessToken } from "./token-crypto";
 import { clearCardPaymentCache, loadCardPaymentFlags } from "./card-payments";
 import { merchantKey as normalizeMerchantKey, ruleKeyBase, ruleKeyIsMatched } from "./categories";
+import { archiveTransactions } from "./saved-txns";
 
 function asTransfer(txn: Transaction) {
   const primary = txn.personal_finance_category?.primary ?? "";
@@ -115,6 +116,7 @@ async function syncTransactions(accessToken: string, itemDbId: string, cursor: s
   const plaid = getPlaidClient();
   let next = cursor ?? undefined;
   let hasMore = true;
+  const posted: string[] = [];
   const accountMap = new Map(
     (
       await prisma.account.findMany({
@@ -150,6 +152,7 @@ async function syncTransactions(accessToken: string, itemDbId: string, cursor: s
         categoryDetailed: txn.personal_finance_category?.detailed ?? null,
         userCategory: existing?.userCategory ?? null,
         userMerchant: existing?.userMerchant ?? null,
+        memo: existing?.memo ?? null,
         isoCurrency: txn.iso_currency_code ?? "USD",
         isTransfer: asTransfer(txn),
         isCcPayment: asCcPayment(txn),
@@ -159,9 +162,11 @@ async function syncTransactions(accessToken: string, itemDbId: string, cursor: s
         create: { plaidTransactionId: txn.transaction_id, ...data },
         update: data,
       });
+      if (!txn.pending) posted.push(txn.transaction_id);
     }
 
     for (const r of removed) {
+      // The saved copy is not touched. Plaid dropping a transaction must not erase it.
       await prisma.txn.deleteMany({ where: { plaidTransactionId: r.transaction_id } });
     }
 
@@ -173,12 +178,14 @@ async function syncTransactions(accessToken: string, itemDbId: string, cursor: s
     where: { id: itemDbId },
     data: { transactionsCursor: next ?? null },
   });
-  await applyMatchedMerchantRules();
+  const ruled = await applyMatchedMerchantRules();
+  await archiveTransactions({ id: ruled, plaidTransactionId: posted });
 }
 
 /** Fill a category only when the user has not chosen one, using the matched or unmatched rule. */
 async function applyMatchedMerchantRules() {
   clearCardPaymentCache();
+  const updated: string[] = [];
   const [flags, rules, txns] = await Promise.all([
     loadCardPaymentFlags(),
     prisma.merchantRule.findMany(),
@@ -198,6 +205,7 @@ async function applyMatchedMerchantRules() {
       })
       .map((t) => t.id);
     if (!ids.length) continue;
+    updated.push(...ids);
     await prisma.txn.updateMany({
       where: { id: { in: ids } },
       data: {
@@ -206,6 +214,7 @@ async function applyMatchedMerchantRules() {
       },
     });
   }
+  return updated;
 }
 
 async function upsertSecurity(s: {

@@ -1,15 +1,8 @@
 "use client";
 
-import { createContext, useContext, type ReactNode } from "react";
+import type { ReactNode } from "react";
 import { formatMoney, formatPct } from "@/lib/format";
 import { cn } from "@/lib/utils";
-
-const WholeDollars = createContext(false);
-
-/** Headline figures inside this tree render as whole dollars, rounded up. */
-export function WholeDollarsScope({ children }: { children: ReactNode }) {
-  return <WholeDollars.Provider value={true}>{children}</WholeDollars.Provider>;
-}
 
 export function HeroMetric({
   label,
@@ -23,9 +16,7 @@ export function HeroMetric({
   return (
     <div className={className}>
       <div className="kicker">{label}</div>
-      <div className="display-number">
-        <WholeDollarsScope>{children}</WholeDollarsScope>
-      </div>
+      <div className="display-number">{children}</div>
     </div>
   );
 }
@@ -39,7 +30,6 @@ export function Money({
   signed?: boolean;
   className?: string;
 }) {
-  const whole = useContext(WholeDollars);
   const n = value ?? null;
   const tone =
     n == null || !signed
@@ -49,7 +39,7 @@ export function Money({
         : n < 0
           ? "text-negative"
           : "";
-  return <span className={cn("num", tone, className)}>{formatMoney(n, { signed, whole })}</span>;
+  return <span className={cn("num money", tone, className)}>{formatMoney(n, { signed })}</span>;
 }
 
 export function Delta({
@@ -61,7 +51,7 @@ export function Delta({
   pct?: number | null;
   className?: string;
 }) {
-  if (value == null) return <span className={cn("num text-muted-foreground", className)}>—</span>;
+  if (value == null) return <span className={cn("num money text-muted-foreground", className)}>—</span>;
   return (
     <span
       className={cn(
@@ -70,7 +60,7 @@ export function Delta({
         className,
       )}
     >
-      {formatMoney(value, { signed: true })}
+      <span className="money">{formatMoney(value, { signed: true })}</span>
       {pct != null ? ` (${formatPct(pct)})` : ""}
     </span>
   );

@@ -1,4 +1,5 @@
 import { format } from "date-fns";
+import { asLocalDate } from "./range";
 
 /** Next whole dollar, away from zero. $10.01 → $11, −$10.01 → −$11. */
 export function roundUpDollars(n: number) {
@@ -93,7 +94,17 @@ export function ellipsize(s: string, max = 36): string {
 
 export function formatDate(d: Date | string | null | undefined): string {
   if (!d) return "—";
-  const date = typeof d === "string" ? new Date(d) : d;
+  // Plaid days are UTC midnight ISO strings; format the YYYY-MM-DD prefix, not the local instant.
+  if (typeof d === "string" && /^\d{4}-\d{2}-\d{2}/.test(d)) {
+    const date = asLocalDate(d);
+    if (Number.isNaN(date.getTime())) return "—";
+    return format(date, "d MMM yyyy");
+  }
+  if (d instanceof Date) {
+    if (Number.isNaN(d.getTime())) return "—";
+    return format(new Date(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()), "d MMM yyyy");
+  }
+  const date = new Date(d);
   if (Number.isNaN(date.getTime())) return "—";
   return format(date, "d MMM yyyy");
 }

@@ -107,7 +107,19 @@ export function InvestmentsBoard({
       if (classSel && !classSel.has(r.class || "other")) return false;
       if (acctSel && !acctSel.has(withHolder(r.account, r.ownerLabel))) return false;
       if (needle) {
-        const hay = `${r.symbol ?? ""} ${r.name} ${r.account} ${r.institution ?? ""} ${r.ownerLabel} ${r.class ?? ""}`.toLowerCase();
+        const hay = [
+          r.symbol,
+          r.name,
+          r.account,
+          ...(r.accounts ?? []),
+          r.institution,
+          r.ownerLabel,
+          r.class,
+          r.class ? formatHoldingClass(r.class) : "",
+        ]
+          .filter(Boolean)
+          .join(" ")
+          .toLowerCase();
         if (!hay.includes(needle)) return false;
       }
       return true;
@@ -203,15 +215,18 @@ export function InvestmentsBoard({
       {hideTable ? null : (
       <Card>
         <CardHeader row>
-          <CardTitle>Holdings</CardTitle>
-          <div className="flex flex-wrap items-center gap-2">
+          <div className="flex min-w-0 items-center gap-3">
+            <CardTitle className="shrink-0">Holdings</CardTitle>
             <Input
               placeholder="Search symbol, name, account"
               value={q}
               onChange={(e) => setQ(e.target.value)}
-              className="h-8 w-full text-sm sm:w-56"
+              onBlur={() => setQ((cur) => cur.trim())}
+              className="h-8 w-56 shrink-0 text-sm"
             />
-            {headerAction ? <div className="flex flex-wrap items-center gap-2">{headerAction}</div> : null}
+          </div>
+          <div className="flex flex-wrap items-center justify-end gap-2">
+            {headerAction}
             <ResetFilters
               dirty={filtersOn}
               onReset={() => {
@@ -260,12 +275,19 @@ export function InvestmentsBoard({
                   <li key={`m:${r.id}:${r.symbol ?? ""}:${r.account}`} className="border-b border-border last:border-0">
                     {r.manual && onEditManual ? (
                       <div className={rowClass}>
-                        <button type="button" className="flex min-w-0 flex-1 items-center gap-3 text-left" onClick={() => onEditManual(r.id)}>
+                        <button
+                          type="button"
+                          className="flex min-w-0 flex-1 cursor-pointer items-center gap-3 text-left"
+                          onClick={() => onEditManual(r.id)}
+                        >
                           {body}
                         </button>
-                        <Button type="button" size="sm" variant="outline" className="h-7 shrink-0 px-2" onClick={() => onEditManual(r.id)}>
-                          Edit
-                        </Button>
+                        <span className="flex shrink-0 items-center gap-1.5">
+                          <Button type="button" size="sm" variant="outline" className="h-7 px-2" onClick={() => onEditManual(r.id)}>
+                            Edit
+                          </Button>
+                          <RemoveCrypto id={r.id} />
+                        </span>
                       </div>
                     ) : r.symbol && !r.manual ? (
                       <Link href={`/investments/${encodeURIComponent(r.symbol)}`} className={rowClass}>
@@ -280,21 +302,21 @@ export function InvestmentsBoard({
             )}
           </ul>
           <Table
-            className="hidden table-fixed min-w-[60rem] md:table"
+            className="hidden table-fixed md:table"
             containerClassName="hidden max-h-[min(30rem,calc(100dvh-18rem))] overscroll-contain md:block"
           >
             <colgroup>
               {/* Text columns take what the figures leave; figures never wrap. Day P/L waits for a 2xl viewport. */}
-              <col className="w-auto" />
-              <col className="w-[5.25rem]" />
-              <col className="w-auto" />
-              <col className="w-[6rem]" />
-              <col className="w-[6rem]" />
-              <col className="w-[7rem]" />
-              {hideCostTotal ? null : <col className="w-[6.75rem]" />}
+              <col className="w-[14%]" />
+              <col className="w-[8%]" />
+              <col className="w-[18%]" />
+              <col className="w-[9%]" />
+              <col className="w-[9%]" />
+              <col className="w-[10%]" />
+              {hideCostTotal ? null : <col className="w-[9%]" />}
               <col className={DAY_COL} />
-              {hideCostTotal ? null : <col className="w-[7.25rem]" />}
-              <col className="w-[4rem]" />
+              {hideCostTotal ? null : <col className="w-[10%]" />}
+              <col className="w-[5%]" />
             </colgroup>
             <TableHeader className="sticky top-0 z-10 bg-card [&_th]:bg-card">
               <TableRow>
@@ -368,22 +390,26 @@ export function InvestmentsBoard({
                       <TableCell title={`${r.account} · ${r.ownerLabel}`}>
                         <span className="flex min-w-0 items-center gap-2">
                           <BrandMark kind="institution" name={r.institution ?? r.account} size={18} />
-                          <span className="cell-stack flex-1">
+                          <span className="cell-stack min-w-0 flex-1">
                             <span>{r.account}</span>
                             <span>{r.ownerLabel}</span>
                           </span>
-                          {r.manual && onEditManual ? (
-                            <Button
-                              type="button"
-                              size="sm"
-                              variant="outline"
-                              className="h-7 shrink-0 px-2"
-                              onClick={() => onEditManual(r.id)}
-                            >
-                              Edit
-                            </Button>
+                          {r.manual ? (
+                            <span className="ml-auto flex shrink-0 items-center gap-1.5">
+                              {onEditManual ? (
+                                <Button
+                                  type="button"
+                                  size="sm"
+                                  variant="outline"
+                                  className="h-7 px-2"
+                                  onClick={() => onEditManual(r.id)}
+                                >
+                                  Edit
+                                </Button>
+                              ) : null}
+                              <RemoveCrypto id={r.id} />
+                            </span>
                           ) : null}
-                          {r.manual ? <RemoveCrypto id={r.id} /> : null}
                         </span>
                       </TableCell>
                       <TableCell className="num" title={String(r.qty)}>
@@ -423,7 +449,7 @@ export function InvestmentsBoard({
 }
 
 // Below 2xl the Day P/L column gives its width to the Asset/Account text columns.
-const DAY_COL = "hidden w-[6.25rem] 2xl:table-column";
+const DAY_COL = "hidden w-[8%] 2xl:table-column";
 const DAY_CELL = "hidden 2xl:table-cell";
 
 function formatQty(n: number) {

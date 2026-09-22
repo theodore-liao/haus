@@ -24,18 +24,24 @@ export function SelectTrigger({ className, children, ...props }: React.Component
   );
 }
 
-export function SelectContent({ className, children, ...props }: React.ComponentProps<typeof SelectPrimitive.Content>) {
+export function SelectContent({
+  className,
+  children,
+  container,
+  ...props
+}: React.ComponentProps<typeof SelectPrimitive.Content> & { container?: HTMLElement | null }) {
   return (
-    <SelectPrimitive.Portal>
+    <SelectPrimitive.Portal container={container ?? undefined}>
       <SelectPrimitive.Content
+        data-haus-select=""
         className={cn(
-          "z-50 min-w-[8rem] overflow-hidden rounded-md border border-border bg-card-elevated",
+          "z-[100] max-h-72 min-w-[8rem] overflow-y-auto rounded-md border border-border bg-card-elevated",
           className,
         )}
         position="popper"
         {...props}
       >
-        <SelectPrimitive.Viewport className="p-1">{children}</SelectPrimitive.Viewport>
+        <SelectPrimitive.Viewport className="max-h-72 overflow-y-auto p-1">{children}</SelectPrimitive.Viewport>
       </SelectPrimitive.Content>
     </SelectPrimitive.Portal>
   );

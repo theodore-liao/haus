@@ -70,7 +70,7 @@ export function ReportRange({
   value,
   onChange,
 }: {
-  value: WindowKey;
+  value: WindowKey | null;
   onChange: (key: WindowKey) => void;
 }) {
   const months = calendarMonthOptions(3);

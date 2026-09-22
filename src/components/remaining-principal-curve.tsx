@@ -267,9 +267,9 @@ export function RemainingPrincipalCurve({
   return (
     <div className="mt-4 space-y-2">
       <div className="text-sm text-muted-foreground">
-        P&amp;I <span className="num text-foreground">{model ? formatMoney(model.pi) : "—"}</span> / mo
+        P&amp;I <span className="num money text-foreground">{model ? formatMoney(model.pi) : "—"}</span> / mo
       </div>
-      <div ref={mainEl} className="h-[320px] w-full" />
+      <div ref={mainEl} className="amort-chart h-[320px] w-full" />
     </div>
   );
 }

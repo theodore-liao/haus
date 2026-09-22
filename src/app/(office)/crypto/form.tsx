@@ -3,11 +3,13 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
+import { Pencil } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { ownerOptions } from "@/lib/owners";
+import { shortAddress } from "@/lib/onchain";
 
 export function AddWallet({
   names,
@@ -90,6 +92,92 @@ export function AddWallet({
         </DialogContent>
       </Dialog>
     </>
+  );
+}
+
+export function RenameWallet({
+  id,
+  address,
+  label,
+}: {
+  id: string;
+  address: string;
+  label: string | null;
+}) {
+  const router = useRouter();
+  const [editing, setEditing] = useState(false);
+  const [value, setValue] = useState(label ?? "");
+  const [busy, setBusy] = useState(false);
+  const display = label || shortAddress(address);
+
+  async function save() {
+    const next = value.trim();
+    const prev = (label ?? "").trim();
+    if (next === prev) {
+      setEditing(false);
+      setValue(label ?? "");
+      return;
+    }
+    setBusy(true);
+    try {
+      const res = await fetch("/api/crypto-wallets", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "rename", id, label: next || null }),
+      });
+      const data = await res.json();
+      if (!res.ok) toast.error(data.error ?? "Could not rename wallet.");
+      else {
+        setEditing(false);
+        router.refresh();
+      }
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  if (editing) {
+    return (
+      <Input
+        autoFocus
+        aria-label="Wallet name"
+        className="h-7 min-w-0 flex-1 max-w-[12rem] text-sm"
+        value={value}
+        disabled={busy}
+        placeholder={shortAddress(address)}
+        onChange={(e) => setValue(e.target.value)}
+        onBlur={() => {
+          void save();
+        }}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") {
+            e.preventDefault();
+            void save();
+          }
+          if (e.key === "Escape") {
+            setValue(label ?? "");
+            setEditing(false);
+          }
+        }}
+      />
+    );
+  }
+
+  return (
+    <span className="inline-flex min-w-0 items-center gap-1.5">
+      <span className="truncate">{display}</span>
+      <button
+        type="button"
+        className="shrink-0 cursor-pointer text-muted-foreground hover:text-foreground"
+        aria-label="Rename wallet"
+        onClick={() => {
+          setValue(label ?? "");
+          setEditing(true);
+        }}
+      >
+        <Pencil className="h-3.5 w-3.5" />
+      </button>
+    </span>
   );
 }
 

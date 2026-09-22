@@ -21,8 +21,25 @@ model Household {
   showProperty    Boolean @default(true)
   showInsurance   Boolean @default(false)
   showInsights    Boolean @default(true)
+  /// When on, posted transactions are copied into SavedTxn on sync and on edit.
+  keepTransactions Boolean @default(false)
+  /// When the current local archive was first turned on. Cleared when that archive is deleted.
+  transactionsStoredSince DateTime?
+  /// Set once the category budgets have been filled from the trailing 3-month average.
+  budgetsSeeded Boolean @default(false)
+  /// JSON blob for retirement projection knobs (rate, contribution, retire age, etc.).
+  projectionPrefs String?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
+}
+
+/// Monthly spend target for one category label. The household edits these; sync does not.
+model CategoryBudget {
+  id        String   @id @default(cuid())
+  category  String   @unique
+  monthly   Float
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 }
 
 model Child {
@@ -97,6 +114,7 @@ model Txn {
   categoryDetailed     String?
   userCategory         String?
   userMerchant         String?
+  memo                 String?
   isoCurrency          String    @default("USD")
   isTransfer           Boolean   @default(false)
   isCcPayment          Boolean   @default(false)
@@ -105,6 +123,34 @@ model Txn {
 
   @@index([date])
   @@index([accountId])
+}
+
+/// Posted transactions kept after Plaid stops returning them.
+/// No relation to Account or Txn: disconnecting a bank, a Plaid removal, and a
+/// refresh or redeploy must not delete these rows. The only delete is the
+/// settings action deleteAllSavedTransactions.
+model SavedTxn {
+  plaidTransactionId String   @id
+  accountId          String?
+  date               DateTime
+  name               String
+  merchant           String
+  rawMerchant        String?
+  accountName        String
+  accountMask        String?
+  institutionName    String?
+  owner              String
+  category           String?
+  categoryDetailed   String?
+  amount             Float
+  isTransfer         Boolean  @default(false)
+  isCcPayment        Boolean  @default(false)
+  internal           Boolean  @default(false)
+  cardMatch          String?
+  memo               String?
+  updatedAt          DateTime @updatedAt
+
+  @@index([date])
 }
 
 model MerchantRule {

@@ -1,10 +1,12 @@
 # Haus
 
-Private household wealth office. One ledger, two people. Not a consumer budgeting app.
+Household finance app. Next.js, Prisma, and SQLite on the machine that runs it. One site password unlocks the household.
 
-The Next.js process on the household desktop is the source of truth. SQLite and insurance files stay on that machine. Optional Cloudflare Tunnel + Access can put a private HTTPS door in front later. Deploying code does not recreate the database.
+Pages: Overview, Spending, Stocks, Crypto, Retirement, Property, Insurance, Insights, Connections (Plaid), Transactions, Settings. Crypto and insurance start hidden; turn them on in Settings. Retirement, property, and insights start on.
 
-This repository is **source only**. The live ledger, ID cards, Plaid tokens, wallet addresses, and household names never belong on GitHub.
+Spending has date chips and a category donut, plus recurring and refunds. Transactions use the same date chips, with search, notes, and categories. Settings can keep posted transactions in the local SQLite database, match transfers between linked accounts, and set default chart and movers windows.
+
+Insurance files live under `data/insurance/` on that machine. `npm run backup` copies the database and insurance files into `backups/`.
 
 ## Stack
 
@@ -22,7 +24,7 @@ npm run dev
 
 Open [http://localhost:3000](http://localhost:3000). The household lock is the first screen.
 
-Generate `HAUS_TOKEN_KEY` once and keep it forever (rotating it makes stored Plaid tokens unreadable):
+Generate `HAUS_TOKEN_KEY` once and keep it (rotating it makes stored Plaid tokens unreadable):
 
 ```bash
 node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
@@ -35,7 +37,7 @@ node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
 | `DATABASE_URL` | SQLite, e.g. `file:./dev.db` (relative to `prisma/`) |
 | `HAUS_SITE_PASSWORD` | Household lock passphrase |
 | `HAUS_SESSION_SECRET` | Signed session cookie secret (32+ characters) |
-| `HAUS_TOKEN_KEY` | AES key for Plaid `access_token`s. Do not rotate. |
+| `HAUS_TOKEN_KEY` | AES key for Plaid `access_token`s |
 | `ALLOWED_EMAILS` | Comma-separated Cloudflare Access emails. Empty for local `next dev`. |
 | `HAUS_PUBLIC_URL` | Public HTTPS origin if you put a tunnel in front |
 | `PLAID_CLIENT_ID` / `PLAID_SECRET` | One pair for the household |
@@ -43,47 +45,15 @@ node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
 | `PLAID_PRODUCTS` | `transactions,investments,liabilities` |
 | `FINNHUB_API_KEY` | Optional live equity quotes |
 
-Do not commit `.env`.
+`.gitignore` covers `.env`, SQLite files, `/data`, and `/backups`.
 
 ## Plaid
 
-One `PLAID_CLIENT_ID` for the household. Production Trial is **10 Items per client**, shared. An Item is one login at one institution, not one account.
-
-Both people link their own banks in Plaid Link inside this same app. Do not create a second Plaid developer account.
-
-`PLAID_ENV=production` must match production keys.
-
-## What is not in this app
-
-- No CSV import
-- No demo / seed household
-- No trading, transfers, or bill pay
-- No chatbot
-- No light theme
-- No public signup
-- No bank passwords, crypto seeds, or private keys
-
-## Insurance documents
-
-Declarations pages, ID cards, and benefit summaries (jpg / png / webp / pdf) are stored under `data/insurance/` on the machine that runs Haus. Files are served only after a session check.
-
-## GitHub
-
-This is a public source backup. Never commit:
-
-- `.env` / `.env.*` / `.dev.vars`
-- `*.db` and Prisma SQLite files
-- `/data` (insurance screenshots, ID cards)
-- `/backups`
-- wallet addresses, account numbers, Plaid tokens, household names
-
-`.gitignore` covers those. Before every push, run `git status` and confirm none of the above are staged.
-
-The live database stays on the desktop. Use `npm run backup` and copy `backups/` to another drive.
+One `PLAID_CLIENT_ID` for the household. Production Trial allows 10 Items per client, shared. An Item is one login at one institution. Both people link banks in Plaid Link in this app. `PLAID_ENV=production` must match production keys.
 
 ## Optional: Cloudflare Tunnel + Access
 
-Keep Next.js + SQLite on a machine that stays on. Cloudflare is only the door.
+Keep Next.js + SQLite on a machine that stays on. Cloudflare is the door.
 
 ```bash
 npm run build
@@ -93,10 +63,10 @@ npm start
 `npm start` binds `127.0.0.1:3000`.
 
 1. Named tunnel, public hostname → `http://127.0.0.1:3000`.
-2. Access app on that hostname, One-time PIN, allow two emails.
-3. Then set `ALLOWED_EMAILS` and `HAUS_PUBLIC_URL` and restart.
+2. Access app on that hostname, One-time PIN, allow the household emails.
+3. Set `ALLOWED_EMAILS` and `HAUS_PUBLIC_URL` and restart.
 
-Do not recreate D1/R2 or a new empty `dev.db` on deploy. Schema changes: `npx prisma migrate deploy`.
+Schema changes on that machine: `npx prisma migrate deploy`.
 
 ## Scripts
 

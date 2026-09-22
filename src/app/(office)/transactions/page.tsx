@@ -32,7 +32,7 @@ export default async function TransactionsPage() {
           </Button>
         }
       />
-      <TransactionsTable rows={rows} />
+      <TransactionsTable rows={rows} dateChips />
     </>
   );
 }

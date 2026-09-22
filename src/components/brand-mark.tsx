@@ -20,8 +20,14 @@ export function BrandMark({
   className?: string;
 }) {
   // Walk the candidate list on error; only after the last one 404s do we show the initial.
-  const [attempt, setAttempt] = useState(0);
   const candidates = brandLogoCandidates(kind, { name, symbol, src });
+  const candidateKey = candidates.join("|");
+  const [attempt, setAttempt] = useState(0);
+  const [forKey, setForKey] = useState(candidateKey);
+  if (forKey !== candidateKey) {
+    setForKey(candidateKey);
+    setAttempt(0);
+  }
   const url = candidates[attempt] ?? null;
   const label = (symbol || name || "?").trim();
   const initial = label.charAt(0).toUpperCase();

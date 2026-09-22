@@ -1,10 +1,11 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { BrandLabel } from "@/components/brand-mark";
 import { Delta } from "@/components/money";
 import { cn } from "@/lib/utils";
 import { kickerClass } from "@/components/type";
+import { DEFAULT_MOVERS_WINDOW, storedMoversWindow, type MoversWindow } from "@/lib/prefs";
 export type AssetMover = {
   id: string;
   symbol: string | null;
@@ -18,16 +19,20 @@ export type AssetMover = {
   month: { delta: number | null; pct: number | null };
 };
 
-const WINDOWS = [
+const WINDOWS: { key: MoversWindow; label: string }[] = [
   { key: "day", label: "1D" },
   { key: "week", label: "1w" },
   { key: "month", label: "1m" },
-] as const;
+];
 
 type Ranked = AssetMover & { move: AssetMover["day"] };
 
 export function LargestMoves({ movers }: { movers: AssetMover[] }) {
-  const [win, setWin] = useState<"day" | "week" | "month">("day");
+  const [win, setWin] = useState<MoversWindow>(DEFAULT_MOVERS_WINDOW);
+  useEffect(() => {
+    const stored = storedMoversWindow();
+    if (stored) setWin(stored);
+  }, []);
   const { gainers, losers, empty } = useMemo(() => {
     const ranked: Ranked[] = movers
       .map((m) => ({ ...m, move: m[win] }))
@@ -66,7 +71,7 @@ export function LargestMoves({ movers }: { movers: AssetMover[] }) {
       {empty ? (
         <p className="text-sm text-muted-foreground">No quoted moves for this window yet.</p>
       ) : (
-        <div className="grid w-full gap-6 sm:grid-cols-2">
+        <div className="grid w-full min-w-0 grid-cols-1 gap-6 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
           <MoveCol title="Gainers" rows={gainers} />
           <MoveCol title="Losers" rows={losers} />
         </div>
@@ -77,7 +82,7 @@ export function LargestMoves({ movers }: { movers: AssetMover[] }) {
 
 function MoveCol({ title, rows }: { title: string; rows: Ranked[] }) {
   return (
-    <div className="min-w-0">
+    <div className="min-w-0 overflow-x-clip">
       <div className={cn(kickerClass, "mb-2")}>
         {title}
       </div>
@@ -86,11 +91,11 @@ function MoveCol({ title, rows }: { title: string; rows: Ranked[] }) {
       ) : (
         <ul className="space-y-2.5">
           {rows.map((m) => (
-            <li key={m.id} className="flex items-center justify-between gap-3">
-              <BrandLabel className="min-w-0" kind={m.kind} symbol={m.symbol} name={m.name}>
+            <li key={m.id} className="flex min-w-0 flex-wrap items-center justify-between gap-x-2 gap-y-0.5">
+              <BrandLabel className="min-w-0 max-w-full" kind={m.kind} symbol={m.symbol} name={m.name}>
                 <span className="truncate text-sm">{m.symbol ?? m.name}</span>
               </BrandLabel>
-              <Delta value={m.move.delta} pct={m.move.pct} className="shrink-0 text-sm" />
+              <Delta value={m.move.delta} pct={m.move.pct} className="text-sm" />
             </li>
           ))}
         </ul>

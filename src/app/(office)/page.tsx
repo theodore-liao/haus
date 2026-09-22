@@ -77,7 +77,9 @@ export default async function OverviewPage() {
           <AllocationChart data={alloc} />
         </ChartCard>
       </div>
-      {reports.flows.length > 0 ? <CashFlowBlock flows={reports.flows} /> : null}
+      {reports.flows.length > 0 ? (
+        <CashFlowBlock flows={reports.flows} archiveCoversFrom={reports.archiveCoversFrom} />
+      ) : null}
     </>
   );
 }

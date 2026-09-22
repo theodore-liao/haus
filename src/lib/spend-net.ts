@@ -1,4 +1,5 @@
 export type FlowRow = {
+  id?: string;
   date: string;
   month: string;
   kind: "spend" | "income" | "invest";

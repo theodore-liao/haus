@@ -36,6 +36,9 @@
 
   --font-sans-stack: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
   --font-mono-stack: var(--font-geist-mono), ui-monospace, "SF Mono", Menlo, monospace;
+
+  /* Sidebar stays the 100% width. Text scale must not widen the rail and squeeze the page. */
+  --nav-width: clamp(240px, 15rem, 312px);
 }
 
 /* ---------- Page scaffold ---------- */
@@ -50,7 +53,18 @@
    Gutters scale with the viewport instead of a fixed rem so 100% and 150% zoom look the same. */
 main.page-stack {
   width: 100%;
+  min-width: 0;
+  max-width: 100%;
   padding-inline: clamp(1rem, 2.2vw, 3rem);
+}
+
+main.page-stack .grid,
+main.page-stack .chart-card,
+main.page-stack input,
+main.page-stack select,
+main.page-stack textarea {
+  min-width: 0;
+  max-width: 100%;
 }
 
 .page-title {
@@ -175,17 +189,23 @@ main.page-stack {
   color: var(--muted-foreground);
 }
 
-/* Privacy mode (Settings → Display): figures blur until hovered, so the app can sit on a shared screen. */
-html.privacy .num,
-html.privacy .display-number,
-html.privacy .legend strong {
+/* Privacy mode (Settings → Display): dollar amounts blur until hovered. Counts, dates, rates, and percents stay clear. */
+html.privacy .money {
   filter: blur(0.35em);
   transition: filter 120ms ease;
 }
 
-html.privacy .num:hover,
-html.privacy .display-number:hover,
-html.privacy .legend strong:hover {
+html.privacy .money:hover,
+html.privacy .money:focus,
+html.privacy .money:focus-within {
+  filter: none;
+}
+
+html.privacy .amort-chart .ytick text {
+  filter: blur(0.35em);
+}
+
+html.privacy .amort-chart .ytick text:hover {
   filter: none;
 }
 
@@ -354,6 +374,8 @@ html.privacy .legend strong:hover {
   margin: 0;
   padding: 0;
   list-style: none;
+  /* overflow-y: auto would also turn overflow-x into auto and show a sideways bar. */
+  overflow-x: clip;
   overflow-y: auto;
   max-height: 16rem;
   font-size: var(--type-body);
@@ -393,6 +415,8 @@ html.privacy .legend strong:hover {
   }
 }
 
+/* One legend grid for every donut: swatch, label, dollar column.
+   Do not give a page its own columns. max-content rows pin each amount to its label. */
 .legend-row {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr) auto;
@@ -454,6 +478,96 @@ html.privacy .legend strong:hover {
   padding: 0.3rem 0;
 }
 
+/* Spending breakdown: donut and legend sit together, centered in the card.
+   Legend rows stay on the shared grid above so amounts share one right edge. */
+.donut-fixed {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  justify-content: center;
+  align-items: center;
+  gap: 1.25rem 2rem;
+  width: 100%;
+  min-width: 0;
+  margin-inline: auto;
+}
+
+.donut-fixed .donut {
+  flex: 0 1 auto;
+  width: min(26rem, 50%, 68dvh);
+  max-width: 100%;
+  height: auto;
+  aspect-ratio: 1;
+}
+
+.donut-fixed .legend {
+  flex: 0 1 20rem;
+  display: flex;
+  flex-direction: column;
+  width: auto;
+  max-width: min(20rem, 44%);
+  min-width: 12rem;
+  max-height: min(26rem, 68dvh);
+  overflow-x: clip;
+  overflow-y: auto;
+}
+
+@container (max-width: 22rem) {
+  .donut-fixed {
+    flex-direction: column;
+    align-items: center;
+  }
+
+  .donut-fixed .donut {
+    align-self: center;
+    width: 14rem;
+    height: 14rem;
+  }
+
+  .donut-fixed .legend {
+    width: 100%;
+    max-width: none;
+    max-height: none;
+  }
+}
+
+/* Breakdown tab: spend + budget cards fill the viewport under the page chrome. */
+.breakdown-grid {
+  min-height: calc(100dvh - 11.5rem);
+  align-items: stretch;
+}
+
+.spend-category-total {
+  margin: 0 0 0.75rem;
+  text-align: center;
+}
+
+.spend-category-total .display-number {
+  margin-top: 0;
+  font-size: var(--type-display-hero);
+  letter-spacing: -0.025em;
+}
+
+@media (min-width: 768px) {
+  .spend-category-total .display-number {
+    font-size: var(--type-display-hero-lg);
+  }
+}
+
+.spend-category-sub {
+  margin: 0.35rem 0 0;
+  font-size: var(--type-body);
+  font-weight: 400;
+  line-height: 1.4;
+  color: var(--muted-foreground);
+}
+
+.spend-category-sub .num {
+  font-family: inherit;
+  font-size: inherit;
+  color: inherit;
+}
+
 .legend-row button {
   display: inline-flex;
   min-width: 0;
@@ -488,6 +602,7 @@ html.privacy .legend strong:hover {
 
 .data-table {
   width: 100%;
+  max-width: 100%;
   caption-side: bottom;
   font-size: var(--type-table);
   line-height: 1.35;
@@ -499,11 +614,15 @@ html.privacy .legend strong:hover {
   text-align: left;
   vertical-align: middle;
   white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .data-table td {
   padding: 0.5rem 0.625rem;
   vertical-align: middle;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .data-table th:first-child,

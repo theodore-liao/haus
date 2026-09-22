@@ -4,6 +4,7 @@ import { requireSession } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { loadCardPaymentFlags } from "@/lib/card-payments";
 import { merchantKey, ruleKeyFor, scopeMatches } from "@/lib/categories";
+import { archiveTransactions } from "@/lib/saved-txns";
 
 export const dynamic = "force-dynamic";
 
@@ -11,6 +12,7 @@ const schema = z.object({
   id: z.string(),
   userCategory: z.string().nullable().optional(),
   userMerchant: z.string().nullable().optional(),
+  memo: z.string().max(500).nullable().optional(),
   applyToMerchant: z.boolean().optional(),
   /** Limit the merchant rule to the account this transaction posted on. */
   onlyAccount: z.boolean().optional(),
@@ -22,11 +24,15 @@ export async function PATCH(req: Request) {
   await requireSession();
   const parsed = schema.safeParse(await req.json());
   if (!parsed.success) return NextResponse.json({ error: "Invalid payload." }, { status: 400 });
+  const touched = new Set<string>([parsed.data.id]);
   const txn = await prisma.txn.update({
     where: { id: parsed.data.id },
     data: {
       userCategory: parsed.data.userCategory,
       userMerchant: parsed.data.userMerchant,
+      ...(parsed.data.memo !== undefined
+        ? { memo: parsed.data.memo?.trim() ? parsed.data.memo.trim() : null }
+        : {}),
     },
   });
   if (parsed.data.applyToMerchant) {
@@ -68,6 +74,7 @@ export async function PATCH(req: Request) {
         .filter((row) => !flags.paired.has(row.id))
         .map((row) => row.id);
       if (ids.length) {
+        for (const id of ids) touched.add(id);
         await prisma.txn.updateMany({
           where: { id: { in: ids } },
           data: {
@@ -107,6 +114,7 @@ export async function PATCH(req: Request) {
         })
         .map((row) => row.id);
       if (ids.length) {
+        for (const id of ids) touched.add(id);
         await prisma.txn.updateMany({
           where: { id: { in: ids } },
           data: {
@@ -117,6 +125,7 @@ export async function PATCH(req: Request) {
       }
     }
   }
+  await archiveTransactions({ id: [...touched] });
   return NextResponse.json({ ok: true });
 }
 

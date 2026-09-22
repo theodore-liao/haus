@@ -296,7 +296,7 @@ function Stat({ k, v }: { k: string; v: string }) {
   return (
     <div>
       <div className="kicker">{k}</div>
-      <div className="num">{v}</div>
+      <div className={v.includes("$") ? "num money" : "num"}>{v}</div>
     </div>
   );
 }

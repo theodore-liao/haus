@@ -88,6 +88,18 @@ input[type="date"]::-webkit-calendar-picker-indicator {
   filter: invert(0.85);
 }
 
+button:not(:disabled),
+[role="button"]:not([aria-disabled="true"]),
+a[href],
+summary,
+label[for],
+input[type="checkbox"],
+input[type="radio"],
+input[type="file"],
+select {
+  cursor: pointer;
+}
+
 .tabular {
   font-variant-numeric: tabular-nums;
 }

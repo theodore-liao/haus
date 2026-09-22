@@ -98,7 +98,7 @@ export function RemoveCrypto({ id }: { id: string }) {
   return (
     <button
       type="button"
-      className="ml-2 text-[11px] text-muted-foreground hover:text-negative"
+      className="cursor-pointer text-[11px] text-muted-foreground hover:text-negative"
       onClick={async () => {
         await fetch("/api/manual-holdings", {
           method: "DELETE",

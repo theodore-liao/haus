@@ -451,14 +451,18 @@ function latestClose(rows: { date: Date; close: number }[]) {
   return best?.close ?? null;
 }
 
-/** Latest bar should sit near the live quote. Far off means a colliding ticker, not a real move. */
+/** How far back a "latest" bar may sit and still be the live quote (covers a long weekend). */
+export const RECENT_CLOSE_DAYS = 6;
+
+/** Latest bar should sit near the live quote. Far off means a colliding ticker, not a real move. A missing bar does not count as agreement. */
 export function historyAgreesWithSpot(close: number | null | undefined, spot: number | null | undefined) {
-  if (close == null || close <= 0 || spot == null || spot <= 0) return true;
+  if (close == null || close <= 0 || spot == null || spot <= 0) return false;
   const ratio = close / spot;
   return ratio >= 0.67 && ratio <= 1.5;
 }
 
 function seriesMatchesSpot(rows: { date: Date; close: number }[], spot: number | null | undefined) {
+  if (spot == null || spot <= 0) return false;
   return historyAgreesWithSpot(latestClose(rows), spot);
 }
 
@@ -515,7 +519,7 @@ export async function ensurePriceHistory(symbols: HistorySymbol[], from: Date, t
       batch.map(async (item) => {
         const existing = await coverageRows(item.symbol, fromDay, toDay);
         if (existing.length >= need && seriesMatchesSpot(existing, item.spot)) return;
-        if (existing.length && !seriesMatchesSpot(existing, item.spot)) {
+        if (existing.length && item.spot != null && item.spot > 0 && !seriesMatchesSpot(existing, item.spot)) {
           await prisma.pricePoint.deleteMany({ where: { symbol: item.symbol } });
         }
         const kind = resolveKind(item);
@@ -617,14 +621,19 @@ async function fetchYahooHistoryRows(symbol: string, from: Date, to: Date) {
           result?: {
             meta?: { instrumentType?: string; shortName?: string };
             timestamp?: number[];
-            indicators?: { quote?: { close?: (number | null)[] }[] };
+            indicators?: {
+              quote?: { close?: (number | null)[] }[];
+              adjclose?: { adjclose?: (number | null)[] }[];
+            };
           }[];
         };
       };
       const result = data.chart?.result?.[0];
       if ((result?.meta?.instrumentType || "").toUpperCase() === "CRYPTOCURRENCY") continue;
       const ts = result?.timestamp;
-      const close = result?.indicators?.quote?.[0]?.close;
+      const adjusted = result?.indicators?.adjclose?.[0]?.adjclose;
+      const raw = result?.indicators?.quote?.[0]?.close;
+      const close = adjusted?.some((px) => px != null && px > 0) ? adjusted : raw;
       if (!ts?.length || !close?.length) continue;
       const rows: { date: Date; close: number }[] = [];
       for (let i = 0; i < ts.length; i++) {

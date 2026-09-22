@@ -16,10 +16,11 @@ export function SheetContent({
 }: React.ComponentProps<typeof DialogPrimitive.Content> & { side?: "right" | "bottom" }) {
   return (
     <DialogPrimitive.Portal>
-      <DialogPrimitive.Overlay className="fixed inset-0 z-50 bg-black/70" />
+      <DialogPrimitive.Overlay data-haus-sheet="" className="fixed inset-0 z-[80] bg-black/70" />
       <DialogPrimitive.Content
+        data-haus-sheet=""
         className={cn(
-          "fixed z-50 border-border bg-card-elevated p-6",
+          "fixed z-[80] border-border bg-card-elevated p-6",
           side === "right" && "inset-y-0 right-0 h-full w-full max-w-md border-l",
           side === "bottom" && "inset-x-0 bottom-0 border-t md:hidden",
           className,

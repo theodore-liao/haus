@@ -2,6 +2,9 @@
 
 import { useMemo, useState, type ReactNode } from "react";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "./ui/table";
+import { Card, CardContent, CardHeader, CardTitle } from "./ui/card";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "./ui/tabs";
+import { Input } from "./ui/input";
 import { Money } from "./money";
 import { formatDate } from "@/lib/format";
 import { DiscreteFilter, nextSortDir, ResetFilters, SortMark, type SortDir } from "./excel-filter";
@@ -22,10 +25,100 @@ type Trade = {
 
 type Key = "date" | "type" | "symbol" | "account" | "quantity" | "price" | "amount";
 
-export function TradesTable({ rows }: { rows: Trade[] }) {
+const SEARCH_CLASS = "h-8 w-56 shrink-0 text-sm";
+
+export function TradesCard({ trades }: { trades: Trade[] }) {
+  const [q, setQ] = useState("");
   const [typeSel, setTypeSel] = useState<Set<string> | null>(null);
   const [symSel, setSymSel] = useState<Set<string> | null>(null);
   const [acctSel, setAcctSel] = useState<Set<string> | null>(null);
+  const filtersOn = typeSel != null || symSel != null || acctSel != null || q.trim() !== "";
+  const tabs = [
+    ["all", "All"],
+    ["buy", "Buys"],
+    ["sell", "Sells"],
+    ["dividend", "Dividends"],
+    ["cash", "Contributions / cash"],
+    ["fee", "Fees"],
+  ] as const;
+
+  return (
+    <Card>
+      <Tabs defaultValue="all">
+        <CardHeader row className="pb-3">
+          <div className="flex min-w-0 items-center gap-3">
+            <CardTitle className="shrink-0">Trades</CardTitle>
+            <Input
+              placeholder="Search symbol, name, account"
+              value={q}
+              onChange={(e) => setQ(e.target.value)}
+              onBlur={() => setQ((cur) => cur.trim())}
+              className={SEARCH_CLASS}
+            />
+          </div>
+          <div className="flex flex-wrap items-center justify-end gap-2">
+            <TabsList>
+              {tabs.map(([value, label]) => (
+                <TabsTrigger key={value} value={value}>
+                  {label}
+                </TabsTrigger>
+              ))}
+            </TabsList>
+            <ResetFilters
+              dirty={filtersOn}
+              onReset={() => {
+                setTypeSel(null);
+                setSymSel(null);
+                setAcctSel(null);
+                setQ("");
+              }}
+            />
+          </div>
+        </CardHeader>
+        <CardContent className="px-0 pb-0 pt-0">
+          {tabs.map(([k]) => (
+            <TabsContent key={k} value={k} className="mt-0">
+              <TradesTable
+                rows={trades.filter((t) => {
+                  if (k === "all") return true;
+                  const blob = `${t.type} ${t.subtype ?? ""}`.toLowerCase();
+                  return blob.includes(k) || (k === "cash" && (blob.includes("contribution") || blob.includes("transfer")));
+                })}
+                q={q}
+                typeSel={typeSel}
+                symSel={symSel}
+                acctSel={acctSel}
+                onTypeSel={setTypeSel}
+                onSymSel={setSymSel}
+                onAcctSel={setAcctSel}
+              />
+            </TabsContent>
+          ))}
+        </CardContent>
+      </Tabs>
+    </Card>
+  );
+}
+
+export function TradesTable({
+  rows,
+  q,
+  typeSel,
+  symSel,
+  acctSel,
+  onTypeSel,
+  onSymSel,
+  onAcctSel,
+}: {
+  rows: Trade[];
+  q: string;
+  typeSel: Set<string> | null;
+  symSel: Set<string> | null;
+  acctSel: Set<string> | null;
+  onTypeSel: (next: Set<string> | null) => void;
+  onSymSel: (next: Set<string> | null) => void;
+  onAcctSel: (next: Set<string> | null) => void;
+}) {
   const [sort, setSort] = useState<{ key: Key; dir: SortDir }>({ key: "date", dir: null });
 
   const typeOpts = useMemo(
@@ -36,11 +129,16 @@ export function TradesTable({ rows }: { rows: Trade[] }) {
   const acctOpts = useMemo(() => [...new Set(rows.map((r) => r.account))].sort(), [rows]);
 
   const visible = useMemo(() => {
+    const needle = q.trim().toLowerCase();
     let list = rows.filter((r) => {
       const typeLabel = r.subtype ? `${r.type} · ${r.subtype}` : r.type;
       if (typeSel && !typeSel.has(typeLabel)) return false;
       if (symSel && !symSel.has(r.symbol ?? "—")) return false;
       if (acctSel && !acctSel.has(r.account)) return false;
+      if (needle) {
+        const hay = `${r.symbol ?? ""} ${r.name} ${r.account} ${r.type} ${r.subtype ?? ""}`.toLowerCase();
+        if (!hay.includes(needle)) return false;
+      }
       return true;
     });
     if (sort.dir) {
@@ -56,7 +154,7 @@ export function TradesTable({ rows }: { rows: Trade[] }) {
       });
     }
     return list;
-  }, [rows, typeSel, symSel, acctSel, sort]);
+  }, [rows, typeSel, symSel, acctSel, q, sort]);
 
   function head(key: Key, label: string, extra?: ReactNode, right?: boolean) {
     return (
@@ -76,32 +174,17 @@ export function TradesTable({ rows }: { rows: Trade[] }) {
   if (!rows.length)
     return <p className="px-[var(--space-card)] py-6 text-sm text-muted-foreground">No investment transactions in this slice.</p>;
 
-  const filtersOn = typeSel != null || symSel != null || acctSel != null;
-
   return (
-    <div>
-    {filtersOn ? (
-      <div className="flex justify-end px-[var(--space-card)] pb-2">
-        <ResetFilters
-          dirty={filtersOn}
-          onReset={() => {
-            setTypeSel(null);
-            setSymSel(null);
-            setAcctSel(null);
-          }}
-        />
-      </div>
-    ) : null}
     <div className="max-h-72 overflow-y-auto">
-    <Table className="table-fixed min-w-[48rem]">
+    <Table className="table-fixed">
       <colgroup>
-        <col className="w-[7.5rem]" />
-        <col className="w-[9rem]" />
-        <col className="w-auto" />
-        <col className="w-auto" />
-        <col className="w-[7rem]" />
-        <col className="w-[7rem]" />
-        <col className="w-[8rem]" />
+        <col className="w-[12%]" />
+        <col className="w-[14%]" />
+        <col className="w-[16%]" />
+        <col className="w-[16%]" />
+        <col className="w-[12%]" />
+        <col className="w-[12%]" />
+        <col className="w-[18%]" />
       </colgroup>
       <TableHeader className="sticky top-0 z-10 bg-card [&_th]:bg-card">
         <TableRow>
@@ -109,12 +192,12 @@ export function TradesTable({ rows }: { rows: Trade[] }) {
           {head(
             "type",
             "Type",
-            <DiscreteFilter label="Type" options={typeOpts} selected={typeSel} onChange={setTypeSel} />,
+            <DiscreteFilter label="Type" options={typeOpts} selected={typeSel} onChange={onTypeSel} />,
           )}
           {head(
             "symbol",
             "Symbol",
-            <DiscreteFilter label="Symbol" options={symOpts} selected={symSel} onChange={setSymSel} kind="security" />,
+            <DiscreteFilter label="Symbol" options={symOpts} selected={symSel} onChange={onSymSel} kind="security" />,
           )}
           {head(
             "account",
@@ -123,7 +206,7 @@ export function TradesTable({ rows }: { rows: Trade[] }) {
               label="Account"
               options={acctOpts}
               selected={acctSel}
-              onChange={setAcctSel}
+              onChange={onAcctSel}
               kind="institution"
             />,
           )}
@@ -169,7 +252,6 @@ export function TradesTable({ rows }: { rows: Trade[] }) {
         ))}
       </TableBody>
     </Table>
-    </div>
     </div>
   );
 }

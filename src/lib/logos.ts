@@ -43,6 +43,7 @@ const INSTITUTION_DOMAINS: Record<string, string> = {
   "hsbc": "hsbc.com",
 };
 
+/** Well-known aliases where the public domain is not an obvious `{name}.com` slug. */
 const MERCHANT_DOMAINS: Record<string, string> = {
   amazon: "amazon.com",
   "whole foods": "wholefoodsmarket.com",
@@ -173,9 +174,101 @@ export function institutionLogoUrl(name: string | null | undefined) {
   return domain ? faviconUrl(domain) : null;
 }
 
+const GUESS_SKIP = new Set([
+  "interest",
+  "transfer",
+  "payment",
+  "payments",
+  "payroll",
+  "deposit",
+  "check",
+  "fee",
+  "fees",
+  "refund",
+  "income",
+  "salary",
+  "other",
+  "cash",
+  "savings",
+  "checking",
+  "debit",
+  "credit",
+  "wire",
+  "atm",
+  "purchase",
+  "online",
+  "store",
+  "market",
+  "bank",
+  "card",
+  "pending",
+  "withdrawal",
+  "adjustment",
+  "dividend",
+  "dividends",
+  "the",
+  "and",
+  "whse",
+  "warehouse",
+  "inc",
+  "llc",
+  "ltd",
+  "corp",
+  "co",
+]);
+
+/** Slugs whose public site is not `{slug}.com`. */
+const DOMAIN_OVERRIDE: Record<string, string> = {
+  xai: "x.ai",
+  claude: "claude.ai",
+  notion: "notion.so",
+  zoom: "zoom.us",
+};
+
+function guessDomain(slug: string): string | null {
+  if (GUESS_SKIP.has(slug)) return null;
+  if (DOMAIN_OVERRIDE[slug]) return DOMAIN_OVERRIDE[slug];
+  if (slug.length < 4) return null;
+  return `${slug}.com`;
+}
+
+/**
+ * Likely domains for a merchant name.
+ * Known brands / institutions resolve from the maps. Otherwise the name is cleaned
+ * (processor prefixes, store numbers, punctuation) and we guess `{slug}.com` from
+ * the leading one or two tokens. BrandMark falls through to an initial when the
+ * favicon request 404s.
+ */
+export function merchantDomains(name: string | null | undefined): string[] {
+  if (!name) return [];
+  const out: string[] = [];
+  const push = (domain: string | null | undefined) => {
+    if (domain && !out.includes(domain)) out.push(domain);
+  };
+  push(matchDomain(name, MERCHANT_DOMAINS));
+  push(matchDomain(name, INSTITUTION_DOMAINS));
+  const embedded = name.toLowerCase().match(/\b([a-z0-9-]+\.(?:com|ai|io|co|org|net|app|so|us))\b/);
+  push(embedded?.[1]);
+
+  const cleaned = name
+    .toLowerCase()
+    .replace(/^(?:sq|tst|sqsp|pp|paypal|venmo|sp|pos|chk|ach|web|id|visa|mc)\s*\*\s*/, "")
+    .replace(/#\s*\d+/g, " ")
+    .replace(/\b\d{2,}\b/g, " ")
+    .replace(/[^a-z0-9\s.]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  const words = cleaned
+    .split(" ")
+    .filter((w) => w && !GUESS_SKIP.has(w) && !/^\d+$/.test(w) && w.length > 1 && !w.includes("."));
+  // Prefer the two-word compound (capitalone.com) before the head token alone.
+  if (words.length >= 2) push(guessDomain(words[0] + words[1]));
+  if (words.length >= 1) push(guessDomain(words[0]));
+  return out;
+}
+
 export function merchantLogoUrl(name: string | null | undefined) {
-  if (!name) return null;
-  const domain = matchDomain(name, MERCHANT_DOMAINS);
+  const domain = merchantDomains(name)[0];
   return domain ? faviconUrl(domain) : null;
 }
 
@@ -204,8 +297,7 @@ export function brandLogoCandidates(
     const u = institutionLogoUrl(opts.name);
     if (u) out.push(u);
   } else if (kind === "merchant") {
-    const u = merchantLogoUrl(opts.name);
-    if (u) out.push(u);
+    for (const domain of merchantDomains(opts.name)) out.push(faviconUrl(domain));
   }
   return out;
 }

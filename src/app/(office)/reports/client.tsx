@@ -6,13 +6,15 @@ import { Money } from "@/components/money";
 import { HeroCard } from "@/components/hero-card";
 import { Pills, Pill } from "@/components/pills";
 import { ChartCard } from "@/components/chart-card";
-import { AllocationChart, CashflowSankey, FROM_SAVINGS, OTHER_CATEGORIES } from "@/components/charts";
+import { AllocationChart, CashflowSankey } from "@/components/charts";
+import { FROM_SAVINGS, OTHER_CATEGORIES } from "@/lib/flow-labels";
 import { formatDate, formatPct } from "@/lib/format";
 import { ReportRange } from "@/components/chart-range";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { asLocalDate, defaultReportWindow, inWindow, ymKey, type WindowKey } from "@/lib/range";
 import { format } from "date-fns";
-import { CategoryMerchantDialog, aggregateMerchants, type MerchantLine } from "@/components/category-merchants";
+import { CategoryMerchantDialog } from "@/components/category-merchants";
+import { aggregateMerchants, type MerchantLine } from "@/lib/merchant-lines";
 import { BrandLabel } from "@/components/brand-mark";
 
 type FlowRow = {

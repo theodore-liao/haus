@@ -36,7 +36,7 @@ export function ManualAddBox({
     <Card className="h-full border-dashed">
       <CardHeader row className="flex-nowrap items-start">
         <div>
-          <HeroMetric label="Manual lots">
+          <HeroMetric label="Manual Entries">
             <Money value={total} />
           </HeroMetric>
         </div>

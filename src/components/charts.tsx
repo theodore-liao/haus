@@ -27,8 +27,11 @@ import { inRange } from "@/lib/range";
 import { ChartRange, useChartRange } from "./chart-range";
 import { SliceBreakdownDialog, type SliceItem } from "./category-merchants";
 import { CategoryIcon, hasCategoryIcon } from "@/lib/category-icons";
+import { colorFor, donutColorMap } from "@/lib/category-colors";
+import { FROM_SAVINGS, isOtherSlice, OTHER_CATEGORIES, TO_INVESTMENTS, TO_SAVINGS } from "@/lib/flow-labels";
 
 const AXIS = { fontSize: 11, fill: "#8fa0b8", fontFamily: "var(--font-geist-sans)" };
+const MONEY_AXIS = { ...AXIS, className: "money" };
 const GRID = "rgba(148,163,184,0.12)";
 const ICE = "#A8C5E2";
 const PALETTE = [
@@ -57,19 +60,20 @@ const PALETTE = [
   "#D4C888",
   "#7AB4D4",
 ];
-const RAINBOW = PALETTE;
 const HUB_FILL = "#8B9BB3";
 const SAVED_FILL = "#6FC4B0";
 const DRAWN_FILL = "#D48992";
 const INVEST_FILL = "#8EA4DC";
-const BALANCE_COLORS = [SAVED_FILL, DRAWN_FILL, INVEST_FILL, "#7DB8A4", "#88C4A8", "#7CBCB0"];
-
-function colorFor(name: string) {
-  let h = 0;
-  for (let i = 0; i < name.length; i++) h = (h * 33 + name.charCodeAt(i)) >>> 0;
-  return RAINBOW[h % RAINBOW.length];
+/** Sankey-only fills so restored donut teals do not collapse rental / loan / shopping / savings. */
+const SANKEY_FILLS: Record<string, string> = {
+  Shopping: "#C48A9A",
+  "General merchandise": "#C48A9A",
+  "Loan payments": "#C4785C",
+  "Rental income": "#5B8FD4",
+};
+function sankeyFill(label: string, fixed?: string) {
+  return fixed ?? SANKEY_FILLS[label] ?? colorFor(label);
 }
-
 function Tip({
   active,
   payload,
@@ -85,7 +89,7 @@ function Tip({
       {label ? <div className="mb-1 text-muted-foreground">{label}</div> : null}
       {payload.map((p) => (
         <div key={p.name} className="num">
-          {p.name}: {formatMoney(p.value)}
+          {p.name}: <span className="money">{formatMoney(p.value)}</span>
         </div>
       ))}
     </div>
@@ -98,7 +102,7 @@ export function NetWorthChart({ data }: { data: { date: string; netWorth: number
   if (data.length === 0) {
     return (
       <p className="py-10 text-sm text-muted-foreground">
-        History is built from linked transactions, holdings marked at historical prices, and manual lots. Sync an
+        History is built from linked transactions, holdings marked at historical prices, and manual entries. Sync an
         institution or add crypto to populate this path.
       </p>
     );
@@ -127,7 +131,7 @@ export function NetWorthChart({ data }: { data: { date: string; netWorth: number
           <CartesianGrid stroke={GRID} vertical={false} />
           <XAxis dataKey="label" tick={AXIS} axisLine={false} tickLine={false} interval={tickEvery - 1} minTickGap={28} />
           <YAxis
-            tick={AXIS}
+            tick={MONEY_AXIS}
             axisLine={false}
             tickLine={false}
             width={72}
@@ -156,6 +160,7 @@ export function AllocationChart({
   defaultOff,
   onSelectionChange,
   size,
+  className,
 }: {
   data: AllocSlice[];
   /** Kept for call-site compatibility; layout now follows the container width. */
@@ -173,6 +178,7 @@ export function AllocationChart({
   onSelectionChange?: (rows: AllocSlice[]) => void;
   /** `large` for a page whose only content is this donut. */
   size?: "large";
+  className?: string;
 }) {
   const [openKey, setOpenKey] = useState<string | null>(null);
   // Uncontrolled selection is stored as the set of *unchecked* keys so new slices default to on.
@@ -207,8 +213,9 @@ export function AllocationChart({
   const rows = selected == null ? all : all.filter((d) => selected.has(d.key));
   const total = rows.reduce((s, r) => s + r.value, 0);
   const openSlice = all.find((r) => r.key === openKey);
-  // Colours follow the slice's position in the full list, so unchecking a row never recolours the rest.
-  const colorAt = (key: string) => PALETTE[Math.max(0, all.findIndex((d) => d.key === key)) % PALETTE.length];
+  // Named slices keep a fixed swatch. Other rings walk the same palette in name order.
+  const colorMap = donutColorMap(all.map((d) => d.key));
+  const colorAt = (key: string) => colorMap.get(key) ?? colorFor(key);
   if (!all.length) {
     return <p className="py-8 text-sm text-muted-foreground">No balances to allocate yet.</p>;
   }
@@ -229,7 +236,7 @@ export function AllocationChart({
   }
   return (
     <>
-    <div className={cn("donut-row", size === "large" && "donut-row-large")}>
+    <div className={cn("donut-row", size === "large" && "donut-row-large", className)}>
     <div className="donut">
         <ResponsiveContainer width="100%" height="100%">
           <PieChart
@@ -323,7 +330,7 @@ export function AllocationChart({
                 {hasCategoryIcon(r.key) ? <CategoryIcon category={r.key} /> : null}
                 <LegendName label={label} />
               </button>
-              <strong>{formatMoney(r.value)}</strong>
+              <strong className="money">{formatMoney(r.value)}</strong>
             </li>
           );
         })}
@@ -356,7 +363,7 @@ function DonutTip({
     <div className="max-w-xs rounded-md border border-border bg-card-elevated px-3 py-2 text-xs">
       <div className="mb-1 text-muted-foreground">{formatLegendLabel(p.name)}</div>
       <div className="num">
-        {formatMoney(p.value)} ({formatPct(pct, 1, false)})
+        <span className="money">{formatMoney(p.value)}</span> ({formatPct(pct, 1, false)})
       </div>
       {members.length > 0 ? (
         <ul className="mt-2 space-y-0.5 text-muted-foreground">
@@ -411,8 +418,8 @@ function PercentLabel({
       textAnchor="middle"
       dominantBaseline="central"
       fill="#1c2838"
-      fontSize={12}
-      fontWeight={500}
+      fontSize="1rem"
+      fontWeight={400}
       fontFamily="var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif"
       style={{ shapeRendering: "geometricPrecision" }}
     >
@@ -470,7 +477,7 @@ export function CategoryBars({
           }}
         >
           <CartesianGrid stroke={GRID} horizontal={false} />
-          <XAxis type="number" tick={AXIS} axisLine={false} tickLine={false} tickFormatter={(v) => `$${v}`} />
+          <XAxis type="number" tick={MONEY_AXIS} axisLine={false} tickLine={false} tickFormatter={(v) => `$${v}`} />
           <YAxis
             type="category"
             dataKey="label"
@@ -534,32 +541,21 @@ function CategoryTick({
   );
 }
 
-export const OTHER_CATEGORIES = "Other categories";
-export const FROM_SAVINGS = "From savings";
-export const TO_SAVINGS = "To savings";
-
-export function isOtherSlice(key: string) {
-  const n = key.trim().toLowerCase().replaceAll("_", " ");
-  return n === "other" || n === "other categories";
-}
-
 function keepNamed(label: string) {
   return /cash.?back|rewards|rebate/i.test(label);
 }
 
 function topSlices(rows: { label: string; value: number }[], limit = 8) {
-  const sorted = [...rows].filter((r) => r.value > 0).sort((a, b) => b.value - a.value);
+  const sorted = [...rows].filter((r) => r.value > 0).sort((a, b) => b.value - a.value || a.label.localeCompare(b.label));
   const pinned = sorted.filter((r) => keepNamed(r.label));
   const rest = sorted.filter((r) => !keepNamed(r.label));
   if (pinned.length + rest.length <= limit) return sorted;
   const room = Math.max(1, limit - 1 - pinned.length);
-  const head = [...rest.slice(0, room), ...pinned].sort((a, b) => b.value - a.value);
+  const head = [...rest.slice(0, room), ...pinned].sort((a, b) => b.value - a.value || a.label.localeCompare(b.label));
   const leftover = rest.slice(room).reduce((s, r) => s + r.value, 0);
   if (leftover > 0) head.push({ label: OTHER_CATEGORIES, value: leftover });
   return head;
 }
-
-export const TO_INVESTMENTS = "To investments";
 
 export function CashflowSankey({
   income,
@@ -589,15 +585,11 @@ export function CashflowSankey({
 
   const keys: string[] = [];
   const nodes: { name: string; label: string; color: string }[] = [];
-  let colorI = 0;
-  // Balance nodes get fixed semantic colours (saved = positive, drawn down = negative, invested = ice) so
-  // they never collide with whichever spend category happened to land on the same palette slot.
   const idx = (key: string, label: string, fixed?: string) => {
     const found = keys.indexOf(key);
     if (found >= 0) return found;
     keys.push(key);
-    let color = fixed ?? (key === "hub" ? HUB_FILL : PALETTE[colorI++ % PALETTE.length]);
-    if (!fixed) while (BALANCE_COLORS.includes(color)) color = PALETTE[colorI++ % PALETTE.length];
+    const color = key === "hub" ? HUB_FILL : sankeyFill(label, fixed);
     nodes.push({ name: key, label, color });
     return keys.length - 1;
   };
@@ -681,7 +673,7 @@ function CashflowSankeyChart({
           nodePadding={compact ? 10 : 26}
           linkCurvature={0.5}
           iterations={16}
-          margin={compact ? { left: 8, right: 8, top: 8, bottom: 8 } : { left: 116, right: 132, top: 16, bottom: 16 }}
+          margin={compact ? { left: 8, right: 8, top: 8, bottom: 8 } : { left: 132, right: 148, top: 16, bottom: 16 }}
           node={(props) => (
             <SankeyNode
               x={props.x}
@@ -731,7 +723,7 @@ function CashflowSankeyChart({
               return (
                 <div className="rounded-md border border-border bg-card-elevated px-3 py-2 text-xs">
                   <div className="mb-1 text-muted-foreground">{label}</div>
-                  <div className="num">{formatMoney(value)}</div>
+                  <div className="num money">{formatMoney(value)}</div>
                 </div>
               );
             }}
@@ -784,6 +776,7 @@ function cleanSankeyText(text: string): string {
   s = s.replace(/^(?:hub|in|out|save)(?::(?:hub|in|out|save))?\s*[-–:]\s*/i, "");
   s = s.replace(/^(?:in|out|save|hub):/i, "");
   s = s.replace(/^Income\s*[-–:]\s*/i, "");
+  s = s.replace(/^Income\s+(?=\S)/i, "");
   s = s.replace(/\s*[-–:]\s*(?:hub|income)$/i, "");
   s = s.replace(/\s+hub$/i, "");
   if (/^hub$/i.test(s)) return "Income";
@@ -903,13 +896,15 @@ function SankeyNode({
   const income = Boolean(onIncomeClick && incomeNames?.has(name));
   const balance = name === FROM_SAVINGS || name === TO_INVESTMENTS;
   const clickable = spend || income || balance;
-  const lines = wrapLabel(name, 16);
-  const labelW = 116;
-  const labelH = Math.max(h, 12 * lines.length + 4);
+  const fontSize = 13;
+  const lineH = 16;
+  const lines = wrapLabel(name, 15);
+  const labelW = 128;
+  const labelH = Math.max(h, lineH * lines.length + 4);
   const labelX = right ? cx + w + 4 : cx - 4 - labelW;
   const labelY = cy + (Math.max(h, 2) - labelH) / 2;
   const textX = right ? cx + w + 8 : cx - 8;
-  const textY = cy + Math.max(h, 2) / 2 - ((lines.length - 1) * 12) / 2;
+  const textY = cy + Math.max(h, 2) / 2 - ((lines.length - 1) * lineH) / 2;
   return (
     <g
       className={clickable ? "cursor-pointer" : undefined}
@@ -936,11 +931,11 @@ function SankeyNode({
         textAnchor={right ? "start" : "end"}
         dominantBaseline="middle"
         fill="#C9D4E3"
-        fontSize={11}
+        fontSize={fontSize}
         fontFamily="var(--font-geist-sans)"
       >
         {lines.map((ln, i) => (
-          <tspan key={i} x={textX} dy={i === 0 ? 0 : 12}>
+          <tspan key={i} x={textX} dy={i === 0 ? 0 : lineH}>
             {ln}
           </tspan>
         ))}
@@ -987,7 +982,7 @@ export function ValueDebtChart({
           <CartesianGrid stroke={GRID} vertical={false} />
           <XAxis dataKey="label" tick={AXIS} axisLine={false} tickLine={false} interval={0} />
           <YAxis
-            tick={AXIS}
+            tick={MONEY_AXIS}
             axisLine={false}
             tickLine={false}
             width={64}

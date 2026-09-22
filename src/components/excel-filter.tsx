@@ -153,6 +153,7 @@ export function DiscreteFilter({
           autoFocus={long}
           value={q}
           onChange={(e) => setQ(e.target.value)}
+          onBlur={() => setQ((cur) => cur.trim())}
         />
         <div className="mt-2 max-h-48 space-y-1 overflow-y-auto text-xs">
           <label className="flex cursor-pointer items-center gap-2 border-b border-border py-1 font-medium">
@@ -221,9 +222,11 @@ const MONTHS = [
 ];
 
 export function dateMonthKey(iso: string): string {
+  const m = iso.match(/^(\d{4})-(\d{2})/);
+  if (m) return `${m[1]}-${m[2]}`;
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return "";
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}`;
 }
 
 type YearGroup = { year: number; months: { key: string; label: string }[] };
@@ -231,10 +234,11 @@ type YearGroup = { year: number; months: { key: string; label: string }[] };
 function yearGroupsFromDates(dates: string[]): YearGroup[] {
   const map = new Map<number, Set<number>>();
   for (const iso of dates) {
-    const d = new Date(iso);
-    if (Number.isNaN(d.getTime())) continue;
-    const y = d.getFullYear();
-    const m = d.getMonth();
+    const key = dateMonthKey(iso);
+    if (!key) continue;
+    const [ys, ms] = key.split("-").map(Number);
+    const y = ys;
+    const m = ms - 1;
     let set = map.get(y);
     if (!set) {
       set = new Set();

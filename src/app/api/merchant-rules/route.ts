@@ -3,6 +3,7 @@ import { z } from "zod";
 import { requireSession } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { merchantKey, recurringMerchantKey } from "@/lib/categories";
+import { archiveTransactions } from "@/lib/saved-txns";
 
 export const dynamic = "force-dynamic";
 
@@ -45,10 +46,14 @@ export async function POST(req: Request) {
     .filter((t) => merchantKey(t.userMerchant || t.merchantName || t.name) === key)
     .map((t) => t.id);
   if (ids.length) {
-    await prisma.txn.updateMany({
-      where: { id: { in: ids } },
-      data: { userCategory: parsed.data.category },
-    });
+    for (let i = 0; i < ids.length; i += 400) {
+      const slice = ids.slice(i, i + 400);
+      await prisma.txn.updateMany({
+        where: { id: { in: slice } },
+        data: { userCategory: parsed.data.category },
+      });
+    }
+    await archiveTransactions({ id: ids });
   }
   return NextResponse.json({ ok: true, updated: ids.length });
 }

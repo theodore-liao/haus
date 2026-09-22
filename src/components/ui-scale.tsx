@@ -3,8 +3,12 @@
 import { useEffect, useState } from "react";
 
 export const UI_SCALE_KEY = "haus.uiScale";
-export const UI_SCALE_MIN = 0.85;
-export const UI_SCALE_MAX = 1.3;
+const UI_SCALE_VERSION_KEY = "haus.uiScaleV";
+const UI_SCALE_VERSION = "2";
+/** Former 130% is the new 100%. The slider is a fraction of that size. */
+const UI_SCALE_BASIS = 1.3;
+export const UI_SCALE_MIN = 0.75;
+export const UI_SCALE_MAX = 1.5;
 export const UI_SCALE_DEFAULT = 1;
 
 export function clampUiScale(n: number) {
@@ -12,17 +16,33 @@ export function clampUiScale(n: number) {
   return Math.min(UI_SCALE_MAX, Math.max(UI_SCALE_MIN, n));
 }
 
+/** Read the slider fraction. Values saved before v2 were the raw root font-size multiplier. */
+export function readUiScale(raw: number, version: string | null) {
+  if (!Number.isFinite(raw) || raw <= 0) return UI_SCALE_DEFAULT;
+  if (version === UI_SCALE_VERSION) return clampUiScale(raw);
+  return clampUiScale(raw / UI_SCALE_BASIS);
+}
+
 export function applyUiScale(scale: number) {
   const s = clampUiScale(scale);
-  if (s === 1) document.documentElement.style.removeProperty("font-size");
-  else document.documentElement.style.fontSize = `${s * 100}%`;
+  document.documentElement.style.fontSize = `${s * UI_SCALE_BASIS * 100}%`;
+}
+
+function loadStoredScale() {
+  const raw = Number(localStorage.getItem(UI_SCALE_KEY));
+  const version = localStorage.getItem(UI_SCALE_VERSION_KEY);
+  const scale = readUiScale(raw, version);
+  if (version !== UI_SCALE_VERSION && Number.isFinite(raw) && raw > 0) {
+    localStorage.setItem(UI_SCALE_KEY, String(scale));
+    localStorage.setItem(UI_SCALE_VERSION_KEY, UI_SCALE_VERSION);
+  }
+  return scale;
 }
 
 export function UiScaleSync() {
   useEffect(() => {
     try {
-      const raw = Number(localStorage.getItem(UI_SCALE_KEY));
-      if (Number.isFinite(raw) && raw > 0) applyUiScale(raw);
+      applyUiScale(loadStoredScale());
     } catch {
       /* keep default */
     }
@@ -35,8 +55,7 @@ export function UiScaleSlider() {
 
   useEffect(() => {
     try {
-      const raw = Number(localStorage.getItem(UI_SCALE_KEY));
-      if (Number.isFinite(raw) && raw > 0) setScale(clampUiScale(raw));
+      setScale(loadStoredScale());
     } catch {
       /* keep default */
     }
@@ -47,6 +66,7 @@ export function UiScaleSlider() {
     setScale(next);
     try {
       localStorage.setItem(UI_SCALE_KEY, String(next));
+      localStorage.setItem(UI_SCALE_VERSION_KEY, UI_SCALE_VERSION);
     } catch {
       /* ignore */
     }

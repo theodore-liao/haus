@@ -5,12 +5,14 @@ import Link from "next/link";
 import { Area, AreaChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Money, WholeDollarsScope } from "@/components/money";
+import { Money } from "@/components/money";
 import { formatMoney } from "@/lib/format";
+import type { ProjectionPrefs } from "@/lib/projection-prefs";
 
 export type Holder = { key: "A" | "B"; name: string; birthdate: string | null };
 
 const AXIS = { fontSize: 11, fill: "#8fa0b8", fontFamily: "var(--font-geist-sans)" };
+const MONEY_AXIS = { ...AXIS, className: "money" };
 const GRID = "rgba(148,163,184,0.12)";
 const BALANCE = "#D4BE7A";
 const PRINCIPAL = "#7EABD4";
@@ -52,9 +54,9 @@ function Tip({ active, payload }: { active?: boolean; payload?: { payload: Point
         {p.year}
         {p.age != null ? ` · age ${Math.round(p.age)}` : ""}
       </div>
-      <div className="num">Balance: {formatMoney(p.balance)}</div>
-      <div className="num">Contributed: {formatMoney(p.principal)}</div>
-      <div className="num">Growth: {formatMoney(p.balance - p.principal)}</div>
+      <div className="num">Balance: <span className="money">{formatMoney(p.balance)}</span></div>
+      <div className="num">Contributed: <span className="money">{formatMoney(p.principal)}</span></div>
+      <div className="num">Growth: <span className="money">{formatMoney(p.balance - p.principal)}</span></div>
     </div>
   );
 }
@@ -66,12 +68,14 @@ function Field({
   onCommit,
   suffix,
   width = "w-28",
+  money = false,
 }: {
   label: string;
   value: string;
   onCommit: (raw: string) => void;
   suffix?: string;
   width?: string;
+  money?: boolean;
 }) {
   const [draft, setDraft] = useState(value);
   // Reflect clamping done by the parent (e.g. retire age below current age).
@@ -95,7 +99,7 @@ function Field({
       <div className="mt-1.5 flex items-center gap-1.5">
         <Input
           inputMode="decimal"
-          className={`h-8 ${width} num text-sm`}
+          className={`h-8 ${width} num text-sm${money ? " money" : ""}`}
           value={draft}
           onChange={(e) => setDraft(e.target.value)}
           onKeyDown={keydown}
@@ -112,24 +116,40 @@ function num(raw: string, fallback: number) {
   return Number.isFinite(n) ? n : fallback;
 }
 
+function persist(patch: ProjectionPrefs) {
+  void fetch("/api/household", {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ projectionPrefs: patch }),
+  });
+}
+
 export function RetirementProjection({
   balance,
   defaultContribution,
   holders,
   today,
+  saved,
 }: {
   balance: number;
   /** Annualised contribution inferred from this year's flows; the household can override it. */
   defaultContribution: number;
   holders: Holder[];
   today: string;
+  saved: ProjectionPrefs;
 }) {
   const withDob = holders.filter((h) => h.birthdate);
-  const [holderKey, setHolderKey] = useState<"A" | "B">(withDob[0]?.key ?? "A");
-  const [rate, setRate] = useState(7);
-  const [contribution, setContribution] = useState(Math.max(0, Math.round(defaultContribution)));
-  const [retireAge, setRetireAge] = useState(65);
-  const [yearsFallback, setYearsFallback] = useState(30);
+  const [holderKey, setHolderKey] = useState<"A" | "B">(
+    saved.holderKey && withDob.some((h) => h.key === saved.holderKey)
+      ? saved.holderKey
+      : (withDob[0]?.key ?? "A"),
+  );
+  const [rate, setRate] = useState(saved.rate ?? 7);
+  const [contribution, setContribution] = useState(
+    saved.contribution != null ? saved.contribution : Math.max(0, Math.round(defaultContribution)),
+  );
+  const [retireAge, setRetireAge] = useState(saved.retireAge ?? 65);
+  const [yearsFallback, setYearsFallback] = useState(saved.yearsFallback ?? 30);
 
   const todayDate = new Date(`${today}T00:00:00Z`);
   const holder = holders.find((h) => h.key === holderKey) ?? holders[0];
@@ -147,26 +167,49 @@ export function RetirementProjection({
   return (
     <div className="flex h-full flex-col">
       <div className="flex flex-wrap items-end gap-x-5 gap-y-3">
-        <Field label="Growth" value={String(rate)} suffix="% / yr" width="w-16" onCommit={(v) => setRate(num(v, rate))} />
+        <Field
+          label="Growth"
+          value={String(rate)}
+          suffix="% / yr"
+          width="w-16"
+          onCommit={(v) => {
+            const next = num(v, rate);
+            setRate(next);
+            persist({ rate: next });
+          }}
+        />
         <Field
           label="Contribution"
           value={String(contribution)}
           suffix="$ / yr"
-          onCommit={(v) => setContribution(Math.max(0, num(v, contribution)))}
+          money
+          onCommit={(v) => {
+            const next = Math.max(0, num(v, contribution));
+            setContribution(next);
+            persist({ contribution: next });
+          }}
         />
         {ageNow == null ? (
           <Field
             label="Years"
             value={String(yearsFallback)}
             width="w-16"
-            onCommit={(v) => setYearsFallback(Math.max(1, Math.min(70, Math.round(num(v, yearsFallback)))))}
+            onCommit={(v) => {
+              const next = Math.max(1, Math.min(70, Math.round(num(v, yearsFallback))));
+              setYearsFallback(next);
+              persist({ yearsFallback: next });
+            }}
           />
         ) : (
           <Field
             label="Retire at"
             value={String(retireAge)}
             width="w-16"
-            onCommit={(v) => setRetireAge(Math.max(Math.ceil(ageNow) + 1, Math.round(num(v, retireAge))))}
+            onCommit={(v) => {
+              const next = Math.max(Math.ceil(ageNow) + 1, Math.round(num(v, retireAge)));
+              setRetireAge(next);
+              persist({ retireAge: next });
+            }}
           />
         )}
         {withDob.length > 1 ? (
@@ -177,7 +220,10 @@ export function RetirementProjection({
                 <button
                   key={h.key}
                   type="button"
-                  onClick={() => setHolderKey(h.key)}
+                  onClick={() => {
+                    setHolderKey(h.key);
+                    persist({ holderKey: h.key });
+                  }}
                   className={`rounded-md border px-2 py-1 text-xs ${
                     h.key === holderKey ? "border-primary text-foreground" : "border-border text-muted-foreground"
                   }`}
@@ -192,9 +238,7 @@ export function RetirementProjection({
 
       <div className="mt-4 flex flex-wrap items-baseline gap-x-3">
         <span className="display-number">
-          <WholeDollarsScope>
-            <Money value={end.balance} />
-          </WholeDollarsScope>
+          <Money value={end.balance} />
         </span>
         <span className="text-sm text-muted-foreground">
           in {end.year}
@@ -225,7 +269,7 @@ export function RetirementProjection({
             <CartesianGrid stroke={GRID} vertical={false} />
             <XAxis dataKey="year" tick={AXIS} axisLine={false} tickLine={false} interval={tickEvery - 1} />
             <YAxis
-              tick={AXIS}
+              tick={MONEY_AXIS}
               axisLine={false}
               tickLine={false}
               width={64}

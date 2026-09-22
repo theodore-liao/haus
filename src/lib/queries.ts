@@ -48,7 +48,7 @@ import { ellipsize, formatHoldingClass, formatMoney, startOfDay } from "./format
 import { differenceInCalendarDays, subDays } from "date-fns";
 import { accountLabel } from "./account-label";
 import { reconstructNetWorthPath } from "./history";
-import { equityDayMoves, historyAgreesWithSpot, isOptionSymbol, loadPriceMap, optionPremiumScale, priceOnOrBefore, quoteSymbol } from "./quotes";
+import { equityDayMoves, historyAgreesWithSpot, isOptionSymbol, loadPriceMap, optionPremiumScale, priceOnOrBefore, quoteSymbol, RECENT_CLOSE_DAYS } from "./quotes";
 import { propertyDebt, vehicleDebt } from "./property";
 import { loadCryptoLots, lotValue } from "./crypto-lots";
 import type { BrandKind } from "./logos";
@@ -70,6 +70,7 @@ export async function getNames() {
       insurance: household.showInsurance,
       insights: household.showInsights,
     },
+    keepTransactions: household.keepTransactions,
     children,
   };
 }
@@ -487,10 +488,15 @@ export async function getOverview(filter: OwnerFilter) {
   function periodMove(symbol: string | null, qty: number, last: number | null, days: number) {
     if (!symbol || last == null || last <= 0 || qty === 0) return { delta: null as number | null, pct: null as number | null };
     const key = symbol.toUpperCase();
-    const recent = priceOnOrBefore(priceMap, key, now, 3);
-    if (!historyAgreesWithSpot(recent, last)) return { delta: null, pct: null };
+    const recent = priceOnOrBefore(priceMap, key, now, RECENT_CLOSE_DAYS);
+    if (recent != null && !historyAgreesWithSpot(recent, last)) return { delta: null, pct: null };
     const then = priceOnOrBefore(priceMap, key, subDays(now, days), 10);
     if (then == null || then <= 0) return { delta: null, pct: null };
+    // No bar near today: still refuse a history price on a different scale from the holding.
+    if (recent == null) {
+      const ratio = then / last;
+      if (ratio > 30 || ratio < 1 / 30) return { delta: null, pct: null };
+    }
     const delta = (last - then) * qty;
     const pct = ((last - then) / then) * 100;
     return { delta, pct };
@@ -908,22 +914,29 @@ export function inferRecurring(
   return out.sort((a, b) => b.annual - a.annual);
 }
 
-export async function getTransactions(filter: OwnerFilter) {
-  const names = await getNames();
-  const [txns, hidden] = await Promise.all([
+function ledgerMerchant(t: { userMerchant?: string | null; merchantName?: string | null; name: string }) {
+  return t.userMerchant || t.merchantName || t.name;
+}
+
+async function loadVisibleTxns(filter: OwnerFilter) {
+  const [allTxns, hidden] = await Promise.all([
     prisma.txn.findMany({
       include: { account: { include: { item: true } } },
       orderBy: { date: "desc" },
-      take: 5000,
     }),
     hiddenMerchantKeys(),
   ]);
-  const visible = await withCardFlags(notHidden(txns, hidden).filter((t) => matchesOwner(t.account.owner, filter)));
+  return withCardFlags(notHidden(allTxns, hidden).filter((t) => matchesOwner(t.account.owner, filter)));
+}
+
+export async function getTransactions(filter: OwnerFilter) {
+  const names = await getNames();
+  const visible = await loadVisibleTxns(filter);
   return visible.map((t) => ({
     id: t.id,
     date: t.date.toISOString(),
     name: t.name,
-    merchant: t.userMerchant || t.merchantName || t.name,
+    merchant: ledgerMerchant(t),
     rawMerchant: t.merchantName,
     account: accountLabel(t.account.name, t.account.item.institutionName),
     accountMask: t.account.mask,
@@ -938,6 +951,7 @@ export async function getTransactions(filter: OwnerFilter) {
     isCcPayment: t.isCcPayment,
     internal: isInternalMove(t),
     cardMatch: t.pairedTransfer ? ("matched" as const) : null,
+    memo: t.memo,
   }));
 }
 
@@ -1394,17 +1408,16 @@ export async function getChildrenView() {
 }
 
 export async function getReports(filter: OwnerFilter) {
-  const [allTxns, hidden, ignoredRecurring] = await Promise.all([
-    prisma.txn.findMany({
-      include: { account: true },
-      orderBy: { date: "asc" },
-    }),
-    hiddenMerchantKeys(),
+  const [visible, ignoredRecurring, hidden] = await Promise.all([
+    loadVisibleTxns(filter),
     ignoredRecurringKeys(),
+    hiddenMerchantKeys(),
   ]);
-  const txns = await withCardFlags(notHidden(allTxns, hidden).filter((t) => matchesOwner(t.account.owner, filter)));
+  const txns = visible;
+  const livePlaid = new Set(txns.map((t) => t.plaidTransactionId));
 
   const flows: {
+    id: string;
     date: string;
     month: string;
     kind: "spend" | "income" | "invest";
@@ -1412,14 +1425,16 @@ export async function getReports(filter: OwnerFilter) {
     merchant: string;
     amount: number;
   }[] = [];
-  for (const t of txns) {
-    const month = ymKey(t.date);
+
+  function pushLive(t: (typeof txns)[number]) {
     const date = dayKey(t.date);
+    const month = date.slice(0, 7);
     const cat = effectiveCategory(t);
-    const merch = t.userMerchant || t.merchantName || t.name;
+    const merch = ledgerMerchant(t);
     if (isInternalMove(t)) {
       if (isInvestFunding(t) && t.amount > 0) {
         flows.push({
+          id: t.id,
           date,
           month,
           kind: "invest",
@@ -1428,11 +1443,12 @@ export async function getReports(filter: OwnerFilter) {
           amount: t.amount,
         });
       }
-      continue;
+      return;
     }
     if (cat === "INCOME" || t.amount < 0) {
       const src = incomeSourceLabel({ ...t, accountName: t.account.name });
       flows.push({
+        id: t.id,
         date,
         month,
         kind: "income",
@@ -1442,6 +1458,7 @@ export async function getReports(filter: OwnerFilter) {
       });
     } else if (isInvestFunding(t) && t.amount > 0) {
       flows.push({
+        id: t.id,
         date,
         month,
         kind: "invest",
@@ -1449,10 +1466,9 @@ export async function getReports(filter: OwnerFilter) {
         merchant: merch,
         amount: t.amount,
       });
-    } else if (isInternalMove(t)) {
-      continue;
     } else if (t.amount > 0) {
       flows.push({
+        id: t.id,
         date,
         month,
         kind: "spend",
@@ -1463,9 +1479,65 @@ export async function getReports(filter: OwnerFilter) {
     }
   }
 
+  for (const t of txns) pushLive(t);
+
+  // Older months Plaid no longer returns stay in the month table via the saved copy.
+  const archived = await prisma.savedTxn.findMany({ orderBy: { date: "desc" } });
+  // A month is only complete once every saved institution reaches it. The binding date is the
+  // latest of the per-institution earliest days (a ~90-day card window starts later than a bank
+  // that already had years on this machine).
+  const earliestByInstitution = new Map<string, string>();
+  let archiveCoversFrom: string | null = null;
+  for (const s of archived) {
+    if (!matchesOwner(s.owner, filter)) continue;
+    const date = dayKey(s.date);
+    const inst = s.institutionName || s.accountName || "account";
+    const prev = earliestByInstitution.get(inst);
+    if (!prev || date < prev) earliestByInstitution.set(inst, date);
+    if (livePlaid.has(s.plaidTransactionId)) continue;
+    if (hidden.has(txnMerchantKey({ userMerchant: s.merchant, merchantName: s.rawMerchant, name: s.name }))) {
+      continue;
+    }
+    const month = date.slice(0, 7);
+    if (s.internal) continue;
+    const code = (s.category ?? "").toUpperCase();
+    if (code === "INCOME" || code.startsWith("INCOME_") || s.amount < 0) {
+      const src = incomeSourceLabel({
+        name: s.name,
+        merchantName: s.rawMerchant,
+        userMerchant: s.merchant,
+        categoryPrimary: s.category,
+        accountName: s.accountName,
+      });
+      flows.push({
+        id: s.plaidTransactionId,
+        date,
+        month,
+        kind: "income",
+        category: src,
+        merchant: s.merchant || src,
+        amount: Math.abs(s.amount),
+      });
+    } else if (s.amount > 0) {
+      flows.push({
+        id: s.plaidTransactionId,
+        date,
+        month,
+        kind: "spend",
+        category: categoryLabel(s.category),
+        merchant: s.merchant,
+        amount: s.amount,
+      });
+    }
+  }
+  for (const date of earliestByInstitution.values()) {
+    if (!archiveCoversFrom || date > archiveCoversFrom) archiveCoversFrom = date;
+  }
+
   return {
     flows,
     recurring: inferRecurring(txns, ignoredRecurring),
+    archiveCoversFrom,
   };
 }
 
@@ -1966,7 +2038,7 @@ export function annualisedSpend(flows: Flow[], now: Date) {
 }
 
 function formatMath(n: number) {
-  return formatMoney(n, { whole: true });
+  return formatMoney(n);
 }
 
 function formatPctValue(ratio: number) {

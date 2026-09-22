@@ -17,6 +17,7 @@ export async function DELETE(_req: Request, ctx: { params: Promise<{ id: string 
   } catch {
     /* still remove locally */
   }
+  // Saved transactions are not related to this connection, so disconnecting leaves them in place.
   await prisma.plaidItem.delete({ where: { id } });
   await snapshotNetWorth();
   return NextResponse.json({ ok: true });

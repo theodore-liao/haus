@@ -4,6 +4,14 @@ import { requireSession } from "@/lib/auth";
 import { clearCardPaymentCache } from "@/lib/card-payments";
 import { ensureHousehold, prisma } from "@/lib/db";
 import { ownerOptions } from "@/lib/owners";
+import { syncAllItems } from "@/lib/plaid-sync";
+import {
+  backfillSavedTransactions,
+  clearTransactionsStoredSince,
+  markTransactionsStoredSince,
+  readTransactionsStoredSince,
+} from "@/lib/saved-txns";
+import { readProjectionPrefs, writeProjectionPrefs } from "@/lib/projection-prefs";
 
 export const dynamic = "force-dynamic";
 
@@ -11,6 +19,7 @@ export async function GET() {
   await requireSession();
   const household = await ensureHousehold();
   const children = await prisma.child.findMany({ orderBy: { name: "asc" } });
+  const projectionPrefs = await readProjectionPrefs();
   return NextResponse.json({
     nameA: household.nameA,
     nameB: household.nameB,
@@ -19,6 +28,7 @@ export async function GET() {
     quoteApiKeySet: Boolean(household.quoteApiKey),
     children,
     options: ownerOptions({ ...household, children }),
+    projectionPrefs,
   });
 }
 
@@ -29,6 +39,16 @@ const isoDay = z
   .refine((s) => !Number.isNaN(Date.parse(`${s}T00:00:00Z`)), "Invalid date")
   .nullable()
   .optional();
+
+const projectionPrefsSchema = z
+  .object({
+    rate: z.number().finite().optional(),
+    contribution: z.number().finite().optional(),
+    retireAge: z.number().finite().optional(),
+    yearsFallback: z.number().finite().optional(),
+    holderKey: z.enum(["A", "B"]).optional(),
+  })
+  .strict();
 
 const patchSchema = z.object({
   nameA: z.string().min(1).max(40).optional(),
@@ -42,6 +62,8 @@ const patchSchema = z.object({
   showProperty: z.boolean().optional(),
   showInsurance: z.boolean().optional(),
   showInsights: z.boolean().optional(),
+  keepTransactions: z.boolean().optional(),
+  projectionPrefs: projectionPrefsSchema.optional(),
 });
 
 function toDate(s: string | null | undefined) {
@@ -53,12 +75,58 @@ export async function PATCH(req: Request) {
   await requireSession();
   const parsed = patchSchema.safeParse(await req.json());
   if (!parsed.success) return NextResponse.json({ error: "Invalid payload." }, { status: 400 });
-  await ensureHousehold();
-  const { birthdateA, birthdateB, ...rest } = parsed.data;
+  const previous = await ensureHousehold();
+  const { birthdateA, birthdateB, projectionPrefs: projectionPatch, ...rest } = parsed.data;
   if (parsed.data.pairCardPayments !== undefined) clearCardPaymentCache();
-  const household = await prisma.household.update({
-    where: { id: "haus" },
-    data: { ...rest, birthdateA: toDate(birthdateA), birthdateB: toDate(birthdateB) },
+  const hasHouseholdFields =
+    Object.keys(rest).length > 0 || birthdateA !== undefined || birthdateB !== undefined;
+  // projectionPrefs is stored via raw SQL (Prisma client may not know the column yet).
+  const household = hasHouseholdFields
+    ? await prisma.household.update({
+        where: { id: "haus" },
+        data: { ...rest, birthdateA: toDate(birthdateA), birthdateB: toDate(birthdateB) },
+      })
+    : previous;
+  const projectionPrefs = projectionPatch ? await writeProjectionPrefs(projectionPatch) : await readProjectionPrefs();
+  const turnedOn = parsed.data.keepTransactions === true && !previous.keepTransactions;
+  const pairingChanged =
+    parsed.data.pairCardPayments !== undefined && parsed.data.pairCardPayments !== previous.pairCardPayments;
+
+  // Off→on: pull current bank history first, then upsert every posted live row.
+  // Pairing changes only need a fresh snapshot of what is already on the ledger.
+  let syncError: string | null = null;
+  if (turnedOn) {
+    try {
+      const results = await syncAllItems();
+      const messages = results
+        .filter((r) => r.status === "error" || r.status === "relink" || (r.errors?.length ?? 0) > 0)
+        .flatMap((r) => (r.errors?.length ? r.errors : [`Connection sync failed (${r.status}).`]));
+      if (messages.length) syncError = messages.join(" · ");
+    } catch {
+      syncError = "Could not sync connections.";
+    }
+  }
+
+  if (turnedOn || (pairingChanged && household.keepTransactions)) {
+    try {
+      await backfillSavedTransactions();
+    } catch {
+      if (turnedOn) {
+        await prisma.household.update({ where: { id: "haus" }, data: { keepTransactions: false } });
+        await clearTransactionsStoredSince();
+      }
+      return NextResponse.json({ error: "Could not copy transactions." }, { status: 500 });
+    }
+  }
+
+  const transactionsStoredSince = turnedOn ? await markTransactionsStoredSince() : await readTransactionsStoredSince();
+
+  // Keep stays on when the copy succeeded, even if one institution failed to sync.
+  return NextResponse.json({
+    ok: true,
+    household,
+    transactionsStoredSince,
+    projectionPrefs,
+    ...(syncError ? { syncError } : {}),
   });
-  return NextResponse.json({ ok: true, household });
 }

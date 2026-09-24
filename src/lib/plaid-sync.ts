@@ -16,8 +16,54 @@ import { plaidAccessToken } from "./token-crypto";
 import { clearCardPaymentCache, loadCardPaymentFlags } from "./card-payments";
 import { merchantKey as normalizeMerchantKey, ruleKeyBase, ruleKeyIsMatched } from "./categories";
 import { archiveTransactions } from "./saved-txns";
+import {
+  deleteTxnUserEdit,
+  hasTxnUserFields,
+  preservedUserFields,
+  readTxnUserEdit,
+  stashTxnUserEdit,
+  type TxnUserFields,
+} from "./txn-user-edit";
 
-function asTransfer(txn: Transaction) {
+type SyncTxn = {
+  transaction_id: string;
+  account_id: string;
+  pending: boolean;
+  pending_transaction_id?: string | null;
+  date: string;
+  authorized_date?: string | null;
+  name: string;
+  merchant_name?: string | null;
+  amount: number;
+  iso_currency_code?: string | null;
+  personal_finance_category?: { primary?: string | null; detailed?: string | null } | null;
+};
+
+function asSyncTxn(txn: Transaction): SyncTxn {
+  return {
+    transaction_id: txn.transaction_id,
+    account_id: txn.account_id,
+    pending: txn.pending,
+    pending_transaction_id: txn.pending_transaction_id,
+    date: txn.date,
+    authorized_date: txn.authorized_date,
+    name: txn.name,
+    merchant_name: txn.merchant_name,
+    amount: txn.amount,
+    iso_currency_code: txn.iso_currency_code,
+    personal_finance_category: txn.personal_finance_category,
+  };
+}
+
+function userFieldsOf(row: TxnUserFields): TxnUserFields {
+  return {
+    userCategory: row.userCategory ?? null,
+    userMerchant: row.userMerchant ?? null,
+    memo: row.memo ?? null,
+  };
+}
+
+function asTransfer(txn: SyncTxn) {
   const primary = txn.personal_finance_category?.primary ?? "";
   const detailed = txn.personal_finance_category?.detailed ?? "";
   if (TRANSFER_CATEGORIES.has(primary)) return true;
@@ -25,7 +71,7 @@ function asTransfer(txn: Transaction) {
   return false;
 }
 
-function asCcPayment(txn: Transaction) {
+function asCcPayment(txn: SyncTxn) {
   const detailed = txn.personal_finance_category?.detailed ?? "";
   const primary = txn.personal_finance_category?.primary ?? "";
   const blob = `${txn.name ?? ""} ${txn.merchant_name ?? ""}`.toLowerCase();
@@ -112,6 +158,79 @@ async function upsertAccounts(
   }
 }
 
+/**
+ * Upsert one sync page. A posted transaction often arrives under a new id while the
+ * pending id shows up in `removed` (sometimes on a later page or a later sync).
+ * Household category, merchant, and note edits are copied onto the posted row.
+ * SavedTxn rows are not deleted here.
+ */
+export async function applyPlaidTransactionChanges(
+  accountIdsByPlaid: Map<string, string>,
+  batch: {
+    added: SyncTxn[];
+    modified: SyncTxn[];
+    removed: { transaction_id: string }[];
+  },
+  migratedPendingIds: Set<string>,
+): Promise<string[]> {
+  const posted: string[] = [];
+
+  for (const txn of [...batch.added, ...batch.modified]) {
+    const accountId = accountIdsByPlaid.get(txn.account_id);
+    if (!accountId) continue;
+    const existing = await prisma.txn.findUnique({
+      where: { plaidTransactionId: txn.transaction_id },
+    });
+    let fallback: TxnUserFields | null = null;
+    if (!existing && txn.pending_transaction_id) {
+      const pending = await prisma.txn.findUnique({
+        where: { plaidTransactionId: txn.pending_transaction_id },
+      });
+      fallback = pending ? userFieldsOf(pending) : await readTxnUserEdit(txn.pending_transaction_id);
+    }
+    const kept = preservedUserFields(existing ? userFieldsOf(existing) : null, fallback);
+    const data = {
+      accountId,
+      date: new Date(txn.date),
+      authorizedDate: txn.authorized_date ? new Date(txn.authorized_date) : null,
+      name: txn.name,
+      merchantName: txn.merchant_name ?? null,
+      amount: txn.amount,
+      pending: txn.pending,
+      categoryPrimary: txn.personal_finance_category?.primary ?? null,
+      categoryDetailed: txn.personal_finance_category?.detailed ?? null,
+      userCategory: kept.userCategory,
+      userMerchant: kept.userMerchant,
+      memo: kept.memo,
+      isoCurrency: txn.iso_currency_code ?? "USD",
+      isTransfer: asTransfer(txn),
+      isCcPayment: asCcPayment(txn),
+    };
+    await prisma.txn.upsert({
+      where: { plaidTransactionId: txn.transaction_id },
+      create: { plaidTransactionId: txn.transaction_id, ...data },
+      update: data,
+    });
+    if (txn.pending_transaction_id) {
+      migratedPendingIds.add(txn.pending_transaction_id);
+      await deleteTxnUserEdit(txn.pending_transaction_id);
+    }
+    if (!txn.pending) posted.push(txn.transaction_id);
+  }
+
+  for (const r of batch.removed) {
+    if (!migratedPendingIds.has(r.transaction_id)) {
+      const doomed = await prisma.txn.findUnique({
+        where: { plaidTransactionId: r.transaction_id },
+      });
+      if (doomed && hasTxnUserFields(doomed)) await stashTxnUserEdit(r.transaction_id, userFieldsOf(doomed));
+    }
+    await prisma.txn.deleteMany({ where: { plaidTransactionId: r.transaction_id } });
+  }
+
+  return posted;
+}
+
 async function syncTransactions(accessToken: string, itemDbId: string, cursor: string | null) {
   const plaid = getPlaidClient();
   let next = cursor ?? undefined;
@@ -126,6 +245,9 @@ async function syncTransactions(accessToken: string, itemDbId: string, cursor: s
     ).map((a) => [a.plaidAccountId, a.id]),
   );
 
+  // Pending ids Plaid has already replaced in this sync. Their edits live on the posted row.
+  const migratedPendingIds = new Set<string>();
+
   while (hasMore) {
     const res = await plaid.transactionsSync({
       access_token: accessToken,
@@ -133,42 +255,16 @@ async function syncTransactions(accessToken: string, itemDbId: string, cursor: s
       count: 500,
     });
     const { added, modified, removed, next_cursor, has_more } = res.data;
-
-    for (const txn of [...added, ...modified]) {
-      const accountId = accountMap.get(txn.account_id);
-      if (!accountId) continue;
-      const existing = await prisma.txn.findUnique({
-        where: { plaidTransactionId: txn.transaction_id },
-      });
-      const data = {
-        accountId,
-        date: new Date(txn.date),
-        authorizedDate: txn.authorized_date ? new Date(txn.authorized_date) : null,
-        name: txn.name,
-        merchantName: txn.merchant_name ?? null,
-        amount: txn.amount,
-        pending: txn.pending,
-        categoryPrimary: txn.personal_finance_category?.primary ?? null,
-        categoryDetailed: txn.personal_finance_category?.detailed ?? null,
-        userCategory: existing?.userCategory ?? null,
-        userMerchant: existing?.userMerchant ?? null,
-        memo: existing?.memo ?? null,
-        isoCurrency: txn.iso_currency_code ?? "USD",
-        isTransfer: asTransfer(txn),
-        isCcPayment: asCcPayment(txn),
-      };
-      await prisma.txn.upsert({
-        where: { plaidTransactionId: txn.transaction_id },
-        create: { plaidTransactionId: txn.transaction_id, ...data },
-        update: data,
-      });
-      if (!txn.pending) posted.push(txn.transaction_id);
-    }
-
-    for (const r of removed) {
-      // The saved copy is not touched. Plaid dropping a transaction must not erase it.
-      await prisma.txn.deleteMany({ where: { plaidTransactionId: r.transaction_id } });
-    }
+    const pagePosted = await applyPlaidTransactionChanges(
+      accountMap,
+      {
+        added: added.map(asSyncTxn),
+        modified: modified.map(asSyncTxn),
+        removed,
+      },
+      migratedPendingIds,
+    );
+    posted.push(...pagePosted);
 
     next = next_cursor;
     hasMore = has_more;

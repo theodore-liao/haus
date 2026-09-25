@@ -14,6 +14,7 @@ import { CONCENTRATION_FLAG, FIXED_USD_ID, HIGH_UTILIZATION, INSURANCE_RENEWAL_D
 import { loadCardPaymentFlags } from "./card-payments";
 import { effectiveCategory, isInternalMove, isInvestFunding, isTransferCategory, recurringMerchantKey, txnMerchantKey } from "./categories";
 import { dayKey, ymKey } from "./range";
+import { plaidIdsOnLedger, savedChargeCounted, savedOwnerNow } from "./report-archive";
 
 async function hiddenMerchantKeys() {
   try {
@@ -1408,13 +1409,18 @@ export async function getChildrenView() {
 }
 
 export async function getReports(filter: OwnerFilter) {
-  const [visible, ignoredRecurring, hidden] = await Promise.all([
+  const [visible, ignoredRecurring, hidden, ledgerIds, accountOwners] = await Promise.all([
     loadVisibleTxns(filter),
     ignoredRecurringKeys(),
     hiddenMerchantKeys(),
+    prisma.txn.findMany({ select: { plaidTransactionId: true } }),
+    prisma.account.findMany({ select: { id: true, owner: true } }),
   ]);
   const txns = visible;
-  const livePlaid = new Set(txns.map((t) => t.plaidTransactionId));
+  // Every ledger id, including accounts outside this filter. The saved copy is
+  // only a stand-in after Plaid removes the row.
+  const livePlaid = plaidIdsOnLedger(ledgerIds);
+  const ownerByAccount = new Map(accountOwners.map((account) => [account.id, account.owner]));
 
   const flows: {
     id: string;
@@ -1489,12 +1495,13 @@ export async function getReports(filter: OwnerFilter) {
   const earliestByInstitution = new Map<string, string>();
   let archiveCoversFrom: string | null = null;
   for (const s of archived) {
-    if (!matchesOwner(s.owner, filter)) continue;
+    const owner = savedOwnerNow(s, ownerByAccount);
+    if (!matchesOwner(owner, filter)) continue;
     const date = dayKey(s.date);
     const inst = s.institutionName || s.accountName || "account";
     const prev = earliestByInstitution.get(inst);
     if (!prev || date < prev) earliestByInstitution.set(inst, date);
-    if (livePlaid.has(s.plaidTransactionId)) continue;
+    if (!savedChargeCounted({ ...s, owner }, livePlaid, filter)) continue;
     if (hidden.has(txnMerchantKey({ userMerchant: s.merchant, merchantName: s.rawMerchant, name: s.name }))) {
       continue;
     }

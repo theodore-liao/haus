@@ -21,7 +21,7 @@ export function SearchInput({
       value={value}
       onChange={(e) => onChange(e.target.value)}
       onBlur={() => onChange(value.trim())}
-      className={cn("h-8 w-72 max-w-full shrink-0 text-sm", className)}
+      className={cn("h-8 w-72 min-w-0 max-w-full text-sm", className)}
     />
   );
 }

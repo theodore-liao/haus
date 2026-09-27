@@ -7,6 +7,8 @@
     "build": "prisma generate && next build",
     "start": "next start -H 127.0.0.1 -p 3000",
     "backup": "node scripts/backup.mjs",
+    "demo:seed": "node scripts/demo-seed.mjs",
+    "demo": "node scripts/demo-server.mjs",
     "lint": "eslint",
     "postinstall": "prisma generate",
     "db:migrate": "prisma migrate dev",

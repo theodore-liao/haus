@@ -2,6 +2,20 @@
 
 Settled choices for how Haus looks and behaves. Each line was a correction at least once. Check every change against the lines for the pages it touches, and against the whole-app lines, before calling the change done.
 
+## Design system
+
+Sizes, spacing, and placement come from shared styles, not from each page. Use these before writing any `text-*`, padding, or width on a page. If none fits, add a role to `src/app/haus.css` and use it everywhere, rather than styling one page.
+
+- Text roles live at the top of `src/app/haus.css`: page title, display hero (the one number a page is about), display (pills and card metrics), lead (page description), body, table, kicker (uppercase labels, card titles, table heads), and micro (footnotes, chips, axis ticks). Use `.kicker`, `.display-number`, `.supporting-line`, `.footnote`, and `.num` rather than picking a font size.
+- Page header: `.page-title`, with the title and description on the left and page actions on the right.
+- Card header: `CardHeader row`. The `CardTitle` and search box sit on the left, and date chips, tabs, filters, and action buttons sit on the right.
+- Search: `SearchInput` from `src/components/search-input.tsx`. One size, trims on blur. Do not style an `Input` as a search box.
+- Buttons: `Button` from `src/components/ui/button.tsx`, with its variants and sizes. Do not build buttons from plain elements.
+- Dollar amounts: `Money`, so privacy blur and cents stay consistent. Owners: `OwnerTag`. Named things inside a card: `ObjectTitle`.
+- Surfaces: `Card`, `.chart-card`, `.hero-card`, `.pill`, with spacing from `--space-card` and `--space-block`.
+- Donuts: `AllocationChart` in `src/components/charts.tsx`, with the shared `.legend-row` grid. A page does not get its own legend columns.
+- Tables: `.data-table`, where right-aligned figures use `.num` and two-line cells use `.cell-stack`.
+
 ## Whole app
 
 - Reference display: 2560×1440 monitor, browser zoom 100%, Windows scale 100%, Haus text size 100%. Also check 1920×1080. Layout is relative; section boxes fill the width without zooming.
@@ -90,6 +104,8 @@ Settled choices for how Haus looks and behaves. Each line was a correction at le
 
 ## Working on Haus
 
+- Check changes against the test household, not real data. `npm run demo -- full 3001` starts it on port 3001 with the password `demo-household`. Use `single` for a one-person household and `empty` for a brand-new user. `npm run demo:seed -- full` resets the data. Stop the test server when done.
+- Use the real household only when a bug shows up with real accounts and not in any test household.
 - Check the browser console and the dev server log after every change, and fix what they show.
 - Leave Aurin's own dev server running. Stop any server the agent started before finishing.
 - When Aurin corrects something, add or update a line in this file in the same change.

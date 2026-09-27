@@ -4,7 +4,7 @@ import { useMemo, useState, type ReactNode } from "react";
 import Link from "next/link";
 
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "./ui/table";
-import { Input } from "./ui/input";
+import { SearchInput } from "./search-input";
 import { Money, Delta } from "./money";
 import { HeroCard } from "./hero-card";
 import { ChartCard } from "./chart-card";
@@ -217,13 +217,7 @@ export function InvestmentsBoard({
         <CardHeader row>
           <div className="flex min-w-0 items-center gap-3">
             <CardTitle className="shrink-0">Holdings</CardTitle>
-            <Input
-              placeholder="Search symbol, name, account"
-              value={q}
-              onChange={(e) => setQ(e.target.value)}
-              onBlur={() => setQ((cur) => cur.trim())}
-              className="h-8 w-56 shrink-0 text-sm"
-            />
+            <SearchInput placeholder="Search symbol, name, account" value={q} onChange={setQ} />
           </div>
           <div className="flex flex-wrap items-center justify-end gap-2">
             {headerAction}

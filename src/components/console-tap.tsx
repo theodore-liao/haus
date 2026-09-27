@@ -14,7 +14,7 @@ export function ConsoleTap() {
 
     const seen = new Set<string>();
     const send = (level: "error" | "warning", message: string, stack?: string, filename?: string) => {
-      if (extensionOnly(stack, filename)) return;
+      if (extensionOnly(stack, filename) || automationMarkup(message)) return;
       const text = message.replace(/\s+/g, " ").trim().slice(0, 500);
       if (!text || text.includes("/api/dev-console")) return;
       const key = `${level}:${text}`;
@@ -76,6 +76,11 @@ function extensionOnly(stack?: string, filename?: string) {
   const frames = places.split("\n").filter((line) => /\bat\s+/.test(line));
   if (!frames.length) return /chrome-extension:\/\/|moz-extension:\/\//.test(filename ?? "");
   return frames.every((line) => /chrome-extension:\/\/|moz-extension:\/\//.test(line));
+}
+
+/** An agent's browser tags elements before React hydrates, so React reports attributes it did not render. */
+function automationMarkup(message: string) {
+  return /didn't match the client properties/.test(message) && Boolean(document.querySelector("[data-cursor-ref]"));
 }
 
 function formatArg(value: unknown) {

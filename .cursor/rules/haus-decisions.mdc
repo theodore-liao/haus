@@ -1,0 +1,13 @@
+---
+description: Check Haus changes against the settled decisions and record new corrections
+alwaysApply: true
+---
+
+# Haus decisions
+
+`docs/haus-decisions.md` lists how Haus is supposed to look and behave.
+
+- Before changing any page, read the whole-app section and the sections for the pages you touch.
+- Before reporting a change as done, check the result against those lines. If a line no longer holds, fix the change, not the line.
+- If Aurin asks for something that contradicts a line, do what Aurin asked and rewrite that line.
+- When Aurin corrects something, add or update one plain line in the same change.

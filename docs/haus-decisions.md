@@ -104,8 +104,8 @@ Sizes, spacing, and placement come from shared styles, not from each page. Use t
 
 ## Working on Haus
 
-- Check changes against the test household, not real data. `npm run demo -- full 3001` starts it on port 3001 with the password `demo-household`. Use `single` for a one-person household and `empty` for a brand-new user. `npm run demo:seed -- full` resets the data. Stop the test server when done.
-- Use the real household only when a bug shows up with real accounts and not in any test household.
+- Review Aurin's requested changes on the real household at `localhost:3000`, logged in with the real password from `.env`. Never copy real screenshots, numbers, or names into the repo, commits, or pull requests.
+- Use a test household for cases the real one cannot show, such as a one-person or brand-new household. `npm run demo -- full 3001` starts one on port 3001 with the password `demo-household`, `single` gives a one-person household, `empty` gives a brand-new user, and `npm run demo:seed -- full` resets the data. Stop the test server when done.
 - Check the browser console and the dev server log after every change, and fix what they show.
 - Leave Aurin's own dev server running. Stop any server the agent started before finishing.
 - When Aurin corrects something, add or update a line in this file in the same change.

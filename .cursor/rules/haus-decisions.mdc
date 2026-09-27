@@ -7,7 +7,8 @@ alwaysApply: true
 
 `docs/haus-decisions.md` lists how Haus is supposed to look and behave.
 
-- Before changing any page, read the whole-app section and the sections for the pages you touch.
+- Before changing any page, read the whole-app section, the design-system section, and the sections for the pages you touch.
 - Before reporting a change as done, check the result against those lines. If a line no longer holds, fix the change, not the line.
+- For a feature change, take `npm run shots -- before --real` first when port 3000 is up, then `after` and `shots:diff`. Look at every page the diff lists.
 - If Aurin asks for something that contradicts a line, do what Aurin asked and rewrite that line.
 - When Aurin corrects something, add or update one plain line in the same change.

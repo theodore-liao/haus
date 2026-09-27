@@ -1,16 +1,18 @@
 // Builds a made-up household in its own SQLite file so agents can check Haus without real data.
-// Usage: node scripts/demo-seed.mjs [full|single|empty]
+// Usage: node scripts/demo-seed.mjs [full|single|empty|random] [seed]
+// "random" builds an extreme household from the seed number; the same seed always builds the same household.
 import { execFileSync } from "node:child_process";
 import { existsSync, rmSync } from "node:fs";
 import path from "node:path";
 import { PrismaClient } from "@prisma/client";
 
-const PROFILES = ["full", "single", "empty"];
+const PROFILES = ["full", "single", "empty", "random"];
 const profile = process.argv[2] ?? "full";
 if (!PROFILES.includes(profile)) {
   console.error(`Unknown profile "${profile}". Use one of: ${PROFILES.join(", ")}.`);
   process.exit(1);
 }
+const randomSeed = Number(process.argv[3] ?? Math.floor(Math.random() * 1e9));
 
 const root = path.resolve(import.meta.dirname, "..");
 const dbFile = path.join(root, "prisma", `demo-${profile}.db`);
@@ -27,7 +29,7 @@ execFileSync(process.execPath, [path.join(root, "node_modules", "prisma", "build
 
 const prisma = new PrismaClient({ datasourceUrl: url });
 
-let seed = 20260927;
+let seed = profile === "random" ? randomSeed >>> 0 : 20260927;
 function rand() {
   seed = (seed * 1664525 + 1013904223) % 4294967296;
   return seed / 4294967296;
@@ -126,7 +128,10 @@ async function holding(account, symbol, name, type, qty, price, dayPct, costPerS
 }
 
 // Daily closes ending at today's price, so Haus never reaches out for history.
+const historyWritten = new Set();
 async function priceHistory(symbol, price, dayPct) {
+  if (!(price > 0) || historyWritten.has(symbol)) return;
+  historyWritten.add(symbol);
   const rows = [];
   let close = price;
   for (let i = 0; i <= 400; i++) {
@@ -347,13 +352,182 @@ async function netWorthNow() {
   return { cash, liabilities, investments };
 }
 
+const chance = (p) => rand() < p;
+const int = (lo, hi) => lo + Math.floor(rand() * (hi - lo + 1));
+
+// Money values that tend to break layouts and math: zero, fractions of a cent, very large, negative.
+function extremeAmount(typical) {
+  const roll = rand();
+  if (roll < 0.08) return 0;
+  if (roll < 0.14) return 0.01;
+  if (roll < 0.2) return typical * 10000;
+  if (roll < 0.24) return -typical;
+  return typical * (0.2 + rand() * 2);
+}
+
+function oddName(base) {
+  return pick([
+    base,
+    base,
+    `${base} ${base} ${base} International Holdings & Subsidiaries Group`,
+    `Café Ñandú & Søn ${base}`,
+    `${base} 🏠`,
+    `${base.toUpperCase()}#12345*POS PURCHASE`,
+    " ",
+  ]);
+}
+
+async function seedRandom() {
+  const single = chance(0.3);
+  await prisma.household.create({
+    data: {
+      id: "haus",
+      nameA: oddName("Morgan"),
+      nameB: single ? "Two" : oddName("Jordan"),
+      birthdateA: chance(0.8) ? new Date(int(1940, 2005), int(0, 11), int(1, 28)) : null,
+      birthdateB: single || chance(0.3) ? null : new Date(int(1940, 2005), int(0, 11), int(1, 28)),
+      showCrypto: chance(0.6),
+      showRetirement: chance(0.8),
+      showProperty: chance(0.8),
+      showInsurance: chance(0.5),
+      showInsights: chance(0.8),
+      pairCardPayments: chance(0.7),
+      keepTransactions: chance(0.5),
+      transactionsStoredSince: chance(0.5) ? daysAgo(int(0, 400)) : null,
+      budgetsSeeded: chance(0.5),
+    },
+  });
+  const owners = single ? ["a", "joint"] : ["a", "b", "joint"];
+
+  const kinds = [
+    ["checking", "depository", "checking", 5000],
+    ["savings", "depository", "savings", 20000],
+    ["credit_card", "credit", "credit card", 2000],
+    ["brokerage", "investment", "brokerage", 0],
+    ["roth", "investment", "roth", 0],
+    ["401k", "investment", "401k", 0],
+    ["mortgage", "loan", "mortgage", 300000],
+    ["installment", "loan", "auto", 15000],
+  ];
+  const accounts = [];
+  for (const [hausType, type, subtype, typical] of kinds) {
+    const count = chance(0.25) ? 0 : int(1, chance(0.2) ? 6 : 2);
+    for (let i = 0; i < count; i++) {
+      const owner = pick(owners);
+      const made = await linkedAccounts(owner, [
+        {
+          key: `${hausType}-${i}-${int(0, 1e6)}`,
+          institution: oddName(pick(["Harbor", "Summit", "Northline", "Keystone"])),
+          name: oddName(`${subtype} ${i + 1}`),
+          mask: chance(0.2) ? null : String(int(1000, 9999)),
+          type,
+          subtype,
+          hausType,
+          balance: typical ? round2(extremeAmount(typical)) : 0,
+          limit: hausType === "credit_card" ? pick([0, 500, 10000, null]) : null,
+          retirementKind: hausType === "roth" || hausType === "401k" ? hausType : null,
+          rate: chance(0.5) ? rand() * 12 : null,
+        },
+      ]);
+      accounts.push(Object.values(made)[0]);
+    }
+  }
+
+  const symbols = ["AAA", "BBB", "CCC", "DDD", "EEE", "FFF", "GGG", "HHH"];
+  for (const account of accounts.filter((a) => ["brokerage", "roth", "401k"].includes(a.hausType))) {
+    const n = chance(0.2) ? 0 : int(1, 8);
+    for (let i = 0; i < n; i++) {
+      const symbol = `${pick(symbols)}${i}${int(1, 9)}`;
+      const price = pick([0, 0.0001, 1.5, 250, 98000, round2(10 + rand() * 500)]);
+      const dayPct = pick([0, -99.9, 250000, round2((rand() - 0.5) * 10)]);
+      await holding(account, symbol, oddName(`${symbol} Fund`), pick(["equity", "etf", "mutual fund", "cryptocurrency", null]), pick([0, 0.00001, 1, 1e6, int(1, 500)]), price, dayPct, price * (0.5 + rand()));
+    }
+  }
+
+  const categories = [
+    ["FOOD_AND_DRINK", "FOOD_AND_DRINK_RESTAURANT", 40],
+    ["GROCERIES", "FOOD_AND_DRINK_GROCERIES", 120],
+    ["GENERAL_MERCHANDISE", "GENERAL_MERCHANDISE_OTHER_GENERAL_MERCHANDISE", 80],
+    ["TRAVEL", "TRAVEL_FLIGHTS", 400],
+    ["RENT_AND_UTILITIES", "RENT_AND_UTILITIES_RENT", 2000],
+    ["LOAN_PAYMENTS", "LOAN_PAYMENTS_CREDIT_CARD_PAYMENT", 1500],
+    ["TRANSFER_OUT", "TRANSFER_OUT_ACCOUNT_TRANSFER", 1000],
+    ["INCOME", "INCOME_WAGES", -4000],
+    ["SOMETHING_NEW", null, 30],
+    [null, null, 25],
+  ];
+  const cash = accounts.filter((a) => ["checking", "savings", "credit_card"].includes(a.hausType));
+  const rows = [];
+  if (cash.length) {
+    const total = pick([0, 3, 60, 800, 3000]);
+    const span = pick([1, 30, 95, 400]);
+    for (let i = 0; i < total; i++) {
+      const [primary, detailed, typical] = pick(categories);
+      const account = pick(cash);
+      const amount = round2(extremeAmount(Math.abs(typical)) * Math.sign(typical || 1));
+      rows.push(txn(account.id, int(-2, span), oddName(pick(["Corner Shop", "Payroll", "Transfer", "Airline", "Landlord"])), amount, primary, detailed, { pending: chance(0.1), memo: chance(0.05) ? "x".repeat(int(1, 400)) : null }));
+    }
+    if (cash.length >= 2 && chance(0.7)) {
+      for (let i = 0; i < int(1, 10); i++) {
+        const [from, to] = [pick(cash), pick(cash)];
+        const amount = round2(50 + rand() * 3000);
+        const day = int(0, span);
+        rows.push(txn(from.id, day, "Transfer out", amount, "TRANSFER_OUT", "TRANSFER_OUT_ACCOUNT_TRANSFER"));
+        rows.push(txn(to.id, day + int(-2, 2), "Transfer in", -amount, "TRANSFER_IN", "TRANSFER_IN_ACCOUNT_TRANSFER"));
+      }
+    }
+  }
+  for (let i = 0; i < rows.length; i += 500) await prisma.txn.createMany({ data: rows.slice(i, i + 500) });
+
+  if (chance(0.6)) {
+    const labels = ["Dining", "Groceries", "Shopping", "Travel", "Made Up Category"];
+    for (const category of labels.filter(() => chance(0.6))) {
+      await prisma.categoryBudget.create({ data: { category, monthly: pick([0, 1, 250, 1e7]) } });
+    }
+  }
+  const mortgage = accounts.find((a) => a.hausType === "mortgage");
+  for (let i = 0; i < pick([0, 0, 1, 3]); i++) {
+    await prisma.property.create({
+      data: {
+        label: oddName(`Home ${i + 1}`),
+        estimate: pick([0, 1, 450000, 25000000]),
+        asOfDate: daysAgo(int(0, 900)),
+        owner: pick(owners),
+        mortgageAccountId: i === 0 && mortgage ? mortgage.id : null,
+        mortgageBalance: i === 0 && mortgage ? mortgage.currentBalance : null,
+        rate: chance(0.5) ? rand() * 9 : null,
+        termMonths: chance(0.5) ? int(1, 360) : null,
+        originalTermMonths: chance(0.5) ? 360 : null,
+        originationDate: chance(0.5) ? daysAgo(int(0, 9000)) : null,
+      },
+    });
+  }
+  for (let i = 0; i < pick([0, 1, 2]); i++) {
+    await prisma.vehicle.create({ data: { label: oddName(`Car ${i + 1}`), estimate: pick([0, 3000, 250000]), asOfDate: daysAgo(int(0, 900)), owner: pick(owners) } });
+  }
+  for (let i = 0; i < pick([0, 1, 4]); i++) {
+    await prisma.insurancePolicy.create({
+      data: { type: pick(["home", "auto", "life", "umbrella", "other"]), carrier: oddName("Carrier"), owner: pick(owners), premium: pick([null, 0, 120, 99999]), billingFrequency: pick(["monthly", "annual", null]), renewalDate: chance(0.7) ? daysAgo(int(-400, 400)) : null },
+    });
+  }
+  for (let i = 0; i < pick([0, 1, 5]); i++) {
+    await prisma.manualHolding.create({
+      data: { kind: "crypto", symbol: pick(["BTC", "ETH", "SOL", "ZZZNOTACOIN"]), coingeckoId: null, name: oddName("Coin"), quantity: pick([0, 1e-8, 0.5, 1e9]), costBasis: pick([null, 0, 1000]), quotePrice: pick([null, 0, 0.000001, 65000]), owner: pick(owners), accountName: oddName("Wallet"), editedAt: chance(0.5) ? daysAgo(int(0, 900)) : null },
+    });
+  }
+  console.log(`Random household: ${accounts.length} accounts, ${rows.length} transactions.`);
+}
+
 try {
   if (profile === "empty") {
     await prisma.household.create({ data: { id: "haus", nameA: "New User" } });
+  } else if (profile === "random") {
+    await seedRandom();
+    await netWorthNow();
   } else {
     await seedFull({ single: profile === "single" });
   }
-  console.log(`Seeded the ${profile} test household in prisma/demo-${profile}.db`);
+  console.log(`Seeded the ${profile} test household in prisma/demo-${profile}.db${profile === "random" ? ` from seed ${randomSeed}` : ""}`);
 } finally {
   await prisma.$disconnect();
 }

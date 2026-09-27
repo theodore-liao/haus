@@ -1,0 +1,16 @@
+---
+description: Keep the wip branch caught up with master without guessing through conflicts
+alwaysApply: true
+---
+
+# Sync wip with master
+
+Aurin works on the local branch `wip`. Nightly bug-fix pull requests land on `master`. At the start of a session, read the sync note if one was provided. If `origin/master` has commits that `wip` does not, bring them in before other work.
+
+- Sync only when the working tree is clean. If it is dirty, say so and wait.
+- `git merge origin/master` on `wip`.
+- Keep both sides when a conflict is mechanical (imports, adjacent lines, formatting).
+- If the two sides want different behavior for the same screen, number, or setting, abort the merge and explain that choice in one sentence.
+- A clean merge needs no build. After you edit a conflict, run `npm run build`.
+- Do not run a browser pass or the verify-haus skill for this sync.
+- If `wip` is already current, say nothing about sync and continue with the request.

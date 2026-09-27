@@ -7,6 +7,7 @@ import { ChartCard } from "@/components/chart-card";
 import { AllocationChart, NetWorthChart } from "@/components/charts";
 import { CashFlowBlock } from "@/components/cash-flow-block";
 import { getOverview, getReports, hasAnyLedger } from "@/lib/queries";
+import { overviewPillFigures } from "@/lib/overview-pills";
 import { getOwnerFilter } from "@/lib/request";
 
 export const dynamic = "force-dynamic";
@@ -27,6 +28,13 @@ export default async function OverviewPage() {
   }
 
   const [data, reports] = await Promise.all([getOverview(owner), getReports(owner)]);
+  const pills = overviewPillFigures({
+    investments: data.tiles.investments,
+    cash: data.tiles.cash,
+    realEstate: data.tiles.realEstateGross,
+    otherAssets: data.tiles.otherAssets,
+    liabilities: data.tiles.liabilities,
+  });
   const alloc = Object.entries(data.allocation).map(([key, value]) => ({
     key,
     value,
@@ -52,16 +60,16 @@ export default async function OverviewPage() {
         aside={
           <Pills compact>
             <Pill kicker="Equities" accent="#D4BE7A">
-              <Money value={data.allocation.stocks + data.allocation.crypto + data.allocation.retirement} />
+              <Money value={pills.equities} />
             </Pill>
             <Pill kicker="Cash" accent="#7DB8A4">
-              <Money value={data.tiles.cash} />
+              <Money value={pills.cash} />
             </Pill>
             <Pill kicker="Property" accent="#7EABD4">
-              <Money value={data.tiles.realEstateGross} />
+              <Money value={pills.property} />
             </Pill>
             <Pill kicker="Liabilities" accent="#D4928C">
-              <Money value={-Math.abs(data.tiles.liabilities)} />
+              <Money value={pills.liabilities} />
             </Pill>
           </Pills>
         }

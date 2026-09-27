@@ -651,6 +651,8 @@ export async function getOverview(filter: OwnerFilter) {
       unsecuredDebt,
       realEstateEquity: reEquity,
       realEstateGross: realEstate,
+      /** Vehicles and other balances that are not cash, investments, or debt. */
+      otherAssets,
       insurance: { policies: pols.length, lifeCoverage, liabilityCoverage },
     },
     allocation,

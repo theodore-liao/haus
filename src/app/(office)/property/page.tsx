@@ -75,7 +75,7 @@ export default async function PropertyPage() {
             {re.rows.length === 0 ? (
               <p className="text-sm text-muted-foreground">No homes yet.</p>
             ) : (
-              <div className="grid items-stretch gap-4 lg:grid-cols-2">
+              <div className="grid items-stretch gap-4 lg:grid-cols-2 [&>*]:min-w-0">
                 {re.rows.map((p) => {
                   const housing = housingEscrow({
                     taxAnnual: p.taxAnnual,
@@ -97,8 +97,8 @@ export default async function PropertyPage() {
                     <Card key={p.id} className="h-full">
                       <CardHeader row className="flex-nowrap">
                         <div className="min-w-0 flex-1">
-                          <ObjectTitle title={`${p.label} - ${ownerLabel(p.owner, names)}`} className="flex items-baseline">
-                            <span className="truncate">{p.label}</span>
+                          <ObjectTitle title={`${p.label} - ${ownerLabel(p.owner, names)}`} className="flex min-w-0 items-baseline">
+                            <span className="min-w-0 flex-1 truncate">{p.label}</span>
                             <OwnerTag>{ownerLabel(p.owner, names)}</OwnerTag>
                           </ObjectTitle>
                         </div>
@@ -171,13 +171,13 @@ export default async function PropertyPage() {
             {vehRows.length === 0 ? (
               <p className="text-sm text-muted-foreground">No vehicles yet. Add one — the value stays until you edit it.</p>
             ) : (
-              <div className="grid items-stretch gap-4 lg:grid-cols-2">
+              <div className="grid items-stretch gap-4 lg:grid-cols-2 [&>*]:min-w-0">
                 {vehRows.map((v) => (
                   <Card key={v.id} className="h-full">
                     <CardHeader row className="flex-nowrap">
                       <div className="min-w-0 flex-1">
-                        <ObjectTitle title={`${v.label} - ${ownerLabel(v.owner, names)}`} className="flex items-baseline">
-                          <span className="truncate">{v.label}</span>
+                        <ObjectTitle title={`${v.label} - ${ownerLabel(v.owner, names)}`} className="flex min-w-0 items-baseline">
+                          <span className="min-w-0 flex-1 truncate">{v.label}</span>
                           <OwnerTag>{ownerLabel(v.owner, names)}</OwnerTag>
                         </ObjectTitle>
                       </div>

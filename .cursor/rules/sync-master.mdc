@@ -1,5 +1,5 @@
 ---
-description: Keep the wip branch caught up with master without guessing through conflicts
+description: Keep the wip branch caught up with master, choosing when edits disagree
 alwaysApply: true
 ---
 
@@ -10,7 +10,8 @@ Aurin works on the local branch `wip`. Nightly bug-fix pull requests land on `ma
 - Sync only when the working tree is clean. If it is dirty, say so and wait.
 - `git merge origin/master` on `wip`.
 - Keep both sides when a conflict is mechanical (imports, adjacent lines, formatting).
-- If the two sides want different behavior for the same screen, number, or setting, abort the merge and explain that choice in one sentence.
-- A clean merge needs no build. After you edit a conflict, run `npm run build`.
+- When both sides change the same behavior, decide and finish the merge. Keep the nightly bug fix, and keep Aurin's in-progress work except where it would undo that fix. If only one side can survive, keep the version that preserves balances, categories, notes, history, and saved inputs.
+- After you edit a conflict, run `npm run build`. If the build fails, abort the merge and say so. A clean merge needs no build.
+- Tell Aurin one sentence about any behavior you chose. Do not wait for an answer.
 - Do not run a browser pass or the verify-haus skill for this sync.
 - If `wip` is already current, say nothing about sync and continue with the request.

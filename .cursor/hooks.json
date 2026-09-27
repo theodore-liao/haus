@@ -7,7 +7,17 @@
         "timeout": 25
       }
     ],
+    "beforeShellExecution": [
+      {
+        "command": "node .cursor/hooks/block-dev-server.mjs",
+        "timeout": 10
+      }
+    ],
     "stop": [
+      {
+        "command": "node .cursor/hooks/kill-test-servers.mjs",
+        "timeout": 10
+      },
       {
         "command": "node .cursor/hooks/console-followup.mjs",
         "loop_limit": 1,

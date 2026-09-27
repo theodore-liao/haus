@@ -34,7 +34,9 @@
     ".next-demo-single/types/**/*.ts",
     ".next-demo-single/dev/types/**/*.ts",
     ".next-demo-empty/types/**/*.ts",
-    ".next-demo-empty/dev/types/**/*.ts"
+    ".next-demo-empty/dev/types/**/*.ts",
+    ".next-demo-random/types/**/*.ts",
+    ".next-demo-random/dev/types/**/*.ts"
   ],
   "exclude": ["node_modules"]
 }

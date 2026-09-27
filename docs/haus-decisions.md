@@ -105,7 +105,9 @@ Sizes, spacing, and placement come from shared styles, not from each page. Use t
 ## Working on Haus
 
 - Review Aurin's requested changes on the real household at `localhost:3000`, logged in with the real password from `.env`. Never copy real screenshots, numbers, or names into the repo, commits, or pull requests.
-- Use a test household for cases the real one cannot show, such as a one-person or brand-new household. `npm run demo -- full 3001` starts one on port 3001 with the password `demo-household`, `single` gives a one-person household, `empty` gives a brand-new user, and `npm run demo:seed -- full` resets the data. Stop the test server when done.
+- Before editing a feature, run `npm run shots -- before --real` if port 3000 is up. After the change, run `npm run shots -- after --real` and `npm run shots:diff -- before after`. Look only at pages that changed, including ones you did not mean to touch. Screenshots stay in `.grok/shots/` and never go in git.
+- Use a test household for cases the real one cannot show. `npm run demo -- full 3001` starts one on port 3001 with the password `demo-household`. `single` is one person, `empty` is a brand-new user, `random` is an extreme household from a seed. `npm run demo:seed -- full` resets the data. Stop the test server when done.
+- The nightly bug-finding automation runs `npm run nightly-check`. That builds a random extreme household, checks every page, and shuts the server down. Local feature work does not run it.
 - Check the browser console and the dev server log after every change, and fix what they show.
-- Leave Aurin's own dev server running. Stop any server the agent started before finishing.
+- Do not start `npm run dev` or `next dev`. Use Aurin's server on port 3000. Never touch port 3000. A hook stops anything left on ports 3001–3009 when the turn ends.
 - When Aurin corrects something, add or update a line in this file in the same change.

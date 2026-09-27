@@ -7,6 +7,6 @@ alwaysApply: true
 
 Aurin runs `npm run dev` in their own PowerShell. Leave that process alone.
 
-If a server is needed to verify a change and one is already listening on port 3000, use it and do not stop it.
+If a server is needed to verify a change and one is already listening on port 3000, use it and do not start another. Do not run `npm run dev` or `next dev`. If port 3000 is down, ask Aurin to start it.
 
-Only stop a dev server this agent started. Do not kill other processes on port 3000. Do not leave an agent-started server running when the turn ends.
+A hook blocks those commands. Another hook stops anything left on ports 3001–3009 when the turn ends. Never touch port 3000.

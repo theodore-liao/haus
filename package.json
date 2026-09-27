@@ -13,6 +13,7 @@
     "shots": "node scripts/haus-check.mjs shots",
     "shots:diff": "node scripts/haus-check.mjs diff",
     "nightly-check": "node scripts/nightly-check.mjs",
+    "test": "tsx --test \"src/**/*.test.ts\"",
     "lint": "eslint",
     "postinstall": "prisma generate",
     "db:migrate": "prisma migrate dev",

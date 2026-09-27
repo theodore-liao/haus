@@ -7,6 +7,7 @@ import { plaidConfigured } from "@/lib/env";
 import { enrichHoldingsQuotes, ensurePriceHistory } from "@/lib/quotes";
 import { syncAllWallets } from "@/lib/crypto-wallets";
 import { invalidateNetWorthPath } from "@/lib/history";
+import { refreshPlan } from "@/lib/refresh-plan";
 
 export const dynamic = "force-dynamic";
 
@@ -14,24 +15,27 @@ export async function POST(req: Request) {
   await requireSession();
   const body = (await req.json().catch(() => ({}))) as { force?: boolean };
   const items = await prisma.plaidItem.findMany();
-
-  if (items.length === 0) {
-    await enrichHoldingsQuotes();
-    await syncAllWallets().catch(() => null);
-    await snapshotNetWorth();
-    invalidateNetWorthPath();
-    return NextResponse.json({ ok: true, message: "Quotes refreshed." });
-  }
-  if (!plaidConfigured()) {
-    return NextResponse.json({ error: "Plaid is not configured." }, { status: 400 });
-  }
   const newest = items.reduce<Date | null>((acc, i) => {
     if (!i.lastSyncedAt) return acc;
     if (!acc || i.lastSyncedAt > acc) return i.lastSyncedAt;
     return acc;
   }, null);
   const stale = !newest || Date.now() - newest.getTime() > STALE_SYNC_HOURS * 3600 * 1000;
-  if (!body.force && !stale) {
+  const plan = refreshPlan({
+    itemCount: items.length,
+    plaidReady: plaidConfigured(),
+    stale,
+    force: Boolean(body.force),
+  });
+
+  if (plan === "local") {
+    await enrichHoldingsQuotes();
+    await syncAllWallets().catch(() => null);
+    await snapshotNetWorth();
+    invalidateNetWorthPath();
+    return NextResponse.json({ ok: true, message: "Quotes refreshed." });
+  }
+  if (plan === "skip") {
     await enrichHoldingsQuotes();
     return NextResponse.json({ skipped: true, message: "Already fresh." });
   }

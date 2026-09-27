@@ -76,10 +76,10 @@ export function ConnectionsPanel({
         ) : (
           items.map((item) => (
             <div key={item.id} className="border-b border-border pb-5 last:border-0 last:pb-0">
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <div>
-                  <div className="text-sm font-medium">
-                    <BrandLabel kind="institution" name={item.institutionName}>
+              <div className="flex min-w-0 max-w-full flex-wrap items-center justify-between gap-2">
+                <div className="min-w-0 max-w-full flex-1">
+                  <div className="max-w-full text-sm font-medium">
+                    <BrandLabel className="flex w-full max-w-full" kind="institution" name={item.institutionName}>
                       {item.institutionName ?? "Institution"}
                     </BrandLabel>
                   </div>

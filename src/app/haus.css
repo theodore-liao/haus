@@ -58,7 +58,9 @@ main.page-stack {
   padding-inline: clamp(1rem, 2.2vw, 3rem);
 }
 
+main.page-stack > *,
 main.page-stack .grid,
+main.page-stack .grid > *,
 main.page-stack .chart-card,
 main.page-stack input,
 main.page-stack select,
@@ -211,13 +213,17 @@ html.privacy .amort-chart .ytick text:hover {
 
 /* Ownership (primary / spouse / joint) trails the name as faded subtext, never as part of the name itself. */
 .owner-tag {
-  flex-shrink: 0;
+  flex-shrink: 1;
+  min-width: 0;
+  max-width: 50%;
   margin-left: 0.5rem;
+  overflow: hidden;
   font-family: var(--font-sans-stack);
   font-size: var(--type-micro);
   font-weight: 400;
   letter-spacing: 0.02em;
   text-transform: none;
+  text-overflow: ellipsis;
   color: var(--muted-foreground);
   opacity: 0.85;
   white-space: nowrap;

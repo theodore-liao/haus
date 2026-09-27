@@ -1,6 +1,8 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
+  // The test-household server builds into its own folder so it can run beside the real one.
+  distDir: process.env.HAUS_DIST_DIR || ".next",
   devIndicators: false,
   // Allow phones on the home network to load dev-server assets (JS/hydration)
   // when browsing via the machine's LAN IP instead of localhost.

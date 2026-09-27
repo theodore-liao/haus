@@ -12,6 +12,7 @@ import {
 } from "@tanstack/react-table";
 import { useRouter } from "next/navigation";
 import { Input } from "@/components/ui/input";
+import { SearchInput } from "@/components/search-input";
 import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
@@ -308,12 +309,10 @@ export function TransactionsTable({
   return (
     <div className={readOnly ? scrollClass + " min-h-0 overflow-auto" : undefined}>
       <div className="section-head">
-        <Input
+        <SearchInput
           placeholder={readOnly ? "Search merchant, description, note" : "Search merchant, account, category"}
           value={q}
-          onChange={(e) => setQ(e.target.value)}
-          onBlur={() => setQ((cur) => cur.trim())}
-          className="max-w-sm"
+          onChange={setQ}
         />
         <span className={readOnly ? "footnote num ml-auto" : "footnote num"}>
           {filteredRows.length.toLocaleString("en-US")} rows

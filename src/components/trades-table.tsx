@@ -4,7 +4,7 @@ import { useMemo, useState, type ReactNode } from "react";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "./ui/table";
 import { Card, CardContent, CardHeader, CardTitle } from "./ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "./ui/tabs";
-import { Input } from "./ui/input";
+import { SearchInput } from "./search-input";
 import { Money } from "./money";
 import { formatDate } from "@/lib/format";
 import { DiscreteFilter, nextSortDir, ResetFilters, SortMark, type SortDir } from "./excel-filter";
@@ -24,8 +24,6 @@ type Trade = {
 };
 
 type Key = "date" | "type" | "symbol" | "account" | "quantity" | "price" | "amount";
-
-const SEARCH_CLASS = "h-8 w-56 shrink-0 text-sm";
 
 export function TradesCard({ trades }: { trades: Trade[] }) {
   const [q, setQ] = useState("");
@@ -48,13 +46,7 @@ export function TradesCard({ trades }: { trades: Trade[] }) {
         <CardHeader row className="pb-3">
           <div className="flex min-w-0 items-center gap-3">
             <CardTitle className="shrink-0">Trades</CardTitle>
-            <Input
-              placeholder="Search symbol, name, account"
-              value={q}
-              onChange={(e) => setQ(e.target.value)}
-              onBlur={() => setQ((cur) => cur.trim())}
-              className={SEARCH_CLASS}
-            />
+            <SearchInput placeholder="Search symbol, name, account" value={q} onChange={setQ} />
           </div>
           <div className="flex flex-wrap items-center justify-end gap-2">
             <TabsList>

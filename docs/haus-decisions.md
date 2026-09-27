@@ -54,7 +54,7 @@ Sizes, spacing, and placement come from shared styles, not from each page. Use t
 
 ## Overview
 
-- Pills are Equities (stocks, crypto, and retirement), Cash, Property (total property value), and Liabilities (total debt). They add up to household net worth.
+- Pills are Equities (every investment account), Cash, Property (homes, vehicles, and other non-cash assets), and Liabilities (total debt). They add up to household net worth.
 - The four pills sit inside the right side of the Household net worth box. Day, week, and month change live in that box.
 - Month-by-month shows every complete month plus the current one. Older months appear only when stored transaction history covers the whole month.
 

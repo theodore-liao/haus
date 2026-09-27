@@ -4,6 +4,7 @@ import { loadCardPaymentFlags } from "./card-payments";
 import { effectiveCategory, isInternalMove } from "./categories";
 import { ownerLabel, type HouseholdNames } from "./owners";
 import { getNames } from "./queries";
+import { savedOwnerNow } from "./report-archive";
 import type { TxnRow } from "./txn-row";
 
 const WRITE_CHUNK = 80;
@@ -226,7 +227,12 @@ function presentSaved(s: SavedRow, names: HouseholdNames): TxnRow {
 export async function listSavedTransactions(): Promise<TxnRow[]> {
   const saved = await prisma.savedTxn.findMany({ orderBy: { date: "desc" } });
   if (!saved.length) return [];
-  const [names, flags] = await Promise.all([getNames(), loadCardPaymentFlags()]);
+  const [names, flags, accounts] = await Promise.all([
+    getNames(),
+    loadCardPaymentFlags(),
+    prisma.account.findMany({ select: { id: true, owner: true } }),
+  ]);
+  const ownerByAccount = new Map(accounts.map((account) => [account.id, account.owner]));
   const live = await loadPosted(
     "plaidTransactionId",
     saved.map((s) => s.plaidTransactionId),
@@ -235,13 +241,19 @@ export async function listSavedTransactions(): Promise<TxnRow[]> {
   return saved.map((s) => {
     const t = liveByPlaid.get(s.plaidTransactionId);
     if (t) return presentLive(t, names, flags.enabled && flags.paired.has(t.id));
-    return presentSaved(s, names);
+    return presentSaved({ ...s, owner: savedOwnerNow(s, ownerByAccount) }, names);
   });
 }
 
 /** The only delete of saved transactions. */
 export async function deleteAllSavedTransactions() {
   await prisma.savedTxn.deleteMany();
+}
+
+/** Snapshots copy account owner at archive time. Reassignment has to follow or the previous person keeps the history. */
+export async function retargetSavedTxnOwner(accountId: string, owner: string) {
+  if (!accountId || !owner) return;
+  await prisma.savedTxn.updateMany({ where: { accountId }, data: { owner } });
 }
 
 async function ensureStoredSinceColumn() {

@@ -3,6 +3,7 @@ import { z } from "zod";
 import { requireSession } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { isRetirementType } from "@/lib/account-types";
+import { retargetSavedTxnOwner } from "@/lib/saved-txns";
 
 export const dynamic = "force-dynamic";
 
@@ -34,5 +35,6 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
       data: { isRetirement: true, retirementKind: d.hausType },
     });
   }
+  if (d.owner) await retargetSavedTxnOwner(id, d.owner);
   return NextResponse.json({ ok: true, row });
 }

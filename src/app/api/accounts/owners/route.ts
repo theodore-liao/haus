@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { requireSession } from "@/lib/auth";
 import { prisma } from "@/lib/db";
+import { retargetSavedTxnOwner } from "@/lib/saved-txns";
 
 export const dynamic = "force-dynamic";
 
@@ -25,6 +26,7 @@ export async function POST(req: Request) {
   });
   for (const [id, owner] of Object.entries(owners)) {
     await prisma.account.update({ where: { id }, data: { owner } });
+    await retargetSavedTxnOwner(id, owner);
   }
   return NextResponse.json({ ok: true });
 }

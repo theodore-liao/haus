@@ -1,41 +1,11 @@
 import { randomUUID } from "crypto";
-import { Prisma } from "@prisma/client";
-import { HAUS_CATEGORIES } from "./categories";
+import { budgetAverages, budgetSeedAction } from "./budget-seed";
 import { ensureHousehold, prisma } from "./db";
-import { applyMerchantRefunds, aggregateFlows, type FlowRow } from "./spend-net";
-import { inWindow } from "./range";
+import type { FlowRow } from "./spend-net";
 import type { BudgetRow } from "./budget-window";
 
 export type { BudgetRow };
-
-const SKIP = new Set(["Income", "Transfer"]);
-
-function spendLabels(flows: FlowRow[]) {
-  const labels = new Set<string>();
-  for (const c of HAUS_CATEGORIES) {
-    if (c.code === "INCOME" || c.code === "TRANSFER") continue;
-    labels.add(c.label);
-  }
-  for (const f of flows) {
-    if (f.kind === "spend" && f.category && !SKIP.has(f.category)) labels.add(f.category);
-  }
-  return labels;
-}
-
-/** Monthly amount for every spend category: trailing 3-month net spend, divided by 3. */
-export function budgetAverages(flows: FlowRow[]): BudgetRow[] {
-  const labels = spendLabels(flows);
-  const sliced = flows.filter((f) => inWindow(f.date, "3m"));
-  const totals = new Map(
-    aggregateFlows(applyMerchantRefunds(sliced)).spendRows.map((r) => [r.label, r.value]),
-  );
-  return [...labels]
-    .map((category) => ({
-      category,
-      monthly: Math.max(0, Math.round((totals.get(category) ?? 0) / 3)),
-    }))
-    .sort((a, b) => b.monthly - a.monthly || a.category.localeCompare(b.category));
-}
+export { budgetAverages, budgetSeedAction };
 
 export function spendMonthCount(flows: FlowRow[]) {
   const months = new Set(flows.filter((f) => f.kind === "spend").map((f) => f.month));
@@ -91,22 +61,22 @@ export async function listBudgets(): Promise<BudgetRow[]> {
   return rows.map((r) => ({ category: r.category, monthly: Number(r.monthly) || 0 }));
 }
 
-/** First visit fills every spend category from the 3-month average. Later edits are kept. */
+/** First visit with real spend fills every category from the 3-month average. Later edits are kept. */
 export async function ensureBudgets(flows: FlowRow[]): Promise<BudgetRow[]> {
   await ensureBudgetStore();
-  if (await seeded()) return listBudgets();
-  const averages = budgetAverages(flows);
-  if (averages.length) {
-    const values = Prisma.join(
-      averages.map((row) => Prisma.sql`(${randomUUID()}, ${row.category}, ${row.monthly})`),
-    );
-    try {
-      await prisma.$executeRaw`
-        INSERT OR IGNORE INTO "CategoryBudget" ("id", "category", "monthly") VALUES ${values}
-      `;
-    } catch {
-      // A parallel load already inserted the rows.
+  const stored = await listBudgets();
+  const alreadySeeded = await seeded();
+  const action = budgetSeedAction(alreadySeeded, stored, flows);
+  if (action !== "write") {
+    // Manual rows added before any automatic seed should not be replaced later.
+    if (!alreadySeeded && stored.some((row) => row.monthly > 0)) {
+      await prisma.$executeRaw`UPDATE "Household" SET "budgetsSeeded" = 1 WHERE "id" = 'haus'`;
     }
+    return stored;
+  }
+  const averages = budgetAverages(flows);
+  for (const row of averages) {
+    await setBudget(row.category, row.monthly);
   }
   await prisma.$executeRaw`UPDATE "Household" SET "budgetsSeeded" = 1 WHERE "id" = 'haus'`;
   return listBudgets();

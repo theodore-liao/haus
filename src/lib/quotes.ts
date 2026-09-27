@@ -172,6 +172,63 @@ export async function cryptoDayMoves(ids: string[]) {
   return out;
 }
 
+export function coinGeckoId(symbol: string | null | undefined, id?: string | null) {
+  if (id && id !== FIXED_USD_ID) return id;
+  if (!symbol) return null;
+  const key = symbol.trim().toUpperCase().replace(/-USD$/, "");
+  return COINGECKO_IDS[key]?.id ?? null;
+}
+
+export type CryptoSpan = { weekPct: number | null; monthPct: number | null };
+
+const spanCache = new Map<string, { span: CryptoSpan; at: number }>();
+
+function finitePct(n: number | null | undefined) {
+  return typeof n === "number" && Number.isFinite(n) ? n : null;
+}
+
+/** 7-day and 30-day percent moves from CoinGecko. Local daily bars go stale and must not stand in for this. */
+export async function cryptoSpanMoves(ids: string[]) {
+  const out = new Map<string, CryptoSpan>();
+  const now = Date.now();
+  const missing: string[] = [];
+  for (const id of new Set(ids.filter(Boolean))) {
+    const cached = spanCache.get(id);
+    if (cached && now - cached.at < TTL_MS) out.set(id, cached.span);
+    else missing.push(id);
+  }
+  for (let i = 0; i < missing.length; i += 50) {
+    const chunk = missing.slice(i, i + 50);
+    const url = `https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&ids=${encodeURIComponent(chunk.join(","))}&price_change_percentage=7d,30d&per_page=250`;
+    try {
+      const res = await fetch(url, {
+        cache: "no-store",
+        headers: { accept: "application/json" },
+        signal: AbortSignal.timeout(8000),
+      });
+      if (!res.ok) continue;
+      const rows = (await res.json()) as {
+        id: string;
+        price_change_percentage_7d_in_currency?: number | null;
+        price_change_percentage_30d_in_currency?: number | null;
+      }[];
+      if (!Array.isArray(rows)) continue;
+      for (const row of rows) {
+        const span = {
+          weekPct: finitePct(row.price_change_percentage_7d_in_currency),
+          monthPct: finitePct(row.price_change_percentage_30d_in_currency),
+        };
+        out.set(row.id, span);
+        spanCache.set(row.id, { span, at: now });
+      }
+    } catch {
+      /* this chunk stays without a window */
+    }
+    if (i + 50 < missing.length) await sleep(250);
+  }
+  return out;
+}
+
 export async function enrichHoldingsQuotes() {
   const household = await prisma.household.findUnique({ where: { id: "haus" } });
   const token = finnhubKey(household?.quoteApiKey);

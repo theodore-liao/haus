@@ -79,7 +79,7 @@ export function BrandLabel({
   return (
     <span className={cn("inline-flex min-w-0 items-center gap-1.5 overflow-hidden", className)}>
       <BrandMark kind={kind} name={name} symbol={symbol} src={src} />
-      <span className="min-w-0 truncate">{children}</span>
+      <span className="min-w-0 flex-1 truncate">{children}</span>
     </span>
   );
 }

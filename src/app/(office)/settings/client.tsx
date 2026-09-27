@@ -17,6 +17,7 @@ import { NAV, OPTIONAL_NAV, type TabVisibility } from "@/lib/nav";
 import type { TxnRow } from "@/lib/txn-row";
 import Link from "next/link";
 import { TransactionsTable } from "../transactions/table";
+import { TxnExport } from "@/components/txn-export";
 
 type ChildRow = { id: string; name: string };
 
@@ -401,6 +402,10 @@ export function SettingsClient({
             <Button type="button" variant="outline" size="sm" className="h-7" onClick={() => void openSaved()}>
               Show saved transactions
             </Button>
+          </div>
+          <div className="flex items-center justify-between gap-4">
+            <div className="text-foreground">Download transactions</div>
+            <TxnExport />
           </div>
           <div className="flex flex-wrap items-center gap-2">
             <RefreshButton lastSynced={lastSynced} autoSync={false} />

@@ -382,6 +382,15 @@ html.privacy .amort-chart .ytick text:hover {
   line-height: 1.35;
 }
 
+/* Many-asset rings still scroll, without a visible bar. */
+.legend-quiet .legend {
+  scrollbar-width: none;
+}
+
+.legend-quiet .legend::-webkit-scrollbar {
+  display: none;
+}
+
 /* Wide card (Spending, Retirement): give the group a measured width and let the legend breathe. */
 @container (min-width: 48rem) {
   .legend {

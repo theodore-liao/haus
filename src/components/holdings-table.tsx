@@ -200,7 +200,7 @@ export function InvestmentsBoard({
       ) : (
       <div className="relative z-0 grid items-stretch gap-4 lg:grid-cols-2">
         <ChartCard kicker={classMode === "asset" ? "By asset" : "By class"}>
-          <AllocationChart data={byClass} />
+          <AllocationChart className={classMode === "asset" ? "legend-quiet" : undefined} data={byClass} />
         </ChartCard>
         {accountSlot ? (
           <div className="min-w-0">{accountSlot}</div>

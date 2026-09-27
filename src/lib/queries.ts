@@ -48,7 +48,7 @@ import { ellipsize, formatHoldingClass, formatMoney, startOfDay } from "./format
 import { differenceInCalendarDays, subDays } from "date-fns";
 import { accountLabel } from "./account-label";
 import { reconstructNetWorthPath } from "./history";
-import { equityDayMoves, historyAgreesWithSpot, isOptionSymbol, loadPriceMap, optionPremiumScale, priceOnOrBefore, quoteSymbol, RECENT_CLOSE_DAYS } from "./quotes";
+import { coinGeckoId, cryptoSpanMoves, equityDayMoves, historyAgreesWithSpot, isOptionSymbol, loadPriceMap, optionPremiumScale, priceOnOrBefore, quoteSymbol, RECENT_CLOSE_DAYS } from "./quotes";
 import { propertyDebt, vehicleDebt } from "./property";
 import { loadCryptoLots, lotValue } from "./crypto-lots";
 import type { BrandKind } from "./logos";
@@ -481,9 +481,33 @@ export async function getOverview(filter: OwnerFilter) {
   }
 
   const moverSymbols = [...new Set(historyNeed.map((s) => s.symbol))];
-  const priceMap = moverSymbols.length
-    ? await loadPriceMap(moverSymbols, historyFrom, now)
-    : new Map<string, number>();
+  const spanIds = [
+    ...valuedHolds
+      .filter((x) => isCryptoHoldingType(x.h.type))
+      .map((x) => coinGeckoId(x.h.symbol, null)),
+    ...valuedCoins.map((x) => coinGeckoId(x.c.symbol, x.c.coingeckoId)),
+  ].filter((id): id is string => Boolean(id));
+  const [priceMap, spans] = await Promise.all([
+    moverSymbols.length ? loadPriceMap(moverSymbols, historyFrom, now) : Promise.resolve(new Map<string, number>()),
+    cryptoSpanMoves(spanIds),
+  ]);
+
+  function moveFromPct(last: number | null, qty: number, pct: number | null) {
+    if (last == null || !(last > 0) || qty === 0 || pct == null || !Number.isFinite(pct) || pct <= -100) {
+      return { delta: null as number | null, pct: null as number | null };
+    }
+    const then = last / (1 + pct / 100);
+    if (!(then > 0)) return { delta: null, pct: null };
+    return { delta: (last - then) * qty, pct };
+  }
+
+  function cryptoWindow(symbol: string | null, gecko: string | null | undefined, last: number | null, qty: number, days: 7 | 30) {
+    const span = spans.get(coinGeckoId(symbol, gecko) ?? "");
+    const pct = days === 7 ? span?.weekPct : span?.monthPct;
+    // No stored daily series here. A stock chart saved under the same ticker was showing up as a coin move.
+    if (pct == null) return { delta: null as number | null, pct: null as number | null };
+    return moveFromPct(last, qty, pct);
+  }
 
   function periodMove(symbol: string | null, qty: number, last: number | null, days: number) {
     if (!symbol || last == null || last <= 0 || qty === 0) return { delta: null as number | null, pct: null as number | null };
@@ -519,16 +543,17 @@ export async function getOverview(filter: OwnerFilter) {
       const dayDelta =
         h.quoteChange != null ? h.quoteChange * h.quantity : live ? live.change * scale * h.quantity : hist1.delta;
       const dayPct = h.quoteChangePct ?? live?.changePct ?? hist1.pct;
+      const crypto = isCryptoHoldingType(h.type);
       return {
         id: h.id,
         symbol: h.symbol,
         name: h.name,
-        kind: (isCryptoHoldingType(h.type) ? "crypto" : "security") as "crypto" | "security",
+        kind: (crypto ? "crypto" : "security") as "crypto" | "security",
         retirement: isRetirementAccount(h.account),
         value,
         day: { delta: dayDelta, pct: dayPct },
-        week: periodMove(h.symbol, h.quantity, last, 7),
-        month: periodMove(h.symbol, h.quantity, last, 30),
+        week: crypto ? cryptoWindow(h.symbol, null, last, h.quantity, 7) : periodMove(h.symbol, h.quantity, last, 7),
+        month: crypto ? cryptoWindow(h.symbol, null, last, h.quantity, 30) : periodMove(h.symbol, h.quantity, last, 30),
       };
     }),
     ...valuedCoins.map(({ c, value, last }) => {
@@ -542,8 +567,8 @@ export async function getOverview(filter: OwnerFilter) {
         kind: "crypto" as const,
         value,
         day: { delta: dayDelta, pct: dayPct },
-        week: periodMove(c.symbol, c.quantity, last, 7),
-        month: periodMove(c.symbol, c.quantity, last, 30),
+        week: cryptoWindow(c.symbol, c.coingeckoId, last, c.quantity, 7),
+        month: cryptoWindow(c.symbol, c.coingeckoId, last, c.quantity, 30),
       };
     }),
   ];

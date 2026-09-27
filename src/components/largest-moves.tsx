@@ -91,11 +91,11 @@ function MoveCol({ title, rows }: { title: string; rows: Ranked[] }) {
       ) : (
         <ul className="space-y-2.5">
           {rows.map((m) => (
-            <li key={m.id} className="flex min-w-0 flex-wrap items-center justify-between gap-x-2 gap-y-0.5">
-              <BrandLabel className="min-w-0 max-w-full" kind={m.kind} symbol={m.symbol} name={m.name}>
-                <span className="truncate text-sm">{m.symbol ?? m.name}</span>
+            <li key={m.id} className="flex min-w-0 items-center justify-between gap-x-2">
+              <BrandLabel className="min-w-0 flex-1" kind={m.kind} symbol={m.symbol} name={m.name}>
+                <span className="block truncate text-sm">{m.symbol ?? m.name}</span>
               </BrandLabel>
-              <Delta value={m.move.delta} pct={m.move.pct} className="text-sm" />
+              <Delta value={m.move.delta} pct={m.move.pct} className="shrink-0 text-sm" />
             </li>
           ))}
         </ul>

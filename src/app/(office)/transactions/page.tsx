@@ -3,7 +3,6 @@ import { EmptyLedger } from "@/components/states";
 import { getConnectionCount, getTransactions } from "@/lib/queries";
 import { getOwnerFilter } from "@/lib/request";
 import { TransactionsTable } from "./table";
-import { Button } from "@/components/ui/button";
 
 export const dynamic = "force-dynamic";
 
@@ -24,14 +23,7 @@ export default async function TransactionsPage() {
   const rows = await getTransactions(owner);
   return (
     <>
-      <PageHeader
-        title="Transactions"
-        actions={
-          <Button variant="outline" size="sm" asChild>
-            <a href="/api/export/transactions">Download view</a>
-          </Button>
-        }
-      />
+      <PageHeader title="Transactions" />
       <TransactionsTable rows={rows} dateChips />
     </>
   );

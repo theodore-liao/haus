@@ -31,6 +31,11 @@ Sizes, spacing, and placement come from shared styles, not from each page. Use t
 - Nothing is hard-coded to a specific merchant, bank, card, ticker, coin, or person. Fixes must work for any household that links its own accounts.
 - A new feature that changes how data is treated can be turned off in Settings.
 - The repo contains no names, tickers, account details, property details, screenshots, or anything else unique to this household.
+- Every page opens with its main summary card at the top. New tools go below it, never above.
+- Cards side by side are the same height. If their content differs a lot, stack them instead.
+- A card's result is its most prominent element: larger, and colored where color carries meaning (progress, gain, loss). Inputs are quieter and sit in aligned rows on a shared grid.
+- Calculator results update as you type. Nobody should need to press Enter or look for a button to see a new answer.
+- Numbers inside inputs are formatted with commas and at most two decimals.
 - A fix to one chart or page must not change another. Colors, legend layout, and spacing on untouched pages stay the same.
 
 ## Charts and donuts
@@ -90,7 +95,11 @@ Sizes, spacing, and placement come from shared styles, not from each page. Use t
 
 ## Retirement, property, insights
 
-- Retirement shows the Retirement accounts table and a growth projection to retirement age. Inputs (growth rate, annual contribution, retirement age) update on Enter and are saved across reloads. There is no donut. Birthdates are set in Settings.
+- Retirement opens with its Retirement summary card at the top, as before. What money becomes, the Retirement number, and Milestones sit below it. The accounts table, the chart, Child Accounts, and the HSA form stay as they are. There is no donut. Birthdates are set in Settings. Missing birthdates fall back to a number of years.
+- What money becomes, the retirement number, and milestones are in today's money. Milestones has a Today's money switch; off shows future dollars. Results update as you type, and inputs are saved across reloads.
+- Growth, retire age, and whose age are the same values on the chart and in these tools. Inflation defaults to 3%.
+- The retirement number uses invested money (cash plus investments, editable, with net worth beside it), yearly spending, children, an optional house, and optional other income, tax, and a return after retiring. Money lasts forever is the default; the other choice spends the balance down by the age you live to. Each child costs $25,000 a year through 17 and $70,000 a year for college from 18 through 21. Child-account balances reduce college. A first-year withdrawal above 4% warns that it may not last.
+- Milestones has three rows, blank until filled in. Each shows the yearly and monthly saving to hit an amount by an age, and the age that amount is reached at the current contribution.
 - Property shows total equity with assets minus liabilities written underneath, with no separate real estate or vehicle pills. Vehicle boxes span the full width.
 - Take-home pay annualized includes every household member's paychecks.
 
@@ -109,5 +118,6 @@ Sizes, spacing, and placement come from shared styles, not from each page. Use t
 - Use a test household for cases the real one cannot show. `npm run demo -- full 3001` starts one on port 3001 with the password `demo-household`. `single` is one person, `empty` is a brand-new user, `random` is an extreme household from a seed. `npm run demo:seed -- full` resets the data. Stop the test server when done.
 - The nightly bug-finding automation runs `npm run nightly-check`. That builds a random extreme household, checks every page, and shuts the server down. Local feature work does not run it.
 - Check the browser console and the dev server log after every change, and fix what they show.
+- Any change to how a page looks or behaves passes `npm run ux` and the `ux-critic` subagent before it is reported done (see `.cursor/rules/ux-review.mdc` and `docs/ux-checklist.md`).
 - Do not start `npm run dev` or `next dev`. Use Aurin's server on port 3000. Never touch port 3000. A hook stops anything left on ports 3001–3009 when the turn ends.
 - When Aurin corrects something, add or update a line in this file in the same change.

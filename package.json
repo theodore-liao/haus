@@ -11,6 +11,7 @@
     "demo": "node scripts/demo-server.mjs",
     "check": "node scripts/haus-check.mjs check",
     "shots": "node scripts/haus-check.mjs shots",
+    "ux": "node scripts/haus-check.mjs ux",
     "shots:diff": "node scripts/haus-check.mjs diff",
     "nightly-check": "node scripts/nightly-check.mjs",
     "test": "tsx --test \"src/**/*.test.ts\"",

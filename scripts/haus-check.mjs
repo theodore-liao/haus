@@ -3,6 +3,7 @@
 //   node scripts/haus-check.mjs check [--demo | --real] [--pages /,/spending]
 //   node scripts/haus-check.mjs shots <label> [--demo | --real] [--pages ...]
 //   node scripts/haus-check.mjs diff <before-label> <after-label>
+//   node scripts/haus-check.mjs ux [--pages ...]      uses each page like a person and flags UX problems
 //
 // --real uses localhost:3000 and the password in .env. --demo uses localhost:3001 and the test password.
 // Output goes to .grok/, which git ignores: screenshots of the real household never leave this machine.
@@ -208,6 +209,213 @@ async function shots(label) {
   console.log(`Saved ${pages().length * SHOT_SIZES.length} screenshots to .grok/shots/${label}`);
 }
 
+const UX_SIZES = [
+  { width: 2560, height: 1440 },
+  { width: 1920, height: 1080 },
+  { width: 412, height: 915 },
+];
+const CARD = '[class*="radius-card"], .hero-card, .chart-card';
+
+/** Layout problems a picky user would notice, measured in the page. */
+async function layoutProblems(page, phone) {
+  return page.evaluate(
+    ({ CARD, phone }) => {
+      const out = [];
+      const main = document.querySelector("main") ?? document.body;
+      const visible = (el) => {
+        const r = el.getBoundingClientRect();
+        const s = getComputedStyle(el);
+        return r.width > 0 && r.height > 0 && s.visibility !== "hidden" && s.display !== "none";
+      };
+      const title = (el) =>
+        (el.querySelector("h1,h2,h3,.kicker")?.textContent ?? el.textContent ?? "").trim().replace(/\s+/g, " ").slice(0, 40);
+
+      const cards = [...main.querySelectorAll(CARD)].filter(visible).filter((el) => !el.parentElement.closest(CARD));
+      const hero = cards.find((el) => el.matches(".hero-card") || el.querySelector(".hero-card"));
+      if (hero && cards[0] !== hero) {
+        out.push(`The main summary card "${title(hero)}" is not at the top; "${title(cards[0])}" is above it`);
+      }
+
+      if (!phone) {
+        const rows = [];
+        for (const el of cards) {
+          const r = el.getBoundingClientRect();
+          const row = rows.find((x) => x.parent === el.parentElement && Math.abs(x.top - r.top) < 8);
+          if (row) row.items.push({ el, h: r.height });
+          else rows.push({ parent: el.parentElement, top: r.top, items: [{ el, h: r.height }] });
+        }
+        for (const { items: row } of rows) {
+          if (row.length < 2) continue;
+          const hs = row.map((x) => x.h);
+          const max = Math.max(...hs);
+          const min = Math.min(...hs);
+          if (max - min > 120 && max / min > 1.35) {
+            out.push(`Side-by-side cards differ in height (${row.map((x) => `"${title(x.el)}" ${Math.round(x.h)}px`).join(", ")})`);
+          }
+        }
+      }
+
+      for (const input of main.querySelectorAll("input")) {
+        if (!visible(input) || ["hidden", "password", "checkbox", "radio", "file"].includes(input.type)) continue;
+        const v = input.value.trim();
+        if (/^-?\d{5,}(\.\d+)?$/.test(v) || /\.\d{3,}$/.test(v)) out.push(`Input shows a raw number "${v.slice(0, 24)}" (needs commas, at most two decimals)`);
+      }
+
+      const boxes = [...main.querySelectorAll("input, select, button[role=combobox]")]
+        .filter(visible)
+        .map((el) => ({ el, r: el.getBoundingClientRect() }));
+      let misaligned = 0;
+      for (let i = 0; i < boxes.length; i++) {
+        for (let j = i + 1; j < boxes.length; j++) {
+          const a = boxes[i].r;
+          const b = boxes[j].r;
+          const sameCard = boxes[i].el.closest(CARD) === boxes[j].el.closest(CARD);
+          const dy = Math.abs(a.top - b.top);
+          const overlapX = a.right > b.left - 400 && b.right > a.left - 400;
+          if (sameCard && overlapX && dy >= 2 && dy <= 14) misaligned++;
+        }
+      }
+      if (misaligned) out.push(`${misaligned} pair(s) of inputs sit a few pixels off the same line`);
+
+      let noPointer = 0;
+      for (const el of main.querySelectorAll("button, [role=button], a[href], [role=switch]")) {
+        if (!visible(el) || el.disabled) continue;
+        if (getComputedStyle(el).cursor !== "pointer") noPointer++;
+      }
+      if (noPointer) out.push(`${noPointer} button(s) or link(s) do not show the hand cursor`);
+
+      let clipped = 0;
+      for (const el of main.querySelectorAll("*")) {
+        if (!visible(el) || el.children.length) continue;
+        const s = getComputedStyle(el);
+        if (s.overflow === "visible" || s.textOverflow === "ellipsis" || el.matches("input, textarea, svg *")) continue;
+        if (el.scrollWidth > el.clientWidth + 2) clipped++;
+      }
+      if (clipped) out.push(`${clipped} piece(s) of text are cut off without "…"`);
+
+      if (phone) {
+        let small = 0;
+        for (const el of main.querySelectorAll("button, [role=button], a[href], input, [role=switch]")) {
+          if (!visible(el)) continue;
+          const r = el.getBoundingClientRect();
+          if (r.height < 24 || r.width < 24) small++;
+        }
+        if (small) out.push(`${small} tap target(s) are smaller than 24px on a phone`);
+      }
+      return out;
+    },
+    { CARD, phone },
+  );
+}
+
+/** Changes each input and switch the way a person would, and flags ones that change nothing or only react after leaving the box. */
+async function interactionProblems(page) {
+  const out = [];
+  const mainText = () => page.evaluate(() => `${document.documentElement.className}\n${document.body.innerText}`);
+  const inputs = page.locator(
+    'main input:visible:not([type=password]):not([type=hidden]):not([type=file]):not([type=checkbox]):not([type=radio]):not([type=date]):not([type=range]):not([type=color])',
+  );
+  const count = await inputs.count();
+  for (let i = 0; i < Math.min(count, 60); i++) {
+    try {
+      out.push(...(await probeInput(page, inputs.nth(i), mainText)));
+    } catch (e) {
+      out.push(`Could not use input #${i + 1}: ${e.message.split("\n")[0].slice(0, 120)}`);
+    }
+  }
+  const switches = page.locator("main [role=switch]:visible");
+  for (let i = 0; i < Math.min(await switches.count(), 20); i++) {
+    const sw = switches.nth(i);
+    const label = (await sw.getAttribute("aria-label")) ?? (await sw.getAttribute("id")) ?? `switch #${i + 1}`;
+    try {
+      const before = await mainText();
+      await sw.click({ timeout: 5000 });
+      await page.waitForTimeout(600);
+      if ((await mainText()) === before) out.push(`Switch "${label}" changes nothing visible`);
+      await sw.click({ timeout: 5000 });
+      await page.waitForTimeout(400);
+    } catch (e) {
+      out.push(`Could not use switch "${label}": ${e.message.split("\n")[0].slice(0, 120)}`);
+    }
+  }
+  return out;
+}
+
+async function probeInput(page, input, mainText) {
+  const out = [];
+  const skip = await input.evaluate((el) => Boolean(el.closest("form, [role=dialog]")) || el.readOnly || el.disabled);
+  if (skip) return out;
+  const label = await input.evaluate((el) => {
+    const box = el.closest("div")?.parentElement;
+    const text = el.getAttribute("aria-label") || el.placeholder || box?.querySelector("label")?.textContent || "";
+    return text.trim().slice(0, 40) || `input #${[...document.querySelectorAll("main input")].indexOf(el) + 1}`;
+  });
+  const original = await input.inputValue();
+  const numeric = original.replace(/[$,%\s]/g, "");
+  const wantsNumber = await input.evaluate((el) => el.type === "number" || ["decimal", "numeric"].includes(el.inputMode));
+  const next =
+    numeric && Number.isFinite(Number(numeric))
+      ? String(Math.round(Number(numeric) * 1.7 + 3))
+      : wantsNumber
+        ? "5"
+        : `${original}zzqx`;
+  const before = await mainText();
+  await input.fill(next, { timeout: 5000 });
+  await page.waitForTimeout(500);
+  const live = (await mainText()) !== before;
+  await input.press("Tab");
+  await page.waitForTimeout(800);
+  const after = (await mainText()) !== before;
+  if (!live && after) out.push(`"${label}" only updates after leaving the box (should update as you type)`);
+  if (!live && !after) out.push(`"${label}" changes nothing visible`);
+  await input.fill(original, { timeout: 5000 });
+  await input.press("Tab");
+  await page.waitForTimeout(400);
+  return out;
+}
+
+async function ux() {
+  const t = target();
+  const real = flag("--real");
+  const dir = path.join(outRoot, "ux");
+  rmSync(dir, { recursive: true, force: true });
+  mkdirSync(path.join(dir, "shots"), { recursive: true });
+  const browser = await launch();
+  const findings = [];
+  try {
+    for (const size of UX_SIZES) {
+      const { context, page } = await login(browser, t, size);
+      const phone = size.width < 800;
+      for (const p of pages()) {
+        const res = await settle(page, p, t);
+        if (res && res.status() === 404) continue;
+        await page.screenshot({
+          path: path.join(dir, "shots", `${pageName(p)}@${size.width}.png`),
+          fullPage: true,
+          animations: "disabled",
+          ...(real ? { mask: [page.locator(".money")] } : {}),
+        });
+        for (const problem of await layoutProblems(page, phone)) findings.push({ page: p, size: size.width, problem });
+        // Typing saves inputs, so only the throwaway test household gets typed into. Settings inputs save preferences rather than show results.
+        if (!real && size.width === 2560 && p !== "/settings") {
+          for (const problem of await interactionProblems(page)) findings.push({ page: p, size: size.width, problem });
+        }
+      }
+      await context.close();
+    }
+  } finally {
+    await browser.close();
+  }
+  const minor = /tap target|hand cursor|few pixels off|cut off/;
+  for (const f of findings) f.severity = minor.test(f.problem) ? "minor" : "major";
+  findings.sort((a, b) => (a.severity === b.severity ? 0 : a.severity === "major" ? -1 : 1));
+  writeFileSync(path.join(dir, "report.json"), JSON.stringify({ base: t.base, when: new Date().toISOString(), findings }, null, 2));
+  if (!findings.length) console.log(`No UX problems found on ${pages().length} pages.`);
+  for (const f of findings) console.log(`UX ${f.severity.toUpperCase()} ${f.page} @${f.size}px: ${f.problem}`);
+  console.log(`Screenshots for review: .grok/ux/shots${real ? " (dollar amounts masked)" : ""}`);
+  process.exitCode = findings.some((f) => f.severity === "major") ? 1 : 0;
+}
+
 function diff(beforeLabel, afterLabel) {
   if (!beforeLabel || !afterLabel) throw new Error("Give two labels to compare, such as before after.");
   const a = path.join(outRoot, "shots", beforeLabel);
@@ -259,8 +467,9 @@ try {
   if (mode === "check") await check();
   else if (mode === "shots") await shots(positional(0));
   else if (mode === "diff") diff(positional(0), positional(1));
+  else if (mode === "ux") await ux();
   else {
-    console.error("Use: check, shots <label>, or diff <before> <after>.");
+    console.error("Use: check, shots <label>, diff <before> <after>, or ux.");
     process.exitCode = 1;
   }
 } catch (e) {

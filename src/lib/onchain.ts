@@ -16,6 +16,17 @@ export type OnchainAsset = {
   quotePrice?: number | null;
 };
 
+/** confirmedChains are lookups that finished. keepTokens are exact keys, or prefixes ending in ":". */
+type ScanPart = {
+  assets: OnchainAsset[];
+  confirmedChains: string[];
+  keepTokens: string[];
+};
+
+function scanPart(assets: OnchainAsset[], confirmedChains: string[], keepTokens: string[] = []): ScanPart {
+  return { assets, confirmedChains, keepTokens };
+}
+
 export type AddressType = "evm" | "bitcoin" | "xpub" | "solana" | "tron" | "sui" | "cosmos";
 
 type CosmosNet = {
@@ -374,39 +385,57 @@ async function resolveEns(name: string): Promise<string | null> {
   return null;
 }
 
-async function scanBitcoin(address: string): Promise<OnchainAsset[]> {
+async function scanBitcoin(address: string): Promise<ScanPart> {
   const data = (await getJson(`https://blockstream.info/api/address/${encodeURIComponent(address)}`)) as {
     chain_stats?: { funded_txo_sum?: number; spent_txo_sum?: number };
     mempool_stats?: { funded_txo_sum?: number; spent_txo_sum?: number };
   } | null;
   const chain = data?.chain_stats;
-  if (!chain) return [];
+  if (!chain) return scanPart([], []);
   const funded = (chain.funded_txo_sum ?? 0) + (data?.mempool_stats?.funded_txo_sum ?? 0);
   const spent = (chain.spent_txo_sum ?? 0) + (data?.mempool_stats?.spent_txo_sum ?? 0);
   const qty = (funded - spent) / 1e8;
-  if (qty <= 0) return [];
-  return [
-    {
-      chain: "bitcoin",
-      tokenKey: "native",
-      symbol: "BTC",
-      name: "Bitcoin",
-      contractAddress: null,
-      decimals: 8,
-      quantity: qty,
-      coingeckoId: "bitcoin",
-    },
-  ];
+  if (qty <= 0) return scanPart([], ["bitcoin"]);
+  return scanPart(
+    [
+      {
+        chain: "bitcoin",
+        tokenKey: "native",
+        symbol: "BTC",
+        name: "Bitcoin",
+        contractAddress: null,
+        decimals: 8,
+        quantity: qty,
+        coingeckoId: "bitcoin",
+      },
+    ],
+    ["bitcoin"],
+  );
 }
 
 async function scanEvmChain(
   address: string,
   explorer: (typeof EVM_EXPLORERS)[number],
-): Promise<OnchainAsset[]> {
+): Promise<{ assets: OnchainAsset[]; failed: boolean }> {
   const out: OnchainAsset[] = [];
   const info = (await getJson(`${explorer.host}/api/v2/addresses/${address}`)) as {
     coin_balance?: string;
   } | null;
+  const tokens = (await getJson(`${explorer.host}/api/v2/addresses/${address}/token-balances`)) as
+    | {
+        token?: {
+          address?: string;
+          symbol?: string | null;
+          name?: string | null;
+          decimals?: string | number | null;
+          type?: string | null;
+          exchange_rate?: string | null;
+        };
+        value?: string;
+      }[]
+    | null;
+  // Either endpoint missing means this chain did not finish. An empty token list is a real zero.
+  const failed = info == null || !Array.isArray(tokens);
   if (info?.coin_balance) {
     const qty = fromBaseUnits(info.coin_balance, 18);
     if (qty > 0) {
@@ -422,19 +451,6 @@ async function scanEvmChain(
       });
     }
   }
-  const tokens = (await getJson(`${explorer.host}/api/v2/addresses/${address}/token-balances`)) as
-    | {
-        token?: {
-          address?: string;
-          symbol?: string | null;
-          name?: string | null;
-          decimals?: string | number | null;
-          type?: string | null;
-          exchange_rate?: string | null;
-        };
-        value?: string;
-      }[]
-    | null;
   if (Array.isArray(tokens)) {
     for (const row of tokens) {
       const type = (row.token?.type ?? "").toUpperCase();
@@ -459,7 +475,7 @@ async function scanEvmChain(
       });
     }
   }
-  return out;
+  return { assets: out, failed };
 }
 
 function mergeAssets(into: OnchainAsset[], extra: OnchainAsset[]) {
@@ -594,20 +610,23 @@ export function collapseDuplicateSpot(assets: OnchainAsset[]): OnchainAsset[] {
   return out;
 }
 
-async function scanRabbyTokens(address: string): Promise<OnchainAsset[]> {
+async function scanRabbyTokens(address: string): Promise<{ assets: OnchainAsset[]; failed: boolean; confirmedChains: string[] }> {
   const used = (await getJson(`https://api.rabby.io/v1/user/used_chain_list?id=${encodeURIComponent(address)}`, 12000)) as
     | { id?: string; name?: string }[]
     | null;
+  let failed = false;
   let chains = Array.isArray(used) ? used.filter((c) => c.id) : [];
-  if (!chains.length) {
+  if (!Array.isArray(used)) {
     const total = (await getJson(`https://api.rabby.io/v1/user/total_balance?id=${encodeURIComponent(address)}`, 12000)) as
       | { chain_list?: { id?: string; name?: string; usd_value?: number }[] }
       | null;
+    if (total == null) failed = true;
     chains = (total?.chain_list ?? []).filter((c) => c.id && (c.usd_value ?? 0) > 0);
   }
   // Rabby drops chains the address has not "used" recently. Robinhood Chain is easy to lose that way.
   if (!chains.some((c) => c.id === "hood")) chains = [...chains, { id: "hood", name: "Robinhood Chain" }];
-  if (!chains.length) return [];
+  if (!chains.length) return { assets: [], failed, confirmedChains: [] };
+  const confirmedChains: string[] = [];
   const batches = await Promise.allSettled(
     chains.map(async (c) => {
       const chainId = c.id!;
@@ -625,9 +644,11 @@ async function scanRabbyTokens(address: string): Promise<OnchainAsset[]> {
             amount?: number;
           }[]
         | null;
+      if (!Array.isArray(tokens)) return [];
       const chain = DEBANK_CHAINS[chainId] ?? chainId;
+      confirmedChains.push(chain);
       const out: OnchainAsset[] = [];
-      for (const t of tokens ?? []) {
+      for (const t of tokens) {
         const qty = Number(t.amount ?? 0);
         const price = Number(t.price ?? 0);
         if (!(qty > 0)) continue;
@@ -649,18 +670,47 @@ async function scanRabbyTokens(address: string): Promise<OnchainAsset[]> {
       return out;
     }),
   );
-  return batches.flatMap((r) => (r.status === "fulfilled" ? r.value : []));
+  return {
+    assets: batches.flatMap((r) => (r.status === "fulfilled" ? r.value : [])),
+    failed,
+    confirmedChains,
+  };
 }
 
-async function scanEvm(address: string): Promise<OnchainAsset[]> {
-  const rabby = await scanRabbyTokens(address).catch(() => [] as OnchainAsset[]);
-  const batches = await Promise.allSettled(EVM_EXPLORERS.map((ex) => scanEvmChain(address, ex)));
-  const explorers = batches.flatMap((r) => (r.status === "fulfilled" ? r.value : []));
-  return mergeAssets(rabby, explorers);
+async function scanEvm(address: string): Promise<ScanPart> {
+  const rabby = await scanRabbyTokens(address).catch(() => ({
+    assets: [] as OnchainAsset[],
+    failed: true,
+    confirmedChains: [] as string[],
+  }));
+  const batches = await Promise.all(
+    EVM_EXPLORERS.map(async (ex) => {
+      const r = await scanEvmChain(address, ex).catch(() => ({ assets: [] as OnchainAsset[], failed: true }));
+      return { chain: ex.chain, ...r };
+    }),
+  );
+  const confirmed = new Set<string>();
+  const explorerFailed = new Set<string>();
+  const explorerAssets: OnchainAsset[] = [];
+  for (const r of batches) {
+    if (r.failed) {
+      explorerFailed.add(r.chain);
+      continue;
+    }
+    confirmed.add(r.chain);
+    explorerAssets.push(...r.assets);
+  }
+  if (!rabby.failed) {
+    for (const chain of rabby.confirmedChains) {
+      if (!explorerFailed.has(chain)) confirmed.add(chain);
+    }
+  }
+  return scanPart(mergeAssets(rabby.assets, explorerAssets), [...confirmed]);
 }
 
-async function solStakedLamports(address: string): Promise<number> {
+async function solStakedLamports(address: string): Promise<number | null> {
   let total = 0;
+  let answered = false;
   const seen = new Set<string>();
   for (const offset of [12, 44]) {
     const result = (await solRpc("getProgramAccounts", [
@@ -679,6 +729,7 @@ async function solStakedLamports(address: string): Promise<number> {
         }[]
       | null;
     if (!Array.isArray(result)) continue;
+    answered = true;
     for (const row of result) {
       const id = row.pubkey ?? "";
       if (id && seen.has(id)) continue;
@@ -688,7 +739,7 @@ async function solStakedLamports(address: string): Promise<number> {
       total += delegated ? Number(delegated) : lamports;
     }
   }
-  return total;
+  return answered ? total : null;
 }
 
 const SOL_RPCS = [
@@ -723,8 +774,9 @@ type SolTokenRow = {
   };
 };
 
-async function solTokenAccounts(address: string, programId: string): Promise<SolTokenRow[]> {
+async function solTokenAccounts(address: string, programId: string): Promise<{ ok: boolean; rows: SolTokenRow[] }> {
   let best: SolTokenRow[] = [];
+  let ok = false;
   for (const url of SOL_RPCS) {
     const data = (await postJson(
       url,
@@ -738,13 +790,14 @@ async function solTokenAccounts(address: string, programId: string): Promise<Sol
     )) as { result?: { value?: SolTokenRow[] }; error?: unknown } | null;
     const value = data?.result?.value;
     if (!Array.isArray(value) || data?.error) continue;
+    ok = true;
     if (value.length > best.length) best = value;
-    if (best.length) return best;
+    if (best.length) return { ok: true, rows: best };
   }
-  return best;
+  return { ok, rows: best };
 }
 
-async function scanSolana(address: string): Promise<OnchainAsset[]> {
+async function scanSolana(address: string): Promise<ScanPart> {
   const out: OnchainAsset[] = [];
   const [bal, tokenA, tokenB, stakes] = await Promise.all([
     solRpc("getBalance", [address]),
@@ -752,6 +805,7 @@ async function scanSolana(address: string): Promise<OnchainAsset[]> {
     solTokenAccounts(address, SOL_TOKEN_2022),
     solStakedLamports(address),
   ]);
+  const balanceOk = bal != null;
   const lamports = typeof bal === "number" ? bal : ((bal as { value?: number } | null)?.value ?? 0);
   if (lamports > 0) {
     out.push({
@@ -765,7 +819,7 @@ async function scanSolana(address: string): Promise<OnchainAsset[]> {
       coingeckoId: "solana",
     });
   }
-  if (stakes > 0) {
+  if (stakes != null && stakes > 0) {
     out.push({
       chain: "solana",
       tokenKey: "stake",
@@ -778,7 +832,7 @@ async function scanSolana(address: string): Promise<OnchainAsset[]> {
     });
   }
   const byMint = new Map<string, { qty: number; decimals: number }>();
-  for (const row of [...tokenA, ...tokenB]) {
+  for (const row of [...tokenA.rows, ...tokenB.rows]) {
     const info = row.account?.data?.parsed?.info;
     const mint = info?.mint;
     if (!mint) continue;
@@ -819,10 +873,13 @@ async function scanSolana(address: string): Promise<OnchainAsset[]> {
       coingeckoId: null,
     });
   }
-  return out;
+  const tokensOk = tokenA.ok && tokenB.ok;
+  const keepTokens = stakes == null ? ["stake"] : [];
+  if (!balanceOk || !tokensOk) return scanPart(out, [], keepTokens);
+  return scanPart(out, ["solana"], keepTokens);
 }
 
-async function scanTron(address: string): Promise<OnchainAsset[]> {
+async function scanTron(address: string): Promise<ScanPart> {
   const out: OnchainAsset[] = [];
   const data = (await getJson(
     `https://apilist.tronscanapi.com/api/accountv2?address=${encodeURIComponent(address)}`,
@@ -844,7 +901,7 @@ async function scanTron(address: string): Promise<OnchainAsset[]> {
       tokenId?: string;
     }[];
   } | null;
-  if (!data) return out;
+  if (!data) return scanPart([], []);
   const trx = (data.balance ?? 0) / 1e6;
   if (trx > 0) {
     out.push({
@@ -882,7 +939,7 @@ async function scanTron(address: string): Promise<OnchainAsset[]> {
       coingeckoId: geckoForSymbol(symbol),
     });
   }
-  return out;
+  return scanPart(out, ["tron"]);
 }
 
 async function sumBtcAddresses(addrs: string[]): Promise<number | null> {
@@ -950,7 +1007,7 @@ function xpubSats(data: unknown): number | null {
   return top;
 }
 
-async function scanXpub(xpub: string): Promise<OnchainAsset[]> {
+async function scanXpub(xpub: string): Promise<ScanPart> {
   const hosts = ["https://btc1.trezor.io", "https://btc2.trezor.io"];
   let sats = 0;
   let found = false;
@@ -974,14 +1031,17 @@ async function scanXpub(xpub: string): Promise<OnchainAsset[]> {
   if (!found) {
     try {
       const addrs = hdAddresses(xpub);
-      sats = (await sumBtcAddresses(addrs)) ?? sats;
+      const summed = await sumBtcAddresses(addrs);
+      if (summed == null) return scanPart([], []);
+      sats = summed;
+      found = true;
     } catch {
-      /* keep prior */
+      return scanPart([], []);
     }
   }
   const qty = sats / 1e8;
-  if (qty <= 0) return [];
-  return [
+  if (qty <= 0) return scanPart([], ["bitcoin"]);
+  return scanPart([
     {
       chain: "bitcoin",
       tokenKey: "native",
@@ -992,7 +1052,7 @@ async function scanXpub(xpub: string): Promise<OnchainAsset[]> {
       quantity: qty,
       coingeckoId: "bitcoin",
     },
-  ];
+  ], ["bitcoin"]);
 }
 
 const B58 = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
@@ -1076,9 +1136,11 @@ function normalizeSuiType(coinType: string) {
   return `0x${m[1]}::${m[2]}`;
 }
 
-async function scanSui(address: string): Promise<OnchainAsset[]> {
+async function scanSui(address: string): Promise<ScanPart> {
   const out: OnchainAsset[] = [];
-  const balances = ((await suiRpc("suix_getAllBalances", [address])) as { coinType?: string; totalBalance?: string }[] | null) ?? [];
+  const balanceRes = (await suiRpc("suix_getAllBalances", [address])) as { coinType?: string; totalBalance?: string }[] | null;
+  if (balanceRes == null) return scanPart([], []);
+  const balances = balanceRes;
   const have = new Set(balances.map((b) => (b.coinType ?? "").toLowerCase()));
   let cursor: string | null = null;
   for (let page = 0; page < 20; page++) {
@@ -1159,7 +1221,7 @@ async function scanSui(address: string): Promise<OnchainAsset[]> {
       coingeckoId: "sui",
     });
   }
-  return out;
+  return scanPart(out, ["sui"], stakes == null ? ["stake"] : []);
 }
 
 const DEBANK_CHAINS: Record<string, string> = {
@@ -1183,7 +1245,7 @@ const DEBANK_CHAINS: Record<string, string> = {
   cro: "cronos",
 };
 
-async function scanDefi(address: string): Promise<OnchainAsset[]> {
+async function scanDefi(address: string): Promise<{ assets: OnchainAsset[]; failed: boolean }> {
   const url = `https://api.rabby.io/v1/user/complex_protocol_list?id=${encodeURIComponent(address)}`;
   type Protocol = {
     id?: string;
@@ -1196,7 +1258,8 @@ async function scanDefi(address: string): Promise<OnchainAsset[]> {
     }[];
   };
   const data = (await getJson(url, 14000)) as Protocol[] | { data?: Protocol[] } | null;
-  const list: Protocol[] = Array.isArray(data) ? data : Array.isArray(data?.data) ? data.data : [];
+  if (data == null) return { assets: [], failed: true };
+  const list: Protocol[] = Array.isArray(data) ? data : Array.isArray(data.data) ? data.data : [];
   const out: OnchainAsset[] = [];
   for (const proto of list) {
     const protocol = (proto.name ?? proto.id ?? "DeFi").slice(0, 40);
@@ -1239,7 +1302,7 @@ async function scanDefi(address: string): Promise<OnchainAsset[]> {
       }
     }
   }
-  return out;
+  return { assets: out, failed: false };
 }
 
 function num(v: unknown): number {
@@ -1247,7 +1310,7 @@ function num(v: unknown): number {
   return Number.isFinite(n) ? n : 0;
 }
 
-async function scanSolanaDefi(address: string): Promise<OnchainAsset[]> {
+async function scanSolanaDefi(address: string): Promise<{ assets: OnchainAsset[]; keepTokens: string[] }> {
   const out: OnchainAsset[] = [];
   const kamino = (await getJson(`https://api.kamino.finance/portfolio/${encodeURIComponent(address)}`, 15000)) as {
     lending?: KaminoPos[];
@@ -1343,17 +1406,21 @@ async function scanSolanaDefi(address: string): Promise<OnchainAsset[]> {
     });
   }
 
+  const keepTokens = kamino == null ? ["defi:kamino:"] : [];
   const jupUrls = [
     `https://lite-api.jup.ag/lend/v1/earn/positions/${encodeURIComponent(address)}`,
     `https://api.jup.ag/lend/v1/earn/positions/${encodeURIComponent(address)}`,
   ];
+  let jupiterAnswered = false;
   for (const url of jupUrls) {
     const data = (await getJson(url, 10000)) as
       | { token?: { symbol?: string; address?: string }; shares?: string; underlyingAssets?: string; usdValue?: number }[]
       | { positions?: { token?: { symbol?: string }; usdValue?: number }[] }
       | null;
-    const list = Array.isArray(data) ? data : data?.positions ?? [];
-    if (!list.length) continue;
+    if (data == null) continue;
+    jupiterAnswered = true;
+    const list = Array.isArray(data) ? data : data.positions ?? [];
+    if (!list.length) break;
     for (const [i, pos] of list.entries()) {
       const usd = num((pos as { usdValue?: number }).usdValue);
       const symbol = ((pos as { token?: { symbol?: string } }).token?.symbol ?? "JUP").toUpperCase();
@@ -1361,8 +1428,9 @@ async function scanSolanaDefi(address: string): Promise<OnchainAsset[]> {
     }
     break;
   }
+  if (!jupiterAnswered) keepTokens.push("defi:jupiter:");
 
-  return out;
+  return { assets: out, keepTokens };
 }
 
 async function cosmosLcd(net: CosmosNet, path: string): Promise<unknown | null> {
@@ -1471,14 +1539,18 @@ function cosmosAddressOn(address: string, hrp: string): string | null {
   }
 }
 
-async function scanCosmosChain(net: CosmosNet, address: string): Promise<OnchainAsset[]> {
+async function scanCosmosChain(
+  net: CosmosNet,
+  address: string,
+): Promise<{ assets: OnchainAsset[]; confirmed: boolean; keepStake: boolean }> {
   const out: OnchainAsset[] = [];
   const enc = encodeURIComponent(address);
 
   const bank = (await cosmosLcd(net, `/cosmos/bank/v1beta1/balances/${enc}?pagination.limit=200`)) as {
     balances?: { denom?: string; amount?: string }[];
   } | null;
-  const rows = (bank?.balances ?? []).filter((row) => row.denom && row.amount && row.amount !== "0");
+  if (bank == null) return { assets: [], confirmed: false, keepStake: true };
+  const rows = (bank.balances ?? []).filter((row) => row.denom && row.amount && row.amount !== "0");
   const resolved = await Promise.all(
     rows.slice(0, 40).map(async (row) => {
       const denom = row.denom!;
@@ -1534,10 +1606,10 @@ async function scanCosmosChain(net: CosmosNet, address: string): Promise<Onchain
       coingeckoId: net.gecko,
     });
   }
-  return out;
+  return { assets: out, confirmed: true, keepStake: dels == null && unbond == null };
 }
 
-async function scanCosmos(address: string): Promise<OnchainAsset[]> {
+async function scanCosmos(address: string): Promise<ScanPart> {
   const originHrp = address.split("1")[0] ?? "";
   const originType = cosmosCoinType(originHrp);
   const targets: { net: CosmosNet; addr: string }[] = [];
@@ -1549,50 +1621,75 @@ async function scanCosmos(address: string): Promise<OnchainAsset[]> {
     targets.push({ net, addr });
   }
   const out: OnchainAsset[] = [];
+  const confirmed: string[] = [];
+  let keepStake = false;
   for (let i = 0; i < targets.length; i += 4) {
     const batch = targets.slice(i, i + 4);
-    const parts = await Promise.all(batch.map((t) => scanCosmosChain(t.net, t.addr).catch(() => [] as OnchainAsset[])));
-    for (const part of parts) mergeAssets(out, part);
+    const parts = await Promise.all(
+      batch.map(async (t) => {
+        try {
+          const row = await scanCosmosChain(t.net, t.addr);
+          return { ...row, chain: t.net.chain };
+        } catch {
+          return { assets: [] as OnchainAsset[], confirmed: false, keepStake: true, chain: t.net.chain };
+        }
+      }),
+    );
+    for (const part of parts) {
+      if (part.confirmed) confirmed.push(part.chain);
+      if (part.keepStake) keepStake = true;
+      mergeAssets(out, part.assets);
+    }
   }
-  return out;
+  return scanPart(out, confirmed, keepStake ? ["stake"] : []);
 }
 
 export async function scanAddress(raw: string): Promise<{
   type: AddressType;
   address: string;
   assets: OnchainAsset[];
+  /** Chains whose lookup finished. Rows on any other chain are left in place. */
+  confirmedChains: string[];
+  /** Exact token keys, or prefixes ending in ":", that this scan must not delete. */
+  keepTokens: string[];
 }> {
   const classified = classifyAddress(raw);
   if (!classified) {
     throw new Error("Unrecognized wallet address. Use a BTC address or xpub, Cosmos (cosmos1…), EVM/Sui 0x, Solana, or TRON.");
   }
-  let { type, address } = classified;
+  const { type } = classified;
+  let { address } = classified;
   if (type === "evm" && address.endsWith(".eth")) {
     const resolved = await resolveEns(address);
     if (!resolved) throw new Error("Could not resolve that ENS name.");
     address = resolved;
   }
-  let assets: OnchainAsset[] = [];
-  if (type === "bitcoin") assets = await scanBitcoin(address);
-  else if (type === "xpub") assets = await scanXpub(address);
-  else if (type === "evm") assets = await scanEvm(address);
-  else if (type === "solana") assets = await scanSolana(address);
-  else if (type === "tron") assets = await scanTron(address);
-  else if (type === "sui") assets = await scanSui(address);
-  else if (type === "cosmos") assets = await scanCosmos(address);
+  let part = scanPart([], []);
+  if (type === "bitcoin") part = await scanBitcoin(address);
+  else if (type === "xpub") part = await scanXpub(address);
+  else if (type === "evm") part = await scanEvm(address);
+  else if (type === "solana") part = await scanSolana(address);
+  else if (type === "tron") part = await scanTron(address);
+  else if (type === "sui") part = await scanSui(address);
+  else if (type === "cosmos") part = await scanCosmos(address);
 
+  const assets = part.assets;
+  const keepTokens = [...part.keepTokens];
   if (type === "evm" || type === "solana") {
-    const defi = await scanDefi(address).catch(() => [] as OnchainAsset[]);
-    mergeAssets(assets, defi);
+    const defi = await scanDefi(address).catch(() => ({ assets: [] as OnchainAsset[], failed: true }));
+    if (defi.failed) keepTokens.push("defi:");
+    else mergeAssets(assets, defi.assets);
   }
   if (type === "solana") {
-    const solDefi = await scanSolanaDefi(address).catch(() => [] as OnchainAsset[]);
-    mergeAssets(assets, solDefi);
+    const solDefi = await scanSolanaDefi(address).catch(() => ({
+      assets: [] as OnchainAsset[],
+      keepTokens: ["defi:kamino:", "defi:jupiter:"],
+    }));
+    keepTokens.push(...solDefi.keepTokens);
+    mergeAssets(assets, solDefi.assets);
   }
-  assets = collapseDuplicateSpot(assets);
-  assets = dropFakeStables(assets);
-  assets = significantOnly(await attachPrices(assets));
-  return { type, address, assets };
+  const priced = significantOnly(await attachPrices(dropFakeStables(collapseDuplicateSpot(assets))));
+  return { type, address, assets: priced, confirmedChains: part.confirmedChains, keepTokens };
 }
 
 export function isDefiAsset(a: { tokenKey?: string | null }) {

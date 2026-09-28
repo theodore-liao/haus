@@ -54,6 +54,8 @@ import { propertyDebt, vehicleDebt } from "./property";
 import { loadCryptoLots, lotValue } from "./crypto-lots";
 import type { BrandKind } from "./logos";
 import { buildAttention } from "./attention";
+import { inferRecurring } from "./recurring";
+export { inferRecurring };
 import { listBudgets } from "./budgets";
 import type { FlowRow } from "./spend-net";
 
@@ -799,77 +801,6 @@ export async function getCashflow(filter: OwnerFilter, month: Date, includeTrans
     recurring,
     txnCount: monthTxns.length,
   };
-}
-
-export function inferRecurring(
-  txns: {
-    merchantName: string | null;
-    userMerchant: string | null;
-    name: string;
-    amount: number;
-    date: Date;
-    isTransfer: boolean;
-    isCcPayment: boolean;
-    userCategory?: string | null;
-    categoryPrimary?: string | null;
-    categoryDetailed?: string | null;
-  }[],
-  ignored: Set<string> = new Set(),
-) {
-  const groups = new Map<string, { label: string; amounts: number[]; dates: Date[] }>();
-  for (const t of txns) {
-    if (isInternalMove(t)) continue;
-    if (t.amount <= 0) continue;
-    const label = t.userMerchant || t.merchantName || t.name;
-    const key = recurringMerchantKey(label);
-    if (!key || ignored.has(key)) continue;
-    const g = groups.get(key) ?? { label, amounts: [], dates: [] };
-    g.amounts.push(t.amount);
-    g.dates.push(t.date);
-    groups.set(key, g);
-  }
-  const out: {
-    label: string;
-    amount: number;
-    cadence: string;
-    lastDate: string;
-    annual: number;
-  }[] = [];
-  for (const g of groups.values()) {
-    if (g.dates.length < 3) continue;
-    const sorted = [...g.dates].sort((a, b) => a.getTime() - b.getTime());
-    const gaps: number[] = [];
-    for (let i = 1; i < sorted.length; i++) {
-      gaps.push((sorted[i].getTime() - sorted[i - 1].getTime()) / 86400000);
-    }
-    const avgGap = gaps.reduce((s, x) => s + x, 0) / gaps.length;
-    let cadence = "irregular";
-    let perYear = 0;
-    if (avgGap >= 25 && avgGap <= 35) {
-      cadence = "monthly";
-      perYear = 12;
-    } else if (avgGap >= 6 && avgGap <= 8) {
-      cadence = "weekly";
-      perYear = 52;
-    } else if (avgGap >= 13 && avgGap <= 16) {
-      cadence = "biweekly";
-      perYear = 26;
-    } else if (avgGap >= 350 && avgGap <= 380) {
-      cadence = "annual";
-      perYear = 1;
-    } else continue;
-    const mean = g.amounts.reduce((s, x) => s + x, 0) / g.amounts.length;
-    const similar = g.amounts.every((a) => Math.abs(a - mean) / mean < 0.2);
-    if (!similar) continue;
-    out.push({
-      label: g.label,
-      amount: mean,
-      cadence,
-      lastDate: sorted[sorted.length - 1].toISOString(),
-      annual: mean * perYear,
-    });
-  }
-  return out.sort((a, b) => b.annual - a.annual);
 }
 
 function ledgerMerchant(t: { userMerchant?: string | null; merchantName?: string | null; name: string }) {

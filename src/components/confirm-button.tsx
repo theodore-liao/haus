@@ -15,6 +15,7 @@ export function ConfirmButton({
   size = "sm",
   disabled,
   className,
+  ariaLabel,
 }: {
   title: string;
   description: ReactNode;
@@ -25,6 +26,8 @@ export function ConfirmButton({
   size?: ComponentProps<typeof Button>["size"];
   disabled?: boolean;
   className?: string;
+  /** Needed when the visible label is only an icon. */
+  ariaLabel?: string;
 }) {
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -47,6 +50,7 @@ export function ConfirmButton({
         size={size}
         disabled={disabled}
         className={className}
+        aria-label={ariaLabel}
         onClick={() => setOpen(true)}
       >
         {children}

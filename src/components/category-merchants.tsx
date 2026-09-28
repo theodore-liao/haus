@@ -11,6 +11,8 @@ import { formatDate } from "@/lib/format";
 import type { MerchantLine } from "@/lib/merchant-lines";
 import type { TxnRow } from "@/lib/txn-row";
 import { cn } from "@/lib/utils";
+import type { TrendPoint } from "@/lib/spend-compare";
+import { CategoryTrendChart } from "./category-trend";
 
 const MIN_BREAKDOWN = 10;
 
@@ -22,6 +24,7 @@ export function CategoryMerchantDialog({
   note,
   onOpenTxn,
   positiveAmounts,
+  trend,
 }: {
   open: boolean;
   title: string;
@@ -31,6 +34,8 @@ export function CategoryMerchantDialog({
   onOpenTxn?: (txn: TxnRow) => void;
   /** Spending breakdown shows outflows as positive amounts. */
   positiveAmounts?: boolean;
+  /** This category month by month, shown above the merchants when there are two or more months. */
+  trend?: TrendPoint[];
 }) {
   const rows = [...lines].sort((a, b) => b.amount - a.amount);
   const total = rows.reduce((s, r) => s + r.amount, 0);
@@ -62,6 +67,11 @@ export function CategoryMerchantDialog({
           {note ? <p className="mb-2">{note}</p> : null}
           {rows.length} merchants · <Money value={positiveAmounts ? Math.abs(total) : total} signed={!positiveAmounts && total < 0} />
         </div>
+        {trend && trend.length >= 2 ? (
+          <div className="mb-4">
+            <CategoryTrendChart category={title} data={trend} />
+          </div>
+        ) : null}
         {rows.length === 0 ? (
           <p className="text-sm text-muted-foreground">No transactions in this window.</p>
         ) : (

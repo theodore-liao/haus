@@ -476,6 +476,25 @@ html.privacy .amort-chart .ytick text:hover {
   opacity: 0.45;
 }
 
+/* Spending legend: the change against the earlier period sits in the amount column, left of the dollars. */
+.legend-amount {
+  display: inline-flex;
+  align-items: baseline;
+  justify-content: flex-end;
+  gap: 0.625rem;
+}
+
+.legend-change {
+  min-width: 3.25rem;
+  font-size: var(--type-micro);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.legend-row.selectable:has(input:not(:checked)) .legend-change {
+  opacity: 0.45;
+}
+
 /* Full-page donut (Spending → Breakdown): bigger ring, roomier legend. */
 .donut-row-large {
   gap: 2rem 3.5rem;

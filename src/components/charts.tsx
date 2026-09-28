@@ -32,6 +32,7 @@ import { Delta } from "./money";
 import { SliceBreakdownDialog, type SliceItem } from "./category-merchants";
 import { CategoryIcon, hasCategoryIcon } from "@/lib/category-icons";
 import { colorFor, donutColorMap } from "@/lib/category-colors";
+import type { CategoryChange } from "@/lib/spend-compare";
 import { FROM_SAVINGS, isOtherSlice, OTHER_CATEGORIES, TO_INVESTMENTS, TO_SAVINGS } from "@/lib/flow-labels";
 
 const AXIS = { fontSize: 11, fill: "#8fa0b8", fontFamily: "var(--font-geist-sans)" };
@@ -259,6 +260,7 @@ export function AllocationChart({
   onSelectionChange,
   size,
   className,
+  changes,
 }: {
   data: AllocSlice[];
   /** Kept for call-site compatibility; layout now follows the container width. */
@@ -277,6 +279,8 @@ export function AllocationChart({
   /** `large` for a page whose only content is this donut. */
   size?: "large";
   className?: string;
+  /** Optional change per slice against an earlier period, shown beside each amount (Spending). */
+  changes?: Map<string, CategoryChange> | null;
 }) {
   const [openKey, setOpenKey] = useState<string | null>(null);
   // Uncontrolled selection is stored as the set of *unchecked* keys so new slices default to on.
@@ -428,7 +432,14 @@ export function AllocationChart({
                 {hasCategoryIcon(r.key) ? <CategoryIcon category={r.key} /> : null}
                 <LegendName label={label} />
               </button>
-              <strong className="money">{formatMoney(r.value)}</strong>
+              {changes ? (
+                <span className="legend-amount">
+                  <LegendChange change={changes.get(r.key)} />
+                  <strong className="money">{formatMoney(r.value)}</strong>
+                </span>
+              ) : (
+                <strong className="money">{formatMoney(r.value)}</strong>
+              )}
             </li>
           );
         })}
@@ -441,6 +452,18 @@ export function AllocationChart({
       onClose={() => setOpenKey(null)}
     />
     </>
+  );
+}
+
+/** Spending up is shown as a loss, spending down as a gain. */
+function LegendChange({ change }: { change: CategoryChange | undefined }) {
+  if (change === undefined) return <span className="legend-change" />;
+  if (change === "new") return <span className="legend-change text-muted-foreground">new</span>;
+  const pct = Math.round(change * 100);
+  return (
+    <span className={cn("legend-change", pct > 0 ? "text-negative" : pct < 0 ? "text-positive" : "text-muted-foreground")}>
+      {pct === 0 ? "0%" : `${pct > 0 ? "+" : "−"}${Math.abs(pct)}%`}
+    </span>
   );
 }
 

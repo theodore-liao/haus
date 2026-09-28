@@ -81,6 +81,10 @@ Sizes, spacing, and placement come from shared styles, not from each page. Use t
 - Clicking a donut slice opens a large window. Merchant rows expand only when clicked, and they use the same transactions table as the Transactions page, so edits show everywhere immediately. Amounts there are positive and use the smaller grey sub-line style.
 - Refunds shows the transactions table filtered to refunds in the chosen window, before netting against spending.
 - Budget starts from each category's 3-month average. Rows are added by choosing a category from the dropdown, with no separate Add button. Editing needs an Edit button and a Save button. Each row shows percent used and dollars left or over. The header shows days left in the current month, and the budget scales with the date chip.
+- In the current month, each budget bar has a tick for how much of the month has gone. A bar turns red when over budget and amber (with "ahead of pace") when the share spent is more than 10 points past that tick. Otherwise it keeps the category color.
+- The spend donut legend shows each category's change against the earlier period, left of the dollar amount: the month before for a month chip (up to the same day while the month is open), or the same length of time before a rolling chip. Up is red, down is green, and "new" means no spend then. There is no comparison for All, or when stored history does not reach back far enough. A line under the total says what it compares with. Other donuts do not show changes.
+- The category window shows that category month by month above the merchants, with a dashed average of the complete months. The open month is faded.
+- Recurring opens with Per month, Per year, and Price changes figures, and sorts by Amount or Next due. Each bill shows its latest charge, the next expected date, and "up from" or "down from" the previous charge when the price moved by at least 2% and 50 cents.
 
 ## Transactions
 

@@ -42,9 +42,9 @@ import { defaultTxnWindow, inWindow, type WindowKey } from "@/lib/range";
 import type { TxnRow } from "@/lib/txn-row";
 import { ArrowDown, ArrowUp, StickyNote } from "lucide-react";
 
-function CardMatchNote({ match }: { match: TxnRow["cardMatch"] }) {
+function CardMatchNote({ match, className = "shrink-0" }: { match: TxnRow["cardMatch"]; className?: string }) {
   if (match !== "matched") return null;
-  return <span className="shrink-0 text-xs font-normal text-muted-foreground">Matches another account</span>;
+  return <span className={`${className} text-xs font-normal text-muted-foreground`}>Matches another account</span>;
 }
 
 function NoteMark({ memo }: { memo: string | null }) {
@@ -363,10 +363,11 @@ export function TransactionsTable({
               const body = (
                 <>
                   <div className="min-w-0 flex-1">
-                    <BrandLabel kind="merchant" name={t.merchant}>
+                    {/* Block-level flex so the label is held to the row width and the name ends in "…". */}
+                    <BrandLabel kind="merchant" name={t.merchant} className="flex">
                       <span className="flex min-w-0 items-center gap-1.5">
                         <span className="truncate text-sm">{t.merchant}</span>
-                        <CardMatchNote match={t.cardMatch} />
+                        <CardMatchNote match={t.cardMatch} className="min-w-0 truncate" />
                         <NoteMark memo={t.memo} />
                       </span>
                     </BrandLabel>

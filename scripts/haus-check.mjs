@@ -308,10 +308,22 @@ async function layoutProblems(page, phone) {
   );
 }
 
-/** Changes each input and switch the way a person would, and flags ones that change nothing or only react after leaving the box. */
+/** Changes each input and switch the way a person would, and flags ones that change nothing, or that change the page mid-typing instead of on Enter or leaving the box. */
 async function interactionProblems(page) {
   const out = [];
-  const mainText = () => page.evaluate(() => `${document.documentElement.className}\n${document.body.innerText}`);
+  // Page text, optionally without one box's own note: while typing, "Press Enter to apply." replaces that box's help,
+  // which is the box talking, not the page reacting.
+  const mainText = (quietBox) =>
+    page.evaluate((box) => {
+      // Hide the note itself rather than cutting its words, which another box's identical help line would match.
+      const note = box?.closest(".field")?.querySelector(".field-note");
+      if (note) note.style.display = "none";
+      const text = document.body.innerText;
+      if (note) note.style.display = "";
+      // Taking a note out leaves its line break behind, so compare words, not layout.
+      return `${document.documentElement.className}
+${text.replace(/\s+/g, " ").trim()}`;
+    }, quietBox ?? null);
   const inputs = page.locator(
     'main input:visible:not([type=password]):not([type=hidden]):not([type=file]):not([type=checkbox]):not([type=radio]):not([type=date]):not([type=range]):not([type=color])',
   );
@@ -343,7 +355,10 @@ async function interactionProblems(page) {
 
 async function probeInput(page, input, mainText) {
   const out = [];
-  const skip = await input.evaluate((el) => Boolean(el.closest("form, [role=dialog]")) || el.readOnly || el.disabled);
+  // Search boxes and name boxes update as you type on purpose (data-search, data-live), so they are not held to the Enter-or-leave rule.
+  const skip = await input.evaluate(
+    (el) => Boolean(el.closest("form, [role=dialog]")) || el.readOnly || el.disabled || el.hasAttribute("data-search") || el.hasAttribute("data-live"),
+  );
   if (skip) return out;
   const label = await input.evaluate((el) => {
     const box = el.closest("div")?.parentElement;
@@ -359,18 +374,22 @@ async function probeInput(page, input, mainText) {
       : wantsNumber
         ? "5"
         : `${original}zzqx`;
+  const box = await input.elementHandle();
   const before = await mainText();
+  const beforeQuiet = await mainText(box);
   await input.fill(next, { timeout: 5000 });
   await page.waitForTimeout(500);
-  const live = (await mainText()) !== before;
+  const live = (await mainText(box)) !== beforeQuiet;
   await input.press("Tab");
   await page.waitForTimeout(800);
+  // After leaving the box, its note counts: an error message is a visible answer.
   const after = (await mainText()) !== before;
-  if (!live && after) out.push(`"${label}" only updates after leaving the box (should update as you type)`);
+  if (live) out.push(`"${label}" changes the page while typing (should wait for Enter or leaving the box)`);
   if (!live && !after) out.push(`"${label}" changes nothing visible`);
   await input.fill(original, { timeout: 5000 });
   await input.press("Tab");
-  await page.waitForTimeout(400);
+  // Let the restored value finish re-rendering, or the next box's "before" catches the page mid-update.
+  await page.waitForTimeout(900);
   return out;
 }
 

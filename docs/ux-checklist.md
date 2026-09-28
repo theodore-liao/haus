@@ -20,7 +20,7 @@ The critic scores every changed page against this list, on top of `docs/haus-dec
 
 ## Using it
 
-- Every input visibly changes something as you type. No Enter, blur, or hidden "apply" needed. If an input only matters once another is filled, the page says so beside it.
+- Every number box visibly changes something once you press Enter or leave it, and nothing changes mid-typing. No separate apply button. If an input only matters once another is filled, the page says so beside it.
 - The answer to "what should I do next?" is on screen: a next step, a warning, or a clear "you're on track".
 - Typing odd values (blank, 0, negative, huge, "7%", "$1,000") gives a sensible result or a short inline message, never NaN, a jump, or a silent reset.
 - Buttons look and act like buttons: hand cursor, a clear label, and only the button itself is clickable.
@@ -29,7 +29,7 @@ The critic scores every changed page against this list, on top of `docs/haus-dec
 ## Sizes and states
 
 - It holds up at 2560×1440, 1920×1080, and 412 wide. On a phone nothing scrolls sideways and nothing is cramped.
-- Empty household, one person, no birthdates, and extreme numbers each look intentional.
+- The empty household (a brand-new user, no birthdates) and extreme numbers look intentional, as well as the full household.
 
 ## Words
 

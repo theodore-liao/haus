@@ -8,11 +8,11 @@ alwaysApply: true
 Any change to how a page looks or behaves goes through this loop before you tell Aurin it is done. Fixes that do not touch the page are exempt.
 
 1. Build the change. For a new screen, start from the closest existing Haus page's layout and say which one.
-2. Start the test household if it is down: `npm run demo -- full 3001` in the background.
+2. Start the two test households if they are down: `npm run demo -- full 3001` and `npm run demo -- empty 3002` in the background. Only these two.
 3. Run `npm run ux -- --pages <changed pages>` and fix every major finding.
 4. Launch the `ux-critic` subagent with the changed pages and one line on what the change is for. If that subagent type is not offered, launch a `generalPurpose` subagent on the strongest available Claude model and tell it to read `.cursor/agents/ux-critic.md` and follow it exactly.
 5. Fix every blocker and major it reports. If it says "rethink the layout", do that instead of patching.
-6. Run the critic again. Repeat up to three rounds. If it still fails, stop and tell Aurin what is left and why.
+6. Run the critic once more. Two rounds at most, to save time and tokens. If it still fails, stop and tell Aurin what is left and why.
 7. Only then report to Aurin: the critic's final verdict and any minors you chose not to fix, in a few lines.
 
 The critic only reads and reports. It never replaces the steps in `haus-decisions.mdc`: the screenshot diff against the real household still runs.

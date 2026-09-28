@@ -1,6 +1,6 @@
 import { prisma } from "./db";
 import { matchesOwner, type OwnerFilter } from "./owners";
-import { isCashType, isInvestmentType, isLiabilityType } from "./account-types";
+import { isCashType, isCryptoHoldingType, isInvestmentType, isLiabilityType, isRetirementAccount } from "./account-types";
 import { startOfDay } from "./format";
 import { historyAgreesWithSpot, loadPriceMap, priceOnOrBefore, RECENT_CLOSE_DAYS } from "./quotes";
 import { propertyDebt, vehicleDebt } from "./property";
@@ -91,6 +91,7 @@ const pathMemo = new Map<OwnerFilter, { at: number; value: Promise<PathPoint[]> 
 /** Drop the memoised paths after a sync or manual edit so the next render recomputes. */
 export function invalidateNetWorthPath() {
   pathMemo.clear();
+  stocksMemo.clear();
 }
 
 /** Memoised for a minute per owner filter: the path only changes when the ledger does, and every
@@ -270,4 +271,97 @@ async function buildNetWorthPath(filter: OwnerFilter): Promise<PathPoint[]> {
   }
 
   return path;
+}
+
+export type ValuePoint = { date: string; value: number };
+const stocksMemo = new Map<OwnerFilter, { at: number; value: Promise<ValuePoint[]> }>();
+
+/**
+ * Value of the Stocks page over time: holdings outside retirement accounts that are not crypto, plus
+ * manual stock entries. Share counts roll back through buys and sells; prices come from stored closes
+ * when they agree with today's quote. Memoised for a minute like the net worth path.
+ */
+export function reconstructStocksPath(filter: OwnerFilter): Promise<ValuePoint[]> {
+  const hit = stocksMemo.get(filter);
+  if (hit && Date.now() - hit.at < PATH_TTL_MS) return hit.value;
+  const value = buildStocksPath(filter);
+  stocksMemo.set(filter, { at: Date.now(), value });
+  value.catch(() => stocksMemo.delete(filter));
+  return value;
+}
+
+async function buildStocksPath(filter: OwnerFilter): Promise<ValuePoint[]> {
+  const [holdings, invTxns, stockManuals] = await Promise.all([
+    prisma.holding.findMany({ include: { account: true } }),
+    prisma.investmentTxn.findMany({ include: { security: true } }),
+    prisma.manualHolding.findMany({ where: { kind: "security" } }),
+  ]);
+  const lots = holdings.filter(
+    (h) => matchesOwner(h.account.owner, filter) && !isRetirementAccount(h.account) && !isCryptoHoldingType(h.type),
+  );
+  const manuals = stockManuals.filter((h) => matchesOwner(h.owner, filter));
+  if (!lots.length && !manuals.length) return [];
+
+  const accountIds = new Set(lots.map((h) => h.accountId));
+  const txns = invTxns.filter((t) => accountIds.has(t.accountId));
+  const earliest = txns.map((t) => t.date).sort((a, b) => a.getTime() - b.getTime())[0] ?? new Date(Date.now() - 365 * 86400000);
+  const floor = new Date();
+  floor.setDate(floor.getDate() - 730);
+  const from = earliest < floor ? floor : earliest;
+  const to = new Date();
+
+  const symbols = new Set<string>();
+  for (const h of lots) if (h.symbol) symbols.add(h.symbol.toUpperCase());
+  for (const h of manuals) if (h.coingeckoId !== FIXED_USD_ID && h.symbol) symbols.add(h.symbol.trim().toUpperCase());
+  const priceMap = await loadPriceMap([...symbols], from, to);
+  const trust = (sym: string | null, spot: number | null) =>
+    Boolean(sym) && historyAgreesWithSpot(priceOnOrBefore(priceMap, sym!, to, RECENT_CLOSE_DAYS), spot);
+
+  const byAcct = new Map<string, { date: Date; type: string; subtype: string | null; quantity: number | null; symbol: string | null }[]>();
+  for (const t of txns) {
+    const list = byAcct.get(t.accountId) ?? [];
+    list.push({ date: t.date, type: t.type, subtype: t.subtype, quantity: t.quantity, symbol: t.security?.symbol ?? null });
+    byAcct.set(t.accountId, list);
+  }
+  const prepared = lots.map((h) => {
+    const sym = h.symbol?.toUpperCase() ?? null;
+    const spot = h.quotePrice ?? h.institutionPrice;
+    return {
+      sym,
+      spot,
+      useHist: trust(sym, spot),
+      qtyNow: h.quantity,
+      // A lot with no price per share (cash sweep, a fund with only a value) holds its value.
+      fixed: spot == null || !sym ? holdingValueNow(h) : null,
+      qtyEvents: holdingQtyEvents(h, byAcct.get(h.accountId) ?? []),
+    };
+  });
+  const manualRows = manuals.map((h) => {
+    if (h.coingeckoId === FIXED_USD_ID) return { fixed: h.quotePrice ?? 0, sym: null, spot: null, qty: 0, useHist: false };
+    const sym = h.symbol.trim().toUpperCase();
+    return { fixed: null, sym, spot: h.quotePrice, qty: h.quantity, useHist: trust(sym, h.quotePrice) };
+  });
+
+  return sampleDates(from, to).map((asOf) => {
+    const asOfMs = asOf.getTime();
+    let value = 0;
+    for (const lot of prepared) {
+      if (lot.fixed != null) {
+        value += lot.fixed;
+        continue;
+      }
+      const qty = Math.max(0, lot.qtyNow + lot.qtyEvents.after(asOfMs));
+      const px = (lot.useHist ? priceOnOrBefore(priceMap, lot.sym!, asOf) : null) ?? lot.spot;
+      if (qty > 0 && px != null) value += qty * px;
+    }
+    for (const m of manualRows) {
+      if (m.fixed != null) {
+        value += m.fixed;
+        continue;
+      }
+      const px = (m.useHist ? priceOnOrBefore(priceMap, m.sym!, asOf) : null) ?? m.spot;
+      if (px != null) value += m.qty * px;
+    }
+    return { date: asOf.toISOString(), value };
+  });
 }

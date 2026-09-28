@@ -11,7 +11,7 @@ export function HeroCard({
   kicker: string;
   children: ReactNode;
   supporting?: ReactNode;
-  deltas?: { label: string; value: number | null }[];
+  deltas?: { label: string; value: number | null; pct?: number | null }[];
   /** Right-hand column (e.g. compact pills). The figure and its deltas stay on the left. */
   aside?: ReactNode;
 }) {
@@ -20,7 +20,7 @@ export function HeroCard({
       <div className="delta-row">
         {deltas.map((d) => (
           <span key={d.label}>
-            {d.label} <Delta value={d.value} />
+            {d.label} <Delta value={d.value} pct={d.pct} />
           </span>
         ))}
       </div>

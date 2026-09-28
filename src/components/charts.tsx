@@ -113,15 +113,28 @@ const DEBT_FILL = "#D4928C";
 
 type NetWorthPoint = { date: string; netWorth: number; assets?: number; liabilities?: number };
 
-export function NetWorthChart({ data }: { data: NetWorthPoint[] }) {
+export function NetWorthChart({
+  data,
+  name = "Net worth",
+  empty,
+  zeroBased = true,
+}: {
+  data: NetWorthPoint[];
+  /** False fits the axis to the data, for prices and values that never approach zero. */
+  zeroBased?: boolean;
+  /** Series name in the tooltip. */
+  name?: string;
+  /** Shown when there is no history yet. */
+  empty?: string;
+}) {
   const [range, setRange] = useChartRange();
   const [split, setSplit] = useState(false);
   const sliced = useMemo(() => data.filter((d) => inRange(d.date, range)), [data, range]);
   if (data.length === 0) {
     return (
       <p className="py-10 text-sm text-muted-foreground">
-        History is built from linked transactions, holdings marked at historical prices, and manual entries. Sync an
-        institution or add crypto to populate this path.
+        {empty ??
+          "History is built from linked transactions, holdings marked at historical prices, and manual entries. Sync an institution or add crypto to populate this path."}
       </p>
     );
   }
@@ -182,6 +195,7 @@ export function NetWorthChart({ data }: { data: NetWorthPoint[] }) {
               axisLine={false}
               tickLine={false}
               width={72}
+              domain={zeroBased ? undefined : ["auto", "auto"]}
               tickFormatter={(v) =>
                 new Intl.NumberFormat("en-US", { notation: "compact", maximumFractionDigits: 1 }).format(v)
               }
@@ -194,7 +208,7 @@ export function NetWorthChart({ data }: { data: NetWorthPoint[] }) {
                 <Area type="monotone" dataKey="netWorth" name="Net worth" stroke={ICE} fill="none" strokeWidth={2} />
               </>
             ) : (
-              <Area type="monotone" dataKey="netWorth" name="Net worth" stroke={ICE} fill="url(#nw)" strokeWidth={2} />
+              <Area type="monotone" dataKey="netWorth" name={name} stroke={ICE} fill="url(#nw)" strokeWidth={2} />
             )}
           </AreaChart>
         </ResponsiveContainer>

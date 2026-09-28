@@ -172,6 +172,17 @@ export async function cryptoDayMoves(ids: string[]) {
   return out;
 }
 
+/** 24h moves already fetched in the last 15 minutes. Never touches the network, so a page can render at once. */
+export function cachedCryptoDayMoves(ids: string[]) {
+  const out = new Map<string, Quote>();
+  const now = Date.now();
+  for (const id of new Set(ids.filter(Boolean))) {
+    const cached = quoteCache.get(`cg:${id}`);
+    if (cached && now - cached.at < TTL_MS && Number.isFinite(cached.quote.change)) out.set(id, cached.quote);
+  }
+  return out;
+}
+
 export function coinGeckoId(symbol: string | null | undefined, id?: string | null) {
   if (id && id !== FIXED_USD_ID) return id;
   if (!symbol) return null;

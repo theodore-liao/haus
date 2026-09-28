@@ -998,6 +998,24 @@ export async function getInvestments(filter: OwnerFilter) {
   };
 }
 
+/** Cash events from the last 13 months in non-retirement brokerage accounts, for the dividend summary. */
+export async function getDividendTxns(filter: OwnerFilter) {
+  const since = new Date();
+  since.setMonth(since.getMonth() - 13);
+  const rows = await prisma.investmentTxn.findMany({
+    where: { date: { gte: since } },
+    include: { account: true, security: true },
+  });
+  return rows
+    .filter(
+      (t) =>
+        matchesOwner(t.account.owner, filter) &&
+        !isRetirementAccount(t.account) &&
+        !isCryptoHoldingType(t.security?.type),
+    )
+    .map((t) => ({ date: t.date.toISOString(), type: t.type, subtype: t.subtype, name: t.name, amount: t.amount }));
+}
+
 export async function getBrokerageCrypto(filter: OwnerFilter) {
   const names = await getNames();
   const holdings = await prisma.holding.findMany({
@@ -1121,7 +1139,28 @@ export async function getSymbolDetail(symbol: string, filter: OwnerFilter) {
       ...t,
       accountLabel: accountLabel(t.account.name, t.account.item.institutionName),
     }));
-  return { names, symbol, lots, trades };
+  const [prices, investments] = await Promise.all([
+    prisma.pricePoint.findMany({ where: { symbol: upper }, orderBy: { date: "asc" }, select: { date: true, close: true } }),
+    getInvestments(filter),
+  ]);
+  const manualValue = (m: (typeof investments.manuals)[number]) =>
+    m.coingeckoId === FIXED_USD_ID ? (m.quotePrice ?? 0) : (m.quotePrice ?? 0) * m.quantity;
+  const stocksTotal =
+    investments.rows.reduce((s, r) => s + r.value, 0) + investments.manuals.reduce((s, m) => s + manualValue(m), 0);
+  // Only what the Stocks page counts (no retirement lots), so the share matches that page.
+  const stocksValue =
+    investments.rows.filter((r) => r.symbol?.toUpperCase() === upper).reduce((s, r) => s + r.value, 0) +
+    investments.manuals
+      .filter((m) => m.coingeckoId !== FIXED_USD_ID && m.symbol.toUpperCase() === upper)
+      .reduce((s, m) => s + manualValue(m), 0);
+  return {
+    names,
+    symbol,
+    lots,
+    trades,
+    prices: prices.map((p) => ({ date: p.date.toISOString(), close: p.close })),
+    stocksShare: stocksTotal > 0 && stocksValue > 0 ? stocksValue / stocksTotal : null,
+  };
 }
 
 export async function getRetirement(filter: OwnerFilter) {

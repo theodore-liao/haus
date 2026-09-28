@@ -98,11 +98,17 @@ Sizes, spacing, and placement come from shared styles, not from each page. Use t
 ## Stocks and crypto
 
 - Largest moves on Stocks shows stocks only, and Crypto shows crypto only. Each shows up to seven gainers and seven losers.
+- Stocks opens with Market value, its day change, and cost basis and gain. When one holding is more than 15% of the stocks total, a note under the summary names it.
+- Below that, Value (the Stocks holdings over time, axis fitted to the data) sits beside Dividends (last 12 months, this year, yield on today's value, and number of payments). Then By class, By account, and Largest moves share one row.
+- A symbol page opens with that holding's value, shares, average cost, gain, share of the stocks total, and day change, then its price chart. A Stocks button at the top right goes back.
 - A window with price movement always has gainers and losers. Percent changes are sane and never come from a bad price.
 - Day change is filled for every holding, including options and manually entered assets. It is computed from quantity and price change when the connection has not refreshed.
 - Manual entries show "Last updated" with date and time. Edit and Remove sit at the right end of the account column. Edit reopens the entry window with values filled in, and Add becomes Save.
 - The manual entry window clearly separates Ticker + shares from Name + dollar value. Ticker entries take cost per share, and dollar entries take total cost basis.
-- Crypto holdings have no Cost or Total columns. "Manual Entries" is the name, not "Manual Lots".
+- Crypto holdings show Cost and Total only once some coin has a cost: a manual entry's own cost, or an average cost per coin entered with the Average cost button on the Holdings card. "Manual Entries" is the name, not "Manual Lots".
+- The Crypto summary card is "Crypto value" and covers wallets, brokerage crypto, and manual entries. Like Stocks, it shows day change, and cost basis and gain once costs exist, saying how many holdings have a cost.
+- The Crypto page renders from stored prices and never waits on the price feed. After it loads it asks for fresh prices (at most every five minutes) and redraws only if something changed.
+- A "Wallets" heading sits above the wallet boxes.
 - Crypto wallet boxes are all the same size, have no account-holder box, and can be renamed. The By-asset legend does not show an obtrusive scroll bar.
 
 ## Retirement, property, insights

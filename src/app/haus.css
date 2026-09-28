@@ -750,6 +750,29 @@ html.privacy .amort-chart .ytick text:hover {
   color: var(--accent);
 }
 
+/* tab-fit:start */
+/* A tab row stays inside the page. A long name ends with … */
+.tabs-fit {
+  min-width: 0;
+  max-width: 100%;
+}
+
+.tabs-fit [role="tab"] {
+  max-width: 100%;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.tabs-fit [role="tab"] > span {
+  display: block;
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* tab-fit:end */
+
 /* Segmented choice: one of a few options, same look as TabsList. */
 .segmented {
   display: inline-flex;

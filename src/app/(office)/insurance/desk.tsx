@@ -129,7 +129,7 @@ export function InsuranceDesk({
                   <span className="kicker">Covered member</span>
                   <TabsList>
                     {members.map((m) => (
-                      <TabsTrigger key={m.id} value={m.id}>
+                      <TabsTrigger key={m.id} value={m.id} title={m.label}>
                         {m.label}
                       </TabsTrigger>
                     ))}

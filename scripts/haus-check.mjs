@@ -311,15 +311,16 @@ async function layoutProblems(page, phone) {
 /** Changes each input and switch the way a person would, and flags ones that change nothing, or that change the page mid-typing instead of on Enter or leaving the box. */
 async function interactionProblems(page) {
   const out = [];
-  // Page text, optionally without one box's own note: while typing, "Press Enter to apply." replaces that box's help,
+  // Page text, optionally without one box's own note and hint: while typing, "Enter to apply" shows inside that box,
   // which is the box talking, not the page reacting.
   const mainText = (quietBox) =>
     page.evaluate((box) => {
       // Hide the note itself rather than cutting its words, which another box's identical help line would match.
-      const note = box?.closest(".field")?.querySelector(".field-note");
-      if (note) note.style.display = "none";
+      const field = box?.closest(".field");
+      const quiet = field ? [...field.querySelectorAll(".field-note, .field-hint")] : [];
+      for (const el of quiet) el.style.display = "none";
       const text = document.body.innerText;
-      if (note) note.style.display = "";
+      for (const el of quiet) el.style.display = "";
       // Taking a note out leaves its line break behind, so compare words, not layout.
       return `${document.documentElement.className}
 ${text.replace(/\s+/g, " ").trim()}`;
@@ -377,17 +378,19 @@ async function probeInput(page, input, mainText) {
   const box = await input.elementHandle();
   const before = await mainText();
   const beforeQuiet = await mainText(box);
-  await input.fill(next, { timeout: 5000 });
+  await box.fill(next, { timeout: 5000 });
   await page.waitForTimeout(500);
   const live = (await mainText(box)) !== beforeQuiet;
-  await input.press("Tab");
+  await box.press("Tab", { timeout: 5000 });
   await page.waitForTimeout(800);
   // After leaving the box, its note counts: an error message is a visible answer.
   const after = (await mainText()) !== before;
   if (live) out.push(`"${label}" changes the page while typing (should wait for Enter or leaving the box)`);
   if (!live && !after) out.push(`"${label}" changes nothing visible`);
-  await input.fill(original, { timeout: 5000 });
-  await input.press("Tab");
+  // Everything goes through the same element: a change can add or remove boxes above this one, so the locator's index
+  // may point at a different box by the time it is used again.
+  await box.fill(original, { timeout: 5000 });
+  await box.press("Tab", { timeout: 5000 });
   // Let the restored value finish re-rendering, or the next box's "before" catches the page mid-update.
   await page.waitForTimeout(900);
   return out;

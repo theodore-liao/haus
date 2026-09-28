@@ -22,3 +22,21 @@ test("number fields read what people type", () => {
   assert.equal(parseTyped("abc"), undefined);
   assert.equal(parseTyped("1e400"), undefined);
 });
+
+test("pasted values that only look like numbers are refused, not misread", () => {
+  assert.equal(parseTyped("1.234,56"), undefined);
+  assert.equal(parseTyped("0x1F"), undefined);
+  assert.equal(parseTyped("--5"), undefined);
+  assert.equal(parseTyped("1,234.56"), 1234.56);
+  assert.equal(parseTyped("1e5"), 100000);
+});
+
+test("what applies is what the box shows: two decimals at most", () => {
+  assert.deepEqual(checkTyped("7.126", { unit: "percent" }), { ok: true, value: 7.13 });
+  assert.deepEqual(checkTyped("50.004", { unit: "percent", max: 50 }), { ok: true, value: 50 });
+});
+
+test("year limits read without a thousands comma", () => {
+  assert.deepEqual(checkTyped("20", { integer: true, min: 1900, grouping: false }), { ok: false, error: "Use 1900 or more." });
+  assert.deepEqual(checkTyped("20", { integer: true, min: 1900 }), { ok: false, error: "Use 1,900 or more." });
+});

@@ -49,7 +49,8 @@ import { ellipsize, formatHoldingClass, formatMoney, startOfDay } from "./format
 import { differenceInCalendarDays, subDays } from "date-fns";
 import { accountLabel } from "./account-label";
 import { reconstructNetWorthPath, type PathPoint } from "./history";
-import { coinGeckoId, cryptoSpanMoves, equityDayMoves, historyAgreesWithSpot, isOptionSymbol, loadPriceMap, optionPremiumScale, priceOnOrBefore, quoteSymbol, RECENT_CLOSE_DAYS } from "./quotes";
+import { coinGeckoId, cryptoSpanMoves, ensurePriceHistory, equityDayMoves, historyAgreesWithSpot, isOptionSymbol, loadPriceMap, optionPremiumScale, priceOnOrBefore, quoteSymbol, RECENT_CLOSE_DAYS } from "./quotes";
+import { closeDaysAgo } from "./price-window";
 import { propertyDebt, vehicleDebt } from "./property";
 import { loadCryptoLots, lotValue } from "./crypto-lots";
 import type { BrandKind } from "./logos";
@@ -488,6 +489,26 @@ export async function getOverview(filter: OwnerFilter) {
     /* keep stored snapshots */
   }
 
+  const dayMoves = await equityDayMoves(
+    valuedHolds
+      .filter((x) => x.h.quoteChange == null && x.h.symbol && !isCryptoHoldingType(x.h.type))
+      .map((x) => x.h.symbol as string),
+  );
+  try {
+    await ensurePriceHistory(
+      historyNeed
+        .filter((s) => s.kind === "equity")
+        .map((s) => {
+          const live = dayMoves.get(quoteSymbol(s.symbol));
+          return live && live.price > 0 ? { ...s, spot: live.price } : s;
+        }),
+      historyFrom,
+      now,
+    );
+  } catch {
+    /* week and month moves use whatever bars are already stored */
+  }
+
   const moverSymbols = [...new Set(historyNeed.map((s) => s.symbol))];
   const spanIds = [
     ...valuedHolds
@@ -522,7 +543,7 @@ export async function getOverview(filter: OwnerFilter) {
     const key = symbol.toUpperCase();
     const recent = priceOnOrBefore(priceMap, key, now, RECENT_CLOSE_DAYS);
     if (recent != null && !historyAgreesWithSpot(recent, last)) return { delta: null, pct: null };
-    const then = priceOnOrBefore(priceMap, key, subDays(now, days), 10);
+    const then = closeDaysAgo(priceMap, key, now, days);
     if (then == null || then <= 0) return { delta: null, pct: null };
     // No bar near today: still refuse a history price on a different scale from the holding.
     if (recent == null) {
@@ -534,20 +555,16 @@ export async function getOverview(filter: OwnerFilter) {
     return { delta, pct };
   }
 
-  const dayMoves = await equityDayMoves(
-    valuedHolds
-      .filter((x) => x.h.quoteChange == null && x.h.symbol && !isCryptoHoldingType(x.h.type))
-      .map((x) => x.h.symbol as string),
-  );
-
   const movers = [
     ...valuedHolds.map(({ h, value, last }) => {
-      const hist1 = periodMove(h.symbol, h.quantity, last, 1);
       const live = h.symbol ? dayMoves.get(quoteSymbol(h.symbol)) : undefined;
       const scale =
         h.symbol && live && isOptionSymbol(h.symbol)
           ? optionPremiumScale(h.institutionPrice ?? h.quotePrice, live.price)
           : 1;
+      // Week and month use the same live price as the day move. The brokerage price can sit on an old sync.
+      const quoted = live && live.price > 0 ? live.price : last;
+      const hist1 = periodMove(h.symbol, h.quantity * scale, quoted, 1);
       const dayDelta =
         h.quoteChange != null ? h.quoteChange * h.quantity : live ? live.change * scale * h.quantity : hist1.delta;
       const dayPct = h.quoteChangePct ?? live?.changePct ?? hist1.pct;
@@ -560,8 +577,8 @@ export async function getOverview(filter: OwnerFilter) {
         retirement: isRetirementAccount(h.account),
         value,
         day: { delta: dayDelta, pct: dayPct },
-        week: crypto ? cryptoWindow(h.symbol, null, last, h.quantity, 7) : periodMove(h.symbol, h.quantity, last, 7),
-        month: crypto ? cryptoWindow(h.symbol, null, last, h.quantity, 30) : periodMove(h.symbol, h.quantity, last, 30),
+        week: crypto ? cryptoWindow(h.symbol, null, last, h.quantity, 7) : periodMove(h.symbol, h.quantity * scale, quoted, 7),
+        month: crypto ? cryptoWindow(h.symbol, null, last, h.quantity, 30) : periodMove(h.symbol, h.quantity * scale, quoted, 30),
       };
     }),
     ...valuedCoins.map(({ c, value, last }) => {

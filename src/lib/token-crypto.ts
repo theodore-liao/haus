@@ -5,8 +5,16 @@ const SALT = "haus-plaid-token-v1";
 /** Tokens were sealed with this .env placeholder before a real HAUS_TOKEN_KEY was written. */
 const LEGACY_TOKEN_KEYS = ["replace-me-run-node-crypto-randomBytes-32-hex"];
 
+// scrypt is slow on purpose; derive each key once per process instead of on every token.
+const derivedKeys = new Map<string, Buffer>();
+
 function deriveKey(secret: string) {
-  return scryptSync(secret, SALT, 32);
+  let key = derivedKeys.get(secret);
+  if (!key) {
+    key = scryptSync(secret, SALT, 32);
+    derivedKeys.set(secret, key);
+  }
+  return key;
 }
 
 function normalizeSecret(s: string | undefined) {

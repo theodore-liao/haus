@@ -21,8 +21,8 @@ export type AssetMover = {
 
 const WINDOWS: { key: MoversWindow; label: string }[] = [
   { key: "day", label: "1D" },
-  { key: "week", label: "1w" },
-  { key: "month", label: "1m" },
+  { key: "week", label: "1W" },
+  { key: "month", label: "1M" },
 ];
 
 type Ranked = AssetMover & { move: AssetMover["day"] };
@@ -69,7 +69,7 @@ export function LargestMoves({ movers }: { movers: AssetMover[] }) {
         </div>
       </div>
       {empty ? (
-        <p className="text-sm text-muted-foreground">No quoted moves for this window yet.</p>
+        <p className="text-sm text-muted-foreground">No prices for this window yet. They show up after the next sync.</p>
       ) : (
         <div className="grid w-full min-w-0 grid-cols-1 gap-6 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
           <MoveCol title="Gainers" rows={gainers} />

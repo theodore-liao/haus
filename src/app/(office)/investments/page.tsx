@@ -1,6 +1,6 @@
 import { PageHeader } from "@/components/page-header";
 import { EmptyLedger } from "@/components/states";
-import { getDividendTxns, getInvestments, getOverview } from "@/lib/queries";
+import { getInvestments, getOverview } from "@/lib/queries";
 import { reconstructStocksPath } from "@/lib/history";
 import { getOwnerFilter } from "@/lib/request";
 import { TradesCard } from "@/components/trades-table";
@@ -11,12 +11,9 @@ export const dynamic = "force-dynamic";
 
 export default async function InvestmentsPage() {
   const owner = await getOwnerFilter();
-  const [data, overview, path, dividends] = await Promise.all([
-    getInvestments(owner),
-    getOverview(owner),
-    reconstructStocksPath(owner).catch(() => []),
-    getDividendTxns(owner),
-  ]);
+  const [data, overview] = await Promise.all([getInvestments(owner), getOverview(owner)]);
+  // Overview fills in recent daily closes. The chart reads those, so it runs after.
+  const path = await reconstructStocksPath(owner).catch(() => []);
   const manuals = data.manuals as ManualStock[];
   return (
     <>
@@ -38,7 +35,6 @@ export default async function InvestmentsPage() {
           rows={data.rows}
           movers={overview.movers}
           path={path}
-          dividends={dividends}
         />
       )}
       {data.rows.length > 0 ? <TradesCard trades={data.trades} /> : null}

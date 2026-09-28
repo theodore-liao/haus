@@ -62,6 +62,8 @@ export function InvestmentsBoard({
   classMode = "class",
   besideAccount,
   afterHero,
+  accountFirst,
+  donutsFirst,
   heroKicker = "Market value",
   heroSummary,
   accountSlot,
@@ -77,10 +79,14 @@ export function InvestmentsBoard({
   hideDonuts?: boolean;
   hideTable?: boolean;
   classMode?: "class" | "asset";
-  /** A third card after the two donuts (Stocks puts largest moves here). */
+  /** A third card after the two donuts (Crypto does not use this). */
   besideAccount?: ReactNode;
-  /** Cards between the summary and the donuts. */
+  /** Cards under the summary. Stocks places these under the donuts. */
   afterHero?: ReactNode;
+  /** Draw By account on the left and By class on the right. */
+  accountFirst?: boolean;
+  /** Draw the donut row above `afterHero`. */
+  donutsFirst?: boolean;
   heroKicker?: string;
   /** Add day change, cost basis, and gain to the summary card. */
   heroSummary?: boolean;
@@ -160,6 +166,25 @@ export function InvestmentsBoard({
     minValue,
   );
   const filtersOn = classSel != null || acctSel != null || q.trim() !== "";
+  const classCard = (
+    <ChartCard kicker={classMode === "asset" ? "By asset" : "By class"}>
+      <AllocationChart className={classMode === "asset" ? "legend-quiet" : undefined} data={byClass} />
+    </ChartCard>
+  );
+  const accountCard = accountSlot ? (
+    <div className="h-full min-w-0">{accountSlot}</div>
+  ) : (
+    <ChartCard kicker="By account">
+      <AllocationChart data={byAccount} />
+    </ChartCard>
+  );
+  const donutGrid = (
+    <div className={cn("relative z-0 grid items-stretch gap-4 lg:grid-cols-2", besideAccount && "xl:grid-cols-3")}>
+      {accountFirst ? accountCard : classCard}
+      {accountFirst ? classCard : accountCard}
+      {besideAccount ? <div className="h-full min-w-0 lg:col-span-2 xl:col-span-1">{besideAccount}</div> : null}
+    </div>
+  );
 
   function head(key: SortKey, label: string, extra?: ReactNode, right?: boolean, className?: string) {
     const active = sort.key === key;
@@ -200,22 +225,9 @@ export function InvestmentsBoard({
           <Money value={total} />
         </HeroCard>
       )}
+      {donutsFirst && !hideDonuts ? donutGrid : null}
       {afterHero}
-      {hideDonuts ? null : (
-      <div className={cn("relative z-0 grid items-stretch gap-4 lg:grid-cols-2", besideAccount && "xl:grid-cols-3")}>
-        <ChartCard kicker={classMode === "asset" ? "By asset" : "By class"}>
-          <AllocationChart className={classMode === "asset" ? "legend-quiet" : undefined} data={byClass} />
-        </ChartCard>
-        {accountSlot ? (
-          <div className="min-w-0">{accountSlot}</div>
-        ) : (
-          <ChartCard kicker="By account">
-            <AllocationChart data={byAccount} />
-          </ChartCard>
-        )}
-        {besideAccount ? <div className="min-w-0 lg:col-span-2 xl:col-span-1">{besideAccount}</div> : null}
-      </div>
-      )}
+      {donutsFirst || hideDonuts ? null : donutGrid}
       {beforeTable ? <div className="relative z-0">{beforeTable}</div> : null}
       {hideTable ? null : (
       <Card>

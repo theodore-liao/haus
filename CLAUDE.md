@@ -20,17 +20,25 @@ When a `design:*` skill (critique, accessibility review, design system audit, co
 
 ## UX review gate
 
-Any change to how a page looks or behaves goes through this loop before you tell Aurin it is done. Fixes that do not touch the page are exempt.
+Any change to how a page looks or behaves goes through this before you tell Aurin it is done. Fixes that do not touch the page are exempt.
+
+Size the review to the change. Say which tier you picked, and why, when you report.
+
+- **Small**: wording, help text, spacing, one control moved or restyled. No critic. Run `npm run ux -- --pages <page>`, fix its majors, and look at a screenshot of the changed area at 1920 and 412 yourself.
+- **Medium**: a new control, or a layout change on one page. One critic round, told to check only the changed area, at 1920 and 412, on the full household (3001). Fix its blockers and majors and check the fixes yourself; no second round.
+- **Large**: a new screen or a redesign. Up to two critic rounds across both test households. If round two still fails, stop and tell Aurin what is left and why.
+
+For every tier:
 
 1. Build the change. For a new screen, start from the closest existing Haus page's layout and say which one.
-2. Start the two test households if they are down: `npm run demo -- full 3001` and `npm run demo -- empty 3002`, each with the Bash tool in the background, then poll `/lock` on both until they answer. Only these two: full covers the usual case, empty covers a brand-new user and no birthdates.
-3. Run `npm run ux -- --pages <changed pages>` and fix every major finding.
-4. Launch the `ux-critic` subagent with the changed pages and one line on what the change is for. Run it in the foreground. If it runs in the background (a resumed critic always does), first `touch .grok/keep-servers` so the Stop hook leaves the test servers up, and delete that file when the loop ends.
+2. Start only the test households the tier needs: `npm run demo -- full 3001`, plus `npm run demo -- empty 3002` for large changes or changes that touch a first-run or no-birthdate state. Reseed only when a check needs fresh data.
+3. Run `npm run ux -- --pages <changed pages>` and fix every major finding. The critic reuses its screenshots in `.grok/ux/shots` instead of taking its own.
+4. When the tier calls for the critic, launch the `ux-critic` subagent with the changed pages, the changed area, one line on what the change is for, on Opus 5.5, or the strongest Claude model available (the critic always runs on it, whatever the tier). Run it in the foreground. If it runs in the background (a resumed critic always does), first `touch .grok/keep-servers` so the Stop hook leaves the test servers up, and delete that file when the loop ends.
 5. Fix every blocker and major it reports. If it says "rethink the layout", do that instead of patching.
-6. Run the critic once more. Two rounds at most, to save time and tokens. If it still fails, stop and tell Aurin what is left and why.
-7. Only then report to Aurin: the critic's final verdict and any minors you chose not to fix, in a few lines.
+6. While iterating, run only the related test files (`npx tsx --test <file>`); run the full `npm test` once before reporting done.
+7. Report to Aurin: the tier, the critic's verdict if it ran, and any minors you chose not to fix, in a few lines.
 
-The critic only reads and reports. The screenshot diff against the real household still runs.
+The critic only reads and reports. The screenshot diff against the real household still runs for feature changes.
 
 ## Looking at pages
 

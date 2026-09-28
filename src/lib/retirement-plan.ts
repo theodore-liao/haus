@@ -112,8 +112,9 @@ export function collegeScale(
 
 type Parts = { living: number; kids: number; health: number; total: number };
 
+/** The calendar year of a whole age. Ages count from the current whole age, so a part-year age never splits a child's year. */
 function yearOf(age: number, ageNow: number, currentYear: number) {
-  return currentYear + (age - ageNow);
+  return currentYear + (age - Math.floor(ageNow));
 }
 
 function costsAt(
@@ -161,7 +162,7 @@ function lastKidAge(input: RetirementPlanInput, retire: number): number | null {
     for (let childAge = 0; childAge <= 21; childAge++) {
       const year = child.birthYear + childAge;
       if (year < input.currentYear) continue;
-      const age = input.ageNow + (year - input.currentYear);
+      const age = Math.floor(input.ageNow) + (year - input.currentYear);
       if (age >= retire) last = last == null ? age : Math.max(last, age);
     }
   }

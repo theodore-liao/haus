@@ -265,3 +265,21 @@ test("the years before retirement accounts open cost something only when retirin
   const early = bridgeCost(plan({ retireAge: 50 }));
   assert.ok(early > 9 * 100_000 && early < 10 * 100_000);
 });
+
+test("a part-year age counts every year of a child's costs", () => {
+  // Retire at once with nothing else to pay and no real return: the number is the sum of the child's costs.
+  const input = (ageNow: number) =>
+    plan({ ageNow, retireAge: Math.floor(ageNow) + 1, liveTo: 100, mode: "down", invested: 0, annualSpend: 0, growth: 0.03, returnAfter: 0.03, children: [{ birthYear: 2030 }] });
+  close(retirementNumber(input(36)).kids, 18 * 25_000 + 4 * 70_000);
+  close(retirementNumber(input(36.6)).kids, 18 * 25_000 + 4 * 70_000);
+});
+
+test("today's-money saving equals a dollar saving that rises with prices, grown at the nominal rate", () => {
+  const input = plan({ ageNow: 40, retireAge: 60, invested: 100_000, growth: 0.07, inflation: 0.03 });
+  const saving = 30_000;
+  const real = balancePath(input, saving).find((p) => p.age === 60)!.balance;
+  // The same plan in actual dollars: each year's saving is today's figure grown with prices.
+  let nominal = 100_000;
+  for (let year = 1; year <= 20; year++) nominal = nominal * 1.07 + saving * 1.03 ** year;
+  close(nominal / 1.03 ** 20, real, 1);
+});

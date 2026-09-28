@@ -63,7 +63,7 @@ export default async function RetirementPage() {
 
   const childAccounts = (
     <>
-      <Card>
+      <Card className="h-full">
           <CardHeader row>
             <CardTitle>Child Accounts</CardTitle>
             <ChildrenForms names={data.names} actions="entry" />

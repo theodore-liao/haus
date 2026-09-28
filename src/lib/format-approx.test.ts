@@ -12,6 +12,15 @@ test("projections round to what they can honestly claim", () => {
   assert.equal(formatApprox(null), "—");
 });
 
+test("very large projections move to billions and trillions instead of thousands of millions", () => {
+  assert.equal(formatApprox(2_260_000_000), "$2.26B");
+  assert.equal(formatApprox(108_000_000_000), "$108B");
+  assert.equal(formatApprox(999_800_000), "$1B");
+  assert.equal(formatApprox(999_960), "$1M");
+  assert.equal(formatApprox(999_400), "$999,400");
+  assert.equal(formatApprox(4_500_000_000_000), "$4.5T");
+});
+
 test("a person's own figure shows whole dollars", async () => {
   const { formatWhole, roundApprox } = await import("./format");
   assert.equal(formatWhole(40_171.4), "$40,171");

@@ -15,14 +15,12 @@ export function InvestmentsDesk({
   rows,
   movers,
   path,
-  dividends,
 }: {
   names: { nameA: string; nameB: string; children: { id: string; name: string }[] };
   manuals: ManualStock[];
   rows: HoldingRow[];
   movers: AssetMover[];
   path: ValuePoint[];
-  dividends: { date: string; type: string; subtype: string | null; name: string; amount: number }[];
 }) {
   const [open, setOpen] = useState(false);
   const [edit, setEdit] = useState<ManualStock | null>(null);
@@ -59,8 +57,15 @@ export function InvestmentsDesk({
         rows={donutRows}
         tableRows={donutRows}
         heroSummary
-        afterHero={<StocksOverview rows={donutRows} path={path} dividends={dividends} />}
-        besideAccount={<LargestMoves movers={movers.filter((m) => m.kind === "security" && !m.retirement)} />}
+        donutsFirst
+        accountFirst
+        afterHero={
+          <StocksOverview
+            rows={donutRows}
+            path={path}
+            moves={<LargestMoves movers={movers.filter((m) => m.kind === "security" && !m.retirement)} />}
+          />
+        }
         onEditManual={(id) => {
           const row = byId.get(id);
           if (!row) return;

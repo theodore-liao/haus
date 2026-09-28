@@ -40,7 +40,10 @@ export function formatApprox(n: number | null | undefined): string {
   if (n == null || Number.isNaN(n)) return "—";
   const abs = Math.abs(n);
   const sign = n < 0 ? "-" : "";
-  if (abs >= 1e6) return `${sign}$${Number((abs / 1e6).toPrecision(3))}M`;
+  if (abs >= 1e12) return `${sign}$${new Intl.NumberFormat("en-US").format(Number((abs / 1e12).toPrecision(3)))}T`;
+  // toPrecision can round 999.6 up to 1000; that belongs in the next unit.
+  if (abs >= 1e9 || Number((abs / 1e6).toPrecision(3)) >= 1000) return `${sign}$${Number((abs / 1e9).toPrecision(3))}B`;
+  if (abs >= 1e6 || Number(abs.toPrecision(3)) >= 1e6) return `${sign}$${Number((abs / 1e6).toPrecision(3))}M`;
   return `${sign}$${new Intl.NumberFormat("en-US").format(roundApprox(abs))}`;
 }
 

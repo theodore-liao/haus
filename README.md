@@ -24,15 +24,20 @@ From this folder:
    npm run db:migrate
    ```
 
-5. Start the app:
+5. Build the app and start it:
 
    ```bash
-   npm run dev
+   npm run build
+   npm start
    ```
 
 6. Open [http://localhost:3000](http://localhost:3000) and enter the passphrase.
 
-When you change `.env`, stop the app and run `npm run dev` again.
+This is how to run Haus day to day: a built app opens each page quickly. When you change `.env`, or pull new code, stop it and run both commands again.
+
+### While changing Haus's code
+
+`npm run dev` runs a development server instead. It reloads as you edit, but it is slower: each page compiles the first time you open it, and every page carries extra checks. Use it only while working on the code, then go back to `npm run build` and `npm start`.
 
 ## Plaid
 

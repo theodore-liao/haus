@@ -1,6 +1,7 @@
 import { prisma } from "./db";
 import { finnhubKey } from "./env";
 import { startOfDay } from "./format";
+import { historyIsCurrent, priceDayKey } from "./price-window";
 import { COINGECKO_IDS } from "./crypto-assets";
 import { FIXED_USD_ID } from "./constants";
 import { fetchDexScreenerPrices, fetchJupiterPrices, fetchSpotUsd, geckoChangePct } from "./token-prices";
@@ -9,6 +10,8 @@ type Quote = { price: number; change: number; changePct: number; asOf: Date };
 
 const quoteCache = new Map<string, { quote: Quote; at: number }>();
 const TTL_MS = 15 * 60 * 1000;
+/** Symbols with no price history anywhere, and when to try them again. */
+const historyMissUntil = new Map<string, number>();
 
 function sleep(ms: number) {
   return new Promise((r) => setTimeout(r, ms));
@@ -484,8 +487,15 @@ export async function enrichCryptoQuotes() {
 }
 
 function dayKey(d: Date) {
-  const x = startOfDay(d);
-  return x.toISOString();
+  return priceDayKey(d);
+}
+
+function seriesReaches(rows: { date: Date }[], to: Date) {
+  let best: Date | null = null;
+  for (const row of rows) {
+    if (!best || row.date.getTime() > best.getTime()) best = row.date;
+  }
+  return best != null && historyIsCurrent(best, to, RECENT_CLOSE_DAYS);
 }
 
 export type HistorySymbol = {
@@ -580,13 +590,25 @@ export async function ensurePriceHistory(symbols: HistorySymbol[], from: Date, t
     }
     unique.set(symbol, next);
   }
+  // Check what's stored for every symbol at once (quick reads), then download only what's missing.
+  // The pause between download batches is for the price feeds; a page view with nothing to fetch never waits.
   const list = [...unique.values()];
-  for (let i = 0; i < list.length; i += 3) {
-    const batch = list.slice(i, i + 3);
+  const now = Date.now();
+  const checked = await Promise.all(
+    list.map(async (item) => {
+      if ((historyMissUntil.get(item.symbol) ?? 0) > now) return null;
+      const existing = await coverageRows(item.symbol, fromDay, toDay);
+      // A long series that stopped weeks ago still looks "complete" by bar count, and 1W then
+      // reads that old close as if it were last week. The newest bar has to be recent.
+      if (existing.length >= need && seriesMatchesSpot(existing, item.spot) && seriesReaches(existing, toDay)) return null;
+      return { item, existing };
+    }),
+  );
+  const missing = checked.filter((x): x is { item: HistorySymbol; existing: Awaited<ReturnType<typeof coverageRows>> } => x != null);
+  for (let i = 0; i < missing.length; i += 3) {
+    const batch = missing.slice(i, i + 3);
     await Promise.all(
-      batch.map(async (item) => {
-        const existing = await coverageRows(item.symbol, fromDay, toDay);
-        if (existing.length >= need && seriesMatchesSpot(existing, item.spot)) return;
+      batch.map(async ({ item, existing }) => {
         if (existing.length && item.spot != null && item.spot > 0 && !seriesMatchesSpot(existing, item.spot)) {
           await prisma.pricePoint.deleteMany({ where: { symbol: item.symbol } });
         }
@@ -595,13 +617,15 @@ export async function ensurePriceHistory(symbols: HistorySymbol[], from: Date, t
           if (!rows.length || !seriesMatchesSpot(rows, item.spot)) return 0;
           return writeCloses(item.symbol, rows, source);
         };
+        // A symbol no feed has history for (a money-market fund, say) isn't asked again for a while.
+        const miss = () => historyMissUntil.set(item.symbol, Date.now() + TTL_MS);
         if (kind === "crypto") {
           if (item.coingeckoId) {
             const rows = await fetchGeckoHistoryRows(item.coingeckoId, fromDay, toDay);
             if (await tryWrite(rows, "coingecko")) return;
           }
           const cb = await fetchCoinbaseHistoryRows(item.symbol, fromDay, toDay);
-          await tryWrite(cb, "coinbase");
+          if (!(await tryWrite(cb, "coinbase"))) miss();
           return;
         }
         if (token) {
@@ -609,10 +633,10 @@ export async function ensurePriceHistory(symbols: HistorySymbol[], from: Date, t
           if (await tryWrite(fh, "finnhub")) return;
         }
         const yh = await fetchYahooHistoryRows(item.symbol, fromDay, toDay);
-        await tryWrite(yh, "yahoo");
+        if (!(await tryWrite(yh, "yahoo"))) miss();
       }),
     );
-    if (i + 3 < list.length) await sleep(150);
+    if (i + 3 < missing.length) await sleep(150);
   }
 }
 

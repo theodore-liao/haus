@@ -83,7 +83,8 @@ function holdingQtyEvents(
   return new AfterSum(out);
 }
 
-type PathPoint = { date: string; netWorth: number };
+/** One day of net worth. Assets minus liabilities equals netWorth. */
+export type PathPoint = { date: string; netWorth: number; assets: number; liabilities: number };
 const PATH_TTL_MS = 60_000;
 const pathMemo = new Map<OwnerFilter, { at: number; value: Promise<PathPoint[]> }>();
 
@@ -208,19 +209,20 @@ async function buildNetWorthPath(filter: OwnerFilter): Promise<PathPoint[]> {
   });
 
   // Manual balances and property / vehicle values carry no history of their own; they are constant per sample.
-  let constant = 0;
-  for (const m of mans) constant += m.balance;
+  let constantAssets = 0;
+  let constantDebt = 0;
+  for (const m of mans) constantAssets += m.balance;
   for (const p of props) {
-    constant += p.estimate;
-    if (!p.mortgageAccountId) constant -= propertyDebt(p, accs);
+    constantAssets += p.estimate;
+    if (!p.mortgageAccountId) constantDebt += propertyDebt(p, accs);
   }
   for (const v of vehs) {
-    constant += v.estimate;
-    if (!v.loanAccountId) constant -= vehicleDebt(v, accs);
+    constantAssets += v.estimate;
+    if (!v.loanAccountId) constantDebt += vehicleDebt(v, accs);
   }
 
   const dates = sampleDates(from, to);
-  const path: { date: string; netWorth: number }[] = [];
+  const path: PathPoint[] = [];
 
   for (const asOf of dates) {
     const asOfMs = asOf.getTime();
@@ -262,10 +264,9 @@ async function buildNetWorthPath(filter: OwnerFilter): Promise<PathPoint[]> {
       if (px != null) investments += h.qty * px;
     }
 
-    path.push({
-      date: asOf.toISOString(),
-      netWorth: cash + investments + otherAssets + constant - liabilities,
-    });
+    const assets = cash + investments + otherAssets + constantAssets;
+    const debt = liabilities + constantDebt;
+    path.push({ date: asOf.toISOString(), netWorth: assets - debt, assets, liabilities: debt });
   }
 
   return path;

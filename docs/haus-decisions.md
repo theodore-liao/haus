@@ -22,6 +22,9 @@ Sizes, spacing, and placement come from shared styles, not from each page. Use t
 - Haus text size 100% equals the old 130%. The slider runs from 75% to 150%, and everything scales with it, including numbers inside donuts.
 - Dollar amounts show cents. Do not round to whole dollars.
 - Privacy blur covers dollar amounts only. Counts, dates, rates, and percents stay clear.
+- The eye button beside HAUS (and in the phone header) turns the blur on and off. It stays in step with the Settings switch.
+- Removing a connection, a recurring bill, or an insurance card asks first.
+- The phone bar shows the first three tabs in the sidebar order. The More sheet can pin any tab to the bar.
 - Every button looks and acts like a button. It shows the hand cursor on hover, and only the button itself is clickable, not the row around it.
 - Clicking outside a popup or modal closes it.
 - No nested scroll bars. No horizontal scroll bar on any legend. If content does not fit, make room.
@@ -59,9 +62,14 @@ Sizes, spacing, and placement come from shared styles, not from each page. Use t
 
 ## Overview
 
-- Pills are Equities (every investment account), Cash, Property (homes, vehicles, and other non-cash assets), and Liabilities (total debt). They add up to household net worth.
+- Pills are Investments (every investment account, including crypto and brokerage cash), Cash, Property (homes, vehicles, and other non-cash assets), and Liabilities (total debt). They add up to household net worth.
 - The four pills sit inside the right side of the Household net worth box. Day, week, and month change live in that box.
 - Month-by-month shows every complete month plus the current one. Older months appear only when stored transaction history covers the whole month.
+- Needs attention sits directly under the net worth box. It lists connections to relink or that have not synced in 48 hours, wallets that failed to sync, cards at 30% or more of their limit, categories over budget this month, unusual recent charges, and insurance renewing within 60 days. With nothing to show it says "Nothing needs attention."
+- An unusual charge is one from the last 7 days at least twice the merchant's usual amount and $100 above it, or a first charge from a merchant larger than 95% of the last 90 days of charges. Review opens Transactions searched for that merchant.
+- The Net worth chart shows the change over the chosen range above the chart. Net and Split chips sit beside the range chips; Split draws assets, liabilities, and net worth.
+- Cashflow is one card with its date chips in the header, the Income, Spending, and Net Movement figures, then the Sankey.
+- Month by month has a savings-rate line above the table. The open month is marked "so far". With three or more complete months, the best and lowest months by amount saved are marked. Spend vs last year shows only when the same month a year earlier is on file. Phones show Month, Spend, and Saved.
 
 ## Spending
 

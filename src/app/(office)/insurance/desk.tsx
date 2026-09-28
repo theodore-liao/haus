@@ -6,6 +6,7 @@ import { toast } from "sonner";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { ConfirmButton } from "@/components/confirm-button";
 import { parseJson } from "@/lib/utils";
 
 type Doc = { id: string; filename: string; mimeType: string };
@@ -261,21 +262,25 @@ function CardSlot({
             {busy ? "Saving…" : policy ? "Reupload" : "Upload"}
           </Button>
           {policy ? (
-            <Button
-              variant="ghost"
-              size="sm"
+            <ConfirmButton
+              title={`Remove the ${title} card?`}
+              description="The card leaves this slot. Upload it again to bring it back."
               disabled={busy}
-              onClick={async () => {
-                await fetch("/api/insurance/policies", {
+              onConfirm={async () => {
+                const res = await fetch("/api/insurance/policies", {
                   method: "DELETE",
                   headers: { "Content-Type": "application/json" },
                   body: JSON.stringify({ id: policy.id }),
                 });
+                if (!res.ok) {
+                  toast.error("Could not remove this card.");
+                  return;
+                }
                 onDeleted();
               }}
             >
               Remove
-            </Button>
+            </ConfirmButton>
           ) : null}
         </div>
       </CardContent>

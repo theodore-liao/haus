@@ -10,7 +10,7 @@ import {
   isRetirementAccount,
   isRetirementType,
 } from "./account-types";
-import { CONCENTRATION_FLAG, FIXED_USD_ID, HIGH_UTILIZATION, INSURANCE_RENEWAL_DAYS, IRS_LIMITS, IRS_LIMITS_YEAR, STALE_CONNECTION_HOURS, categoryLabel, incomeSourceLabel } from "./constants";
+import { CONCENTRATION_FLAG, FIXED_USD_ID, IRS_LIMITS, IRS_LIMITS_YEAR, categoryLabel, incomeSourceLabel } from "./constants";
 import { loadCardPaymentFlags } from "./card-payments";
 import { effectiveCategory, isInternalMove, isInvestFunding, isTransferCategory, recurringMerchantKey, txnMerchantKey } from "./categories";
 import { dayKey, ymKey } from "./range";
@@ -48,11 +48,14 @@ import { parseJson } from "./utils";
 import { ellipsize, formatHoldingClass, formatMoney, startOfDay } from "./format";
 import { differenceInCalendarDays, subDays } from "date-fns";
 import { accountLabel } from "./account-label";
-import { reconstructNetWorthPath } from "./history";
+import { reconstructNetWorthPath, type PathPoint } from "./history";
 import { coinGeckoId, cryptoSpanMoves, equityDayMoves, historyAgreesWithSpot, isOptionSymbol, loadPriceMap, optionPremiumScale, priceOnOrBefore, quoteSymbol, RECENT_CLOSE_DAYS } from "./quotes";
 import { propertyDebt, vehicleDebt } from "./property";
 import { loadCryptoLots, lotValue } from "./crypto-lots";
 import type { BrandKind } from "./logos";
+import { buildAttention } from "./attention";
+import { listBudgets } from "./budgets";
+import type { FlowRow } from "./spend-net";
 
 export async function getNames() {
   const household = await ensureHousehold();
@@ -470,9 +473,11 @@ export async function getOverview(filter: OwnerFilter) {
             kind: "crypto" as const,
           },
     );
-  let path: { date: string; netWorth: number }[] = snapshots.map((s) => ({
+  let path: PathPoint[] = snapshots.map((s) => ({
     date: s.date.toISOString(),
     netWorth: s.netWorth,
+    assets: s.netWorth + s.liabilities,
+    liabilities: s.liabilities,
   }));
   try {
     const reconstructed = await reconstructNetWorthPath(filter);
@@ -632,14 +637,6 @@ export async function getOverview(filter: OwnerFilter) {
     .sort((a, b) => Math.abs(b.dayPl) - Math.abs(a.dayPl))
     .slice(0, 8);
 
-  const attention = buildAttention({
-    items,
-    accs,
-    pols,
-    props,
-    names,
-  });
-
   let lifeCoverage = 0;
   let liabilityCoverage = 0;
   for (const p of pols) {
@@ -684,105 +681,38 @@ export async function getOverview(filter: OwnerFilter) {
     allocationItems,
     path,
     moved: { accounts: movedAccounts, transactions: largeTxns, holdings: holdingMoves },
-    attention,
   };
 }
 
-function buildAttention({
-  items,
-  accs,
-  pols,
-  props,
-  names,
-}: {
-  items: { id: string; institutionName: string | null; status: string; lastSyncedAt: Date | null; errorMessage: string | null }[];
-  accs: { name: string; hausType: string; currentBalance: number | null; limitAmount: number | null; item?: { institutionName: string | null } }[];
-  pols: {
-    type: string;
-    carrier: string;
-    renewalDate: Date | null;
-    coverageJson: string;
-    propertyId: string | null;
-    documents?: { id: string }[];
-  }[];
-  props: { id: string; label: string; estimate: number }[];
-  names: { nameA: string; nameB: string };
-}) {
-  const notes: { kind: string; title: string; detail: string }[] = [];
-  const now = new Date();
-
-  for (const item of items) {
-    if (item.status === "relink") {
-      notes.push({
-        kind: "relink",
-        title: `${item.institutionName ?? "Institution"} needs relink`,
-        detail: item.errorMessage ?? "Plaid asked this item to sign in again.",
-      });
-    } else if (item.status === "error") {
-      notes.push({
-        kind: "error",
-        title: `${item.institutionName ?? "Institution"} returned an error`,
-        detail: item.errorMessage ?? "Last good data is still on the ledger.",
-      });
-    } else if (
-      item.lastSyncedAt &&
-      (now.getTime() - item.lastSyncedAt.getTime()) / 36e5 > STALE_CONNECTION_HOURS
-    ) {
-      notes.push({
-        kind: "stale",
-        title: `${item.institutionName ?? "Institution"} is stale`,
-        detail: `Last sync more than ${STALE_CONNECTION_HOURS} hours ago.`,
-      });
-    }
-  }
-
-  for (const a of accs.filter((x) => x.hausType === "credit_card" && x.limitAmount)) {
-    const used = Math.abs(a.currentBalance ?? 0);
-    const util = used / (a.limitAmount as number);
-    if (util >= HIGH_UTILIZATION) {
-      notes.push({
-        kind: "utilization",
-        title: `${accountLabel(a.name, a.item?.institutionName)} utilization ${Math.round(util * 100)}%`,
-        detail: `${used.toFixed(0)} of ${a.limitAmount} limit.`,
-      });
-    }
-  }
-
-  for (const p of pols) {
-    if (p.renewalDate) {
-      const days = differenceInCalendarDays(p.renewalDate, now);
-      if (days >= 0 && days <= INSURANCE_RENEWAL_DAYS) {
-        notes.push({
-          kind: "renewal",
-          title: `${p.carrier} ${p.type} renews in ${days} days`,
-          detail: "Open Insurance to review the declarations page.",
-        });
-      }
-    }
-    if (!p.documents || p.documents.length === 0) {
-      notes.push({
-        kind: "upload",
-        title: `${p.carrier} has no declarations upload`,
-        detail: "Attach the original ID card or declarations page on Insurance.",
-      });
-    }
-    if (p.type === "home") {
-      const cov = parseJson<{ dwelling?: number }>(p.coverageJson, {});
-      const prop = p.propertyId ? props.find((x) => x.id === p.propertyId) : props[0];
-      if (cov.dwelling && prop?.estimate) {
-        const gap = Math.abs(cov.dwelling - prop.estimate) / prop.estimate;
-        if (gap > 0.2) {
-          notes.push({
-            kind: "dwelling",
-            title: `Dwelling limit vs ${prop.label} estimate`,
-            detail: `Policy dwelling ${cov.dwelling.toLocaleString()} vs estimate ${prop.estimate.toLocaleString()} (${names.nameA} / ${names.nameB} property).`,
-          });
-        }
-      }
-    }
-  }
-
-  return notes.slice(0, 10);
+/** Things on Overview that need a look: broken links, overspent budgets, odd charges, renewals. */
+export async function getAttention(flows: FlowRow[]) {
+  const names = await getNames();
+  const [items, cards, wallets, budgets, policies] = await Promise.all([
+    prisma.plaidItem.findMany({
+      select: { id: true, institutionName: true, status: true, errorMessage: true, lastSyncedAt: true },
+    }),
+    prisma.account.findMany({ where: { hausType: "credit_card" }, include: { item: true } }),
+    names.tabs.crypto
+      ? prisma.cryptoWallet.findMany({ select: { id: true, label: true, address: true, lastError: true } })
+      : Promise.resolve([]),
+    listBudgets(),
+    names.tabs.insurance
+      ? prisma.insurancePolicy.findMany({ select: { id: true, type: true, carrier: true, renewalDate: true } })
+      : Promise.resolve([]),
+  ]);
+  return buildAttention({
+    items,
+    cards: cards.map((a) => ({
+      id: a.id,
+      name: accountLabel(a.name, a.item.institutionName),
+      balance: a.currentBalance,
+      limit: a.limitAmount,
+    })),
+    wallets,
+    flows,
+    budgets,
+    policies,
+  });
 }
 
 export async function getAccountsForFilter(filter: OwnerFilter) {

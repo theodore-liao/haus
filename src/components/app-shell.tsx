@@ -3,15 +3,17 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
-import { Menu } from "lucide-react";
-import { NAV, MOBILE_PRIMARY, NAV_ORDER_KEY, mergeVisibleOrder, resolveNavOrder, visibleNav, type NavItem, type TabVisibility } from "@/lib/nav";
+import { Menu, Pin } from "lucide-react";
+import { NAV, NAV_ORDER_KEY, mobilePrimary, mergeVisibleOrder, resolveNavOrder, visibleNav, type NavItem, type TabVisibility } from "@/lib/nav";
 import { cn } from "@/lib/utils";
 import { RefreshButton } from "./refresh-button";
 import { PlaidLinkHost } from "./plaid-link-host";
 import { UiScaleSync } from "./ui-scale";
 import { formatDateTime } from "@/lib/format";
+import { Button } from "./ui/button";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "./ui/sheet";
 import { NavRail } from "./nav-rail";
+import { PrivacyToggle } from "./privacy-toggle";
 
 export function AppShell({
   children,
@@ -30,6 +32,7 @@ export function AppShell({
   const [more, setMore] = useState(false);
   const [items, setItems] = useState<NavItem[]>(NAV);
   const shown = visibleNav(items, tabs);
+  const barItems = mobilePrimary(shown);
 
   useEffect(() => {
     try {
@@ -51,13 +54,16 @@ export function AppShell({
       <UiScaleSync />
       <PlaidLinkHost />
       <aside className="fixed inset-y-0 left-0 z-30 hidden w-[var(--nav-width)] border-r border-border bg-sidebar md:flex md:flex-col">
-        <div className="px-5 pb-6 pt-7">
-          <div className="bg-gradient-to-r from-primary via-primary to-accent bg-clip-text text-lg font-medium tracking-[0.32em] text-transparent">
-            HAUS
+        <div className="flex items-start justify-between gap-2 px-5 pb-6 pt-7">
+          <div className="min-w-0">
+            <div className="bg-gradient-to-r from-primary via-primary to-accent bg-clip-text text-lg font-medium tracking-[0.32em] text-transparent">
+              HAUS
+            </div>
+            <div className="mt-1 truncate text-sm text-muted-foreground">
+              {nameA} & {nameB}
+            </div>
           </div>
-          <div className="mt-1 text-sm text-muted-foreground">
-            {nameA} & {nameB}
-          </div>
+          <PrivacyToggle />
         </div>
         <NavRail items={shown} pathname={pathname} onReorder={persist} />
         <div className="flex items-center justify-between gap-3 border-t border-border px-5 py-4">
@@ -72,13 +78,16 @@ export function AppShell({
       <div className="min-w-0 md:pl-[var(--nav-width)]">
         <header className="sticky top-0 z-20 flex items-center justify-between gap-3 border-b border-border/80 bg-background/70 px-4 py-3 backdrop-blur-md md:hidden">
           <span className="text-base font-medium tracking-[0.32em] text-primary">HAUS</span>
-          <RefreshButton lastSynced={lastSynced} autoSync={false} />
+          <div className="flex items-center gap-2">
+            <PrivacyToggle />
+            <RefreshButton lastSynced={lastSynced} autoSync={false} />
+          </div>
         </header>
         <main className="page-stack py-5 pb-24 md:py-8 md:pb-12">{children}</main>
       </div>
 
       <nav className="fixed inset-x-0 bottom-0 z-30 grid grid-cols-4 border-t border-border bg-sidebar md:hidden">
-        {MOBILE_PRIMARY.map((item) => {
+        {barItems.map((item) => {
           const active = item.href === "/" ? pathname === "/" : pathname.startsWith(item.href);
           const Icon = item.icon;
           return (
@@ -114,18 +123,33 @@ export function AppShell({
             <SheetTitle>Household</SheetTitle>
           </SheetHeader>
           <div className="grid grid-cols-2 gap-2 pb-4">
-            {shown.map((item) => {
+            {shown.map((item, i) => {
               const Icon = item.icon;
+              const pinned = i < barItems.length;
               return (
-                <Link
-                  key={item.href}
-                  href={item.href}
-                  onClick={() => setMore(false)}
-                  className="flex items-center gap-2 rounded-md border border-border px-3 py-3 text-sm text-muted-foreground"
-                >
-                  <Icon className="h-4 w-4" />
-                  {item.label}
-                </Link>
+                <div key={item.href} className="flex items-center rounded-md border border-border">
+                  <Link
+                    href={item.href}
+                    onClick={() => setMore(false)}
+                    className="flex min-w-0 flex-1 items-center gap-2 px-3 py-3 text-sm text-muted-foreground"
+                  >
+                    <Icon className="h-4 w-4 shrink-0" />
+                    <span className="truncate">{item.label}</span>
+                  </Link>
+                  {pinned ? null : (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      className="mr-1 h-8 w-8 shrink-0"
+                      aria-label={`Pin ${item.label} to the bar`}
+                      title="Pin to the bar"
+                      onClick={() => persist([item, ...shown.filter((other) => other.href !== item.href)])}
+                    >
+                      <Pin />
+                    </Button>
+                  )}
+                </div>
               );
             })}
           </div>

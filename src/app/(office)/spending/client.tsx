@@ -7,7 +7,7 @@ import { ChartCard } from "@/components/chart-card";
 import { AllocationChart } from "@/components/charts";
 import { ReportRange } from "@/components/chart-range";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Button } from "@/components/ui/button";
+import { ConfirmButton } from "@/components/confirm-button";
 import { BudgetList } from "./budget-list";
 import { budgetMonths, daysLeftInMonth, type BudgetRow } from "@/lib/budget-window";
 import { defaultReportWindow, inWindow, type WindowKey } from "@/lib/range";
@@ -241,11 +241,7 @@ export function SpendingClient({
             ) : (
               visibleRecurring.map((r) => (
                 <div key={r.label} className="flex items-center justify-between gap-3 border-b border-border pb-2 last:border-0">
-                  <button
-                    type="button"
-                    className="flex min-w-0 flex-1 cursor-pointer items-center justify-between gap-3 text-left"
-                    onClick={() => dismissRecurring(r.label)}
-                  >
+                  <div className="flex min-w-0 flex-1 items-center justify-between gap-3">
                     <div className="min-w-0">
                       <BrandLabel className="min-w-0" kind="merchant" name={r.label}>
                         <span className="truncate text-sm">{r.label}</span>
@@ -260,15 +256,14 @@ export function SpendingClient({
                         <Money value={r.annual} /> / yr
                       </div>
                     </div>
-                  </button>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => dismissRecurring(r.label)}
+                  </div>
+                  <ConfirmButton
+                    title={`Remove ${r.label} from Recurring?`}
+                    description="It stops being listed as a bill. Its transactions stay."
+                    onConfirm={() => dismissRecurring(r.label)}
                   >
                     Remove
-                  </Button>
+                  </ConfirmButton>
                 </div>
               ))
             )}

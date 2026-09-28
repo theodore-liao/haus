@@ -16,7 +16,7 @@ export function useChartRange(): [RangeKey, (key: RangeKey) => void] {
   return [range, setRange];
 }
 
-function ChipGroup({
+export function ChipGroup({
   children,
 }: {
   children: ReactNode;
@@ -24,7 +24,7 @@ function ChipGroup({
   return <div className="flex items-center gap-0.5 rounded-md border border-border p-0.5">{children}</div>;
 }
 
-function Chip({
+export function Chip({
   active,
   onClick,
   children,

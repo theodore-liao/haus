@@ -72,16 +72,21 @@ export function TransactionsTable({
   readOnly = false,
   dateChips = false,
   containerClassName,
+  initialQuery = "",
 }: {
   rows: TxnRow[];
   readOnly?: boolean;
   /** Preset month chips. Only the transactions page sets this; refunds uses the spending chips. */
   dateChips?: boolean;
   containerClassName?: string;
+  /** Opens with this search (a link from Overview). It also widens the window to the last month. */
+  initialQuery?: string;
 }) {
-  const [q, setQ] = useState("");
+  const [q, setQ] = useState(initialQuery);
   const [limit, setLimit] = useState(PAGE);
-  const [range, setRange] = useState<WindowKey | null>(() => (dateChips ? defaultTxnWindow() : null));
+  const [range, setRange] = useState<WindowKey | null>(() =>
+    dateChips ? (initialQuery ? "1m" : defaultTxnWindow()) : null,
+  );
   const [sorting, setSorting] = useState<SortingState>([{ id: "date", desc: true }]);
   const [merchantSel, setMerchantSel] = useState<Set<string> | null>(null);
   const [accountSel, setAccountSel] = useState<Set<string> | null>(null);

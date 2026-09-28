@@ -292,6 +292,11 @@ html.privacy .amort-chart .ytick text:hover {
   gap: 0.75rem;
 }
 
+/* Three compact figures in one row inside a card (Overview cashflow). */
+.pills-trio {
+  grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr));
+}
+
 .pills-compact .pill {
   padding: 0.75rem 1rem 0.75rem 1.125rem;
   background: color-mix(in srgb, var(--card-elevated) 55%, transparent);

@@ -8,7 +8,7 @@ export function overviewPillFigures(input: {
   liabilities: number;
 }) {
   return {
-    equities: input.investments,
+    investments: input.investments,
     cash: input.cash,
     property: input.realEstate + input.otherAssets,
     liabilities: -Math.abs(input.liabilities),

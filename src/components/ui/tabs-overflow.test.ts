@@ -18,7 +18,9 @@ test("tab rows keep a long household name inside the page", async () => {
   assert.match(fit[1], /max-width:\s*100%/);
   assert.match(fit[1], /text-overflow:\s*ellipsis/);
 
-  const browser = await chromium.launch({ headless: true });
+  // CHROME_PATH points at an installed browser where Playwright's own download is missing (cloud runs).
+  const executablePath = process.env.CHROME_PATH;
+  const browser = await chromium.launch({ headless: true, ...(executablePath ? { executablePath } : {}) });
   try {
     const page = await browser.newPage({ viewport: { width: 412, height: 915 } });
     await page.setContent(`<!doctype html>

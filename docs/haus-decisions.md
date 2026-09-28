@@ -15,15 +15,18 @@ Sizes, spacing, and placement come from shared styles, not from each page. Use t
 - Surfaces: `Card`, `.chart-card`, `.hero-card`, `.pill`, with spacing from `--space-card` and `--space-block`.
 - Donuts: `AllocationChart` in `src/components/charts.tsx`, with the shared `.legend-row` grid. A page does not get its own legend columns.
 - Tables: `.data-table`, where right-aligned figures use `.num` and two-line cells use `.cell-stack`.
+- Number inputs: `NumberField` from `src/components/number-field.tsx`, on a `.field-grid`. The label sits above, `$` or `%` sits inside the box, and one line of help or a short error sits below. A choice between a few options is `Segmented` from the same file.
+- A tool's answer: `.hero-figure` for its one number, `.meter` for progress, `.callout` for what to do next (green when on track, gold when behind, red when it cannot work).
+- Dollar amounts inside a sentence use the sans font (`.callout`, `.field-note`, `.prose-num`). Tables and legends keep mono.
 
 ## Whole app
 
 - Reference display: 2560×1440 monitor, browser zoom 100%, Windows scale 100%, Haus text size 100%. Also check 1920×1080. Layout is relative; section boxes fill the width without zooming.
 - Haus text size 100% equals the old 130%. The slider runs from 75% to 150%, and everything scales with it, including numbers inside donuts.
-- Dollar amounts show cents. Do not round to whole dollars.
+- Dollar amounts show cents. Do not round to whole dollars. The exception is projections (the Retirement planner's forecasts): they round to what they can claim, like $2.48M or $49,100, with `Money approx`. Real balances and the "?" working keep cents.
 - Privacy blur covers dollar amounts only. Counts, dates, rates, and percents stay clear.
 - Every button looks and acts like a button. It shows the hand cursor on hover, and only the button itself is clickable, not the row around it.
-- Clicking outside a popup or modal closes it.
+- Clicking outside a popup or modal closes it. Explanations open from a "?" button in a `Popover` (src/components/ui/popover.tsx).
 - No nested scroll bars. No horizontal scroll bar on any legend. If content does not fit, make room.
 - Long names in one-line rows end with "…" instead of wrapping to a second line.
 - Ownership labels (who owns an account or wallet) are faded subtext beside the name, not part of the same text.
@@ -34,8 +37,10 @@ Sizes, spacing, and placement come from shared styles, not from each page. Use t
 - Every page opens with its main summary card at the top. New tools go below it, never above.
 - Cards side by side are the same height. If their content differs a lot, stack them instead.
 - A card's result is its most prominent element: larger, and colored where color carries meaning (progress, gain, loss). Inputs are quieter and sit in aligned rows on a shared grid.
-- Calculator results update as you type. Nobody should need to press Enter or look for a button to see a new answer.
+- Number boxes apply when you press Enter or leave the box, never mid-typing, so results and charts don't jump while you type. No separate apply button. Sliders and switches apply as you move them.
 - Numbers inside inputs are formatted with commas and at most two decimals.
+- A result that is waiting on an input says which one, beside the result. It never shows $0.00 as if that were the answer.
+- Every card answers "what should I do next?" on screen: a next step, a warning, or a clear "you're on track".
 - A fix to one chart or page must not change another. Colors, legend layout, and spacing on untouched pages stay the same.
 
 ## Charts and donuts
@@ -43,7 +48,7 @@ Sizes, spacing, and placement come from shared styles, not from each page. Use t
 - All donuts share one legend layout. The name is left-aligned in one column, the dollar amount is right-aligned in its own column, and the donut and legend sit centered in the box. This includes the spend donut.
 - All donuts use one palette. Every category has a fixed color that stays the same when categories are checked, unchecked, or appear because of a new date range.
 - Every donut legend can check and uncheck items, and the donut updates.
-- Sankey colors are fixed per category, stay the same across reloads, and are clearly different from each other. Salary is not purple. The Salary bar has no extra "Income" label. "To savings" has no breakdown.
+- Sankey colors are fixed per category, stay the same across reloads, and are clearly different from each other. Salary is not purple. The Salary bar has no extra "Income" label. Clicking an income or spending portion, including Other categories, opens the same merchant window as a spend donut slice: rows expand to transactions, and a transaction opens the same sidebar as Transactions. To savings has no breakdown. From savings only notes that spending exceeded income.
 - Sankey label text is slightly larger than body chart text. The Sankey works on mobile.
 
 ## Date chips and search
@@ -95,13 +100,21 @@ Sizes, spacing, and placement come from shared styles, not from each page. Use t
 
 ## Retirement, property, insights
 
-- Retirement opens with its Retirement summary card at the top, as before. What money becomes, the Retirement number, and Milestones sit below it. The accounts table, the chart, Child Accounts, and the HSA form stay as they are. There is no donut. Birthdates are set in Settings. Missing birthdates fall back to a number of years.
-- What money becomes, the retirement number, and milestones are in today's money. Milestones has a Today's money switch; off shows future dollars. Results update as you type, and inputs are saved across reloads.
-- Growth, retire age, and whose age are the same values on the chart and in these tools. Inflation defaults to 3%.
-- The retirement number uses invested money (cash plus investments, editable, with net worth beside it), yearly spending, children, an optional house, and optional other income, tax, and a return after retiring. Money lasts forever is the default; the other choice spends the balance down by the age you live to. Each child costs $25,000 a year through 17 and $70,000 a year for college from 18 through 21. Child-account balances reduce college. A first-year withdrawal above 4% warns that it may not last.
-- Milestones has three rows, blank until filled in. Each shows the yearly and monthly saving to hit an amount by an age, and the age that amount is reached at the current contribution.
+- Retirement, top to bottom: the Retirement summary card; Retirement Accounts at full width; Child Accounts; the Retirement planner last. There is no What money becomes card. There is no donut and no separate Projection card. Birthdates are set in Settings; without them the planner works in years from now.
+- The Retirement planner is one card with no duplicate inputs. It opens with a one-sentence verdict ("You can retire at 55 spending $80,000 a year" or "You're about $13,800 a year short…", with what the current saving could do instead). Under it, the Retirement number (with progress and what it pays for) comes first, and beside it "Saving toward it": Needed and You save now as two bars on one scale with the gap (ahead or short) underneath, since one only means something against the other. Then "What would change it": retire a year later, spend $5,000 less, save $10,000 more, each with its exact effect and applied in one click. Then two checks as short pills above the chart, each opening its explanation: weak markets (growth and after-retiring return 2 points lower), and, when retiring before 59½, whether money outside retirement accounts covers the years until then. On screens 1536px and wider the inputs (Spend, Kids, Other assumptions) sit in a column beside the answer and chart; narrower, they sit below it.
+- Needed a year is a result, never an input. It compounds at the growth rate net of inflation and is in today's money, so the dollar amount rises with prices. Kid costs above today's (a new child, college) come out of each year's saving, and a child leaving home adds back. Saving it lands exactly on the retirement number at the retire age. One growth rate covers cash and investments, and one tax rate covers withdrawals.
+- You save now is regular take-home pay (bonuses dropped) minus all current spending, plus this year's retirement contributions, annualised. A "?" beside it opens the full working: each paycheck source with its amount and rhythm, spending over its months and the scale factor with the loan payments inside it, and contributions so far. A box under it takes the household's own yearly figure; blank uses the estimate, and the box offers the estimate back.
+- Retire at is a slider from the current age plus one to 65. Without birthdates it is "Retire in N years", the page assumes one fixed age today (40) and says so, and the slider moves only the retirement year.
+- The planner chart runs from today to 80 when the money lasts for good, or to the spend-down age. Your path (what you save now) is the solid blue main line with a faint weak-to-strong-markets band; the target path (the least that reaches the number) is gold and dashed. The gap between them is green where you're ahead and red where you're behind. Markers show retiring, the house, other income starting, and Medicare; the retirement number is a labelled dotted line, and the band's weak and strong edges are labelled on the chart rather than in the legend. Saving stops at retirement; after that the balance pays spending and keeps its returns, and the page says so when it keeps growing. Under the chart, one row per child shows years at home and college on the same years. A switch shows it in today's money (the default) or the dollars of each year.
+- There are no milestones; the chart and the yearly bars answer when the money gets where.
+- There is no first-year withdrawal percentage.
+- Spend a year starts at current yearly spending without loan payments (a house is planned as a cash purchase), and says so under the box.
+- The retirement number uses invested money (cash plus investments, less child accounts, editable, with net worth beside it), yearly spending, children, health cover until Medicare at 65 (default $20,000 a year), an optional house, and optional other income, tax, and a return after retiring. Lasting for good is priced with each year's money withdrawn at the start of the year, so the line stays flat. Money lasts forever is the default. A checkbox switches to spending it down, and only then asks for the age. Each child costs $25,000 a year through 17 and $70,000 a year for college from 18 through 21. Child-account balances reduce college. Inflation defaults to 3%.
+- Boxes apply on Enter or leaving the box, and everything is saved across reloads. A box holding something unusable says why under it and is not applied. Optional amounts (other income, house) can be left blank.
+- Kids and the house each say what they add to the number, including when that is nothing because the cost falls before retiring. The house sits in Spend; it is bought the year you retire by default (a checked box that follows the slider), and unchecking it asks for the age.
+- The planner's inputs are grouped as Spend (invested, spending, health cover, house, and spend-down), Kids, and a collapsed Other assumptions. Invested is rounded to the nearest $10,000 and follows cash and investments (less child accounts) until the household types its own figure; a link then offers the live total back.
 - Property shows total equity with assets minus liabilities written underneath, with no separate real estate or vehicle pills. Vehicle boxes span the full width.
-- Take-home pay annualized includes every household member's paychecks.
+- Take-home pay annualized includes every household member's paychecks, whether the bank labels them Paychecks or Salary.
 
 ## Settings
 
@@ -115,9 +128,9 @@ Sizes, spacing, and placement come from shared styles, not from each page. Use t
 
 - Review Aurin's requested changes on the real household at `localhost:3000`, logged in with the real password from `.env`. Never copy real screenshots, numbers, or names into the repo, commits, or pull requests.
 - Before editing a feature, run `npm run shots -- before --real` if port 3000 is up. After the change, run `npm run shots -- after --real` and `npm run shots:diff -- before after`. Look only at pages that changed, including ones you did not mean to touch. Screenshots stay in `.grok/shots/` and never go in git.
-- Use a test household for cases the real one cannot show. `npm run demo -- full 3001` starts one on port 3001 with the password `demo-household`. `single` is one person, `empty` is a brand-new user, `random` is an extreme household from a seed. `npm run demo:seed -- full` resets the data. Stop the test server when done.
+- Use a test household for cases the real one cannot show. `npm run demo -- full 3001` starts one on port 3001 with the password `demo-household`. `empty` is a brand-new user; UX reviews use only `full` (3001) and `empty` (3002). `single` (one person) and `random` (an extreme household from a seed) exist for specific bugs. `npm run demo:seed -- full` resets the data. Stop the test servers when done.
 - The nightly bug-finding automation runs `npm run nightly-check`. That builds a random extreme household, checks every page, and shuts the server down. Local feature work does not run it.
 - Check the browser console and the dev server log after every change, and fix what they show.
-- Any change to how a page looks or behaves passes `npm run ux` and the `ux-critic` subagent before it is reported done (see `.cursor/rules/ux-review.mdc` and `docs/ux-checklist.md`).
+- Any change to how a page looks or behaves passes `npm run ux` and the `ux-critic` subagent before it is reported done (see `CLAUDE.md` or `.cursor/rules/ux-review.mdc`, and `docs/ux-checklist.md`).
 - Do not start `npm run dev` or `next dev`. Use Aurin's server on port 3000. Never touch port 3000. A hook stops anything left on ports 3001–3009 when the turn ends.
 - When Aurin corrects something, add or update a line in this file in the same change.

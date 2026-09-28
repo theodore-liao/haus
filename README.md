@@ -1,80 +1,79 @@
 # Haus
 
-Household finance app. Next.js, Prisma, and SQLite on the machine that runs it. One site password unlocks the household.
+Haus keeps a household's money in one place. Balances, spending, and where money moves sit together, so the accounts you connect are visible without opening each institution on its own. One passphrase unlocks the household.
 
-Pages: Overview, Spending, Stocks, Crypto, Retirement, Property, Insurance, Insights, Connections (Plaid), Transactions, Settings. Crypto and insurance start hidden; turn them on in Settings. Retirement, property, and insights start on.
+## Set up locally
 
-Spending has date chips and a category donut, plus recurring and refunds. Transactions use the same date chips, with search, notes, and categories. Settings can keep posted transactions in the local SQLite database, match transfers between linked accounts, and set default chart and movers windows.
+Install Node.js if you do not already have it. It includes npm.
 
-Insurance files live under `data/insurance/` on that machine. `npm run backup` copies the database and insurance files into `backups/`.
+From this folder:
 
-## Stack
+1. Install dependencies:
 
-Next.js App Router, TypeScript, Tailwind CSS, Prisma + SQLite, Plaid Link, Recharts, TanStack Table.
+   ```bash
+   npm install
+   ```
 
-## Local run
+2. Copy `.env.example` to a new file named `.env` in the same folder.
 
-```bash
-cd haus
-cp .env.example .env
-# set HAUS_SITE_PASSWORD, HAUS_SESSION_SECRET (32+ chars), HAUS_TOKEN_KEY
-npx prisma migrate dev --name init
-npm run dev
-```
+3. Open `.env` and set `HAUS_SITE_PASSWORD` to the passphrase you will type on the household lock screen. The copied `DATABASE_URL` is already set for a local database file. The other names are listed under Environment.
 
-Open [http://localhost:3000](http://localhost:3000). The household lock is the first screen.
+4. Create the database:
 
-Generate `HAUS_TOKEN_KEY` once and keep it (rotating it makes stored Plaid tokens unreadable):
+   ```bash
+   npm run db:migrate
+   ```
 
-```bash
-node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
-```
+5. Start the app:
 
-### Environment
+   ```bash
+   npm run dev
+   ```
 
-| Variable | Purpose |
-| --- | --- |
-| `DATABASE_URL` | SQLite, e.g. `file:./dev.db` (relative to `prisma/`) |
-| `HAUS_SITE_PASSWORD` | Household lock passphrase |
-| `HAUS_SESSION_SECRET` | Signed session cookie secret (32+ characters) |
-| `HAUS_TOKEN_KEY` | AES key for Plaid `access_token`s |
-| `ALLOWED_EMAILS` | Comma-separated Cloudflare Access emails. Empty for local `next dev`. |
-| `HAUS_PUBLIC_URL` | Public HTTPS origin if you put a tunnel in front |
-| `PLAID_CLIENT_ID` / `PLAID_SECRET` | One pair for the household |
-| `PLAID_ENV` | `sandbox` \| `development` \| `production` |
-| `PLAID_PRODUCTS` | `transactions,investments,liabilities` |
-| `FINNHUB_API_KEY` | Optional live equity quotes |
+6. Open [http://localhost:3000](http://localhost:3000) and enter the passphrase.
 
-`.gitignore` covers `.env`, SQLite files, `/data`, and `/backups`.
+When you change `.env`, stop the app and run `npm run dev` again.
 
 ## Plaid
 
-One `PLAID_CLIENT_ID` for the household. Production Trial allows 10 Items per client, shared. An Item is one login at one institution. Both people link banks in Plaid Link in this app. `PLAID_ENV=production` must match production keys.
+1. Create an account at [https://dashboard.plaid.com/signup](https://dashboard.plaid.com/signup).
+2. In the Plaid dashboard, open Keys. Copy the client ID, and copy the secret for the environment you want. Sandbox is available as soon as the account exists and uses Plaid's test institutions. Development and production each have their own secret. Production keys work after Plaid enables production on the account.
+3. Put them in `.env`:
 
-## Optional: Cloudflare Tunnel + Access
+   ```
+   PLAID_CLIENT_ID="your-client-id"
+   PLAID_SECRET="your-secret"
+   PLAID_ENV="sandbox"
+   ```
 
-Keep Next.js + SQLite on a machine that stays on. Cloudflare is the door.
+   `PLAID_ENV` is `sandbox`, `development`, or `production`, and it has to match the secret you pasted. A sandbox secret and a production secret are different values.
 
-```bash
-npm run build
-npm start
-```
+4. Leave `PLAID_PRODUCTS` as `transactions,investments,liabilities` unless you want a shorter list. The app always requests transactions. Investments and liabilities attach when the selected accounts support them.
 
-`npm start` binds `127.0.0.1:3000`.
+5. Set `HAUS_TOKEN_KEY` before you link an institution, and keep that value. It encrypts the connection tokens stored in the local database. Generate one with:
 
-1. Named tunnel, public hostname → `http://127.0.0.1:3000`.
-2. Access app on that hostname, One-time PIN, allow the household emails.
-3. Set `ALLOWED_EMAILS` and `HAUS_PUBLIC_URL` and restart.
+   ```bash
+   node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
+   ```
 
-Schema changes on that machine: `npx prisma migrate deploy`.
+   Keep the same value. A new key cannot read tokens saved with the old one.
 
-## Scripts
+6. Save `.env` and restart the app.
 
-```bash
-npm run dev          # next dev
-npm run build
-npm start            # 127.0.0.1:3000 only
-npm run backup       # copy SQLite + insurance into /backups
-npx prisma migrate dev
-npx prisma studio
-```
+7. Sign in, open Connections, and choose Add institution. One session covers banks, cards, and brokerages. Some institutions start with no accounts selected, so check every account you want included.
+
+   In sandbox, sign in at a test institution with the login `user_good` and the password `pass_good`. Those connections are saved in this app and use Plaid's test data.
+
+One `PLAID_CLIENT_ID` covers the household. On a Production Trial, that client holds 10 institution logins, shared.
+
+## Environment
+
+- `DATABASE_URL` — local database file. The example `file:./dev.db` is relative to the `prisma/` folder.
+- `HAUS_SITE_PASSWORD` — passphrase for the household lock. Required to sign in.
+- `HAUS_SESSION_SECRET` — signs the login cookie. Use at least 32 characters. A local run still starts when this is empty, using a built-in dev secret.
+- `HAUS_TOKEN_KEY` — encrypts saved Plaid connection tokens. Generate it once and keep it. A production build requires it.
+- `PLAID_CLIENT_ID` — client ID from the Plaid Keys page. Required to connect institutions.
+- `PLAID_SECRET` — secret for the same Plaid environment. Required to connect institutions.
+- `PLAID_ENV` — `sandbox`, `development`, or `production`. Defaults to `sandbox`. Match it to the secret.
+- `PLAID_PRODUCTS` — comma-separated products. Defaults to `transactions,investments,liabilities`.
+- `FINNHUB_API_KEY` — optional live stock quotes. Holdings still show quantity, value, and cost basis from the connected accounts.

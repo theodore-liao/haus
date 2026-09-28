@@ -32,6 +32,29 @@ export function formatMoney(
   return value < 0 ? `-${body}` : body;
 }
 
+/**
+ * A projection rounded to what it can honestly claim: $2.48M, $482,400, $49,100, $4,090.
+ * Real balances keep cents (formatMoney); forecasts use this.
+ */
+export function formatApprox(n: number | null | undefined): string {
+  if (n == null || Number.isNaN(n)) return "—";
+  const abs = Math.abs(n);
+  const sign = n < 0 ? "-" : "";
+  if (abs >= 1e6) return `${sign}$${Number((abs / 1e6).toPrecision(3))}M`;
+  return `${sign}$${new Intl.NumberFormat("en-US").format(roundApprox(abs))}`;
+}
+
+/** The value formatApprox shows, below a million: nearest $100 from $10,000, nearest $10 under it. */
+export function roundApprox(n: number): number {
+  const step = Math.abs(n) >= 1e4 ? 100 : 10;
+  return Math.round(n / step) * step;
+}
+
+/** A person's own figure in a sentence: whole dollars, no cents. */
+export function formatWhole(n: number): string {
+  return `${n < 0 ? "-" : ""}$${new Intl.NumberFormat("en-US", { maximumFractionDigits: 0 }).format(Math.abs(n))}`;
+}
+
 export function formatPct(
   n: number | null | undefined,
   digits = 1,

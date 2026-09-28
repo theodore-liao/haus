@@ -3,14 +3,11 @@
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { BrandLabel } from "@/components/brand-mark";
 import { hausTypeLabel } from "@/lib/account-types";
+import { IRS_LIMITS_YEAR } from "@/lib/constants";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { RemoveHsa } from "./hsa-form";
 import type { SliceItem } from "@/components/category-merchants";
 import { Money } from "@/components/money";
-import { HeroCard } from "@/components/hero-card";
-import { ChartCard } from "@/components/chart-card";
-import { RetirementProjection, type Holder } from "./projection";
-import type { ProjectionPrefs } from "@/lib/projection-prefs";
 
 export type RetirementCard = {
   id: string;
@@ -28,32 +25,10 @@ export type RetirementCard = {
   beneficiary?: string | null;
 };
 
-export function RetirementBoard({
-  rows,
-  holders,
-  today,
-  projectionPrefs,
-}: {
-  rows: RetirementCard[];
-  holders: Holder[];
-  /** Server-side "today" (YYYY-MM-DD) so the projection renders identically on both sides. */
-  today: string;
-  projectionPrefs: ProjectionPrefs;
-}) {
-  const total = rows.reduce((s, r) => s + r.balance, 0);
-  // YTD contributions scaled to a full year seed the projection's contribution input.
-  const ytd = rows.reduce((s, r) => s + r.ytd, 0);
-  const t = new Date(`${today}T00:00:00Z`);
-  const yearFraction = Math.max(1 / 12, (t.getTime() - Date.UTC(t.getUTCFullYear(), 0, 1)) / (365.25 * 86400000));
-  const annualised = ytd / yearFraction;
-
+/** The retirement accounts table. Balances only; planning lives in the Retirement planner. */
+export function RetirementAccounts({ rows }: { rows: RetirementCard[] }) {
   return (
-    <div className="page-stack">
-      <HeroCard kicker="Retirement">
-        <Money value={total} />
-      </HeroCard>
-      <div className="relative z-0 grid items-stretch gap-4 lg:grid-cols-2">
-        <Card>
+        <Card className="h-full">
           <CardHeader>
             <CardTitle>Retirement Accounts</CardTitle>
           </CardHeader>
@@ -96,18 +71,11 @@ export function RetirementBoard({
                 ))}
               </TableBody>
             </Table>
+            <p className="footnote px-[var(--space-card)] py-3">
+              {IRS_LIMITS_YEAR} catch-up (not applied automatically): IRA +$1,100 (50+); 401(k)/403(b) +$8,000 (50+) or +$11,250
+              (60–63); HSA +$1,000 (55+). Family HSA limit shown for HSA accounts.
+            </p>
           </CardContent>
         </Card>
-        <ChartCard kicker="Projection">
-          <RetirementProjection
-            balance={total}
-            defaultContribution={annualised}
-            holders={holders}
-            today={today}
-            saved={projectionPrefs}
-          />
-        </ChartCard>
-      </div>
-    </div>
   );
 }

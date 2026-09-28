@@ -10,7 +10,7 @@ import {
   isRetirementAccount,
   isRetirementType,
 } from "./account-types";
-import { CONCENTRATION_FLAG, FIXED_USD_ID, HIGH_UTILIZATION, INSURANCE_RENEWAL_DAYS, IRS_LIMITS, IRS_LIMITS_YEAR, STALE_CONNECTION_HOURS, categoryLabel, incomeSourceLabel } from "./constants";
+import { CONCENTRATION_FLAG, FIXED_USD_ID, HIGH_UTILIZATION, INSURANCE_RENEWAL_DAYS, IRS_LIMITS, IRS_LIMITS_YEAR, PFC_LABELS, STALE_CONNECTION_HOURS, categoryLabel, incomeSourceLabel } from "./constants";
 import { loadCardPaymentFlags } from "./card-payments";
 import { effectiveCategory, isInternalMove, isInvestFunding, isTransferCategory, recurringMerchantKey, txnMerchantKey } from "./categories";
 import { dayKey, ymKey } from "./range";
@@ -1805,8 +1805,12 @@ function median(xs: number[]) {
 }
 
 /** True for employment take-home (salary / contractor). Excludes interest, rentals, credits. */
-function isTakeHome(category: string) {
+// Flows carry display labels ("Paychecks", "Salary"), so match those as well as raw "Income ..." categories.
+const TAKE_HOME_LABELS = new Set([PFC_LABELS.INCOME_WAGES, PFC_LABELS.INCOME_SALARY].map((label) => label.toLowerCase()));
+
+export function isTakeHome(category: string) {
   const c = category.toLowerCase();
+  if (TAKE_HOME_LABELS.has(c)) return true;
   return c.startsWith("income") && !c.includes("interest");
 }
 
@@ -1868,7 +1872,8 @@ export function annualisedPaychecks(flows: Flow[]) {
   return { annual: sources.reduce((s, x) => s + x.amount * x.perYear, 0), sources };
 }
 
-const FIXED_SPEND = new Set(["Loan payments", "Rent and utilities"]);
+const LOAN_PAYMENTS = "Loan payments";
+const FIXED_SPEND = new Set([LOAN_PAYMENTS, "Rent and utilities"]);
 
 function monthLabel(ym: string) {
   const [y, m] = ym.split("-").map(Number);
@@ -2056,16 +2061,20 @@ export function annualisedSpend(flows: Flow[], now: Date) {
     if (rows.length === 0) return null;
     const total = rows.reduce((s, f) => s + f.amount, 0);
     const discretionary = rows.filter((f) => !FIXED_SPEND.has(f.category)).reduce((s, f) => s + f.amount, 0);
-    return { total, discretionary, basis: `${days} days`, factor: Math.round((365 / days) * 10) / 10 };
+    const noLoans = rows.filter((f) => f.category !== LOAN_PAYMENTS).reduce((s, f) => s + f.amount, 0);
+    return { total, discretionary, noLoans, basis: `${days} days`, factor: Math.round((365 / days) * 10) / 10 };
   }
   const set = new Set(months);
   const rows = spend.filter((f) => set.has(f.month));
   const total = rows.reduce((s, f) => s + f.amount, 0);
   const discretionary = rows.filter((f) => !FIXED_SPEND.has(f.category)).reduce((s, f) => s + f.amount, 0);
+  const noLoans = rows.filter((f) => f.category !== LOAN_PAYMENTS).reduce((s, f) => s + f.amount, 0);
   const n = months.length;
   return {
     total,
     discretionary,
+    /** Everything but loan payments: what a household still spends once its loans are gone. */
+    noLoans,
     basis: `${n} complete month${n === 1 ? "" : "s"}`,
     factor: Math.round((12 / n) * 100) / 100,
   };

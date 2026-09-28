@@ -14,10 +14,10 @@ import { defaultReportWindow, inWindow, type WindowKey } from "@/lib/range";
 import { formatDate } from "@/lib/format";
 import { BrandLabel } from "@/components/brand-mark";
 import { CategoryMerchantDialog } from "@/components/category-merchants";
-import type { MerchantLine } from "@/lib/merchant-lines";
 import { applyMerchantRefunds, aggregateFlows, type FlowRow } from "@/lib/spend-net";
-import { effectiveCategory, isInternalMove, merchantKey, recurringMerchantKey } from "@/lib/categories";
-import { categoryLabel } from "@/lib/constants";
+import { recurringMerchantKey } from "@/lib/categories";
+import { groupCategory } from "@/lib/category-breakdown";
+import { flowAfterRevision, reviseMatching } from "@/lib/txn-revise";
 import { TransactionSheet, TransactionsTable, type TxnSave } from "../transactions/table";
 import type { TxnRow } from "@/lib/txn-row";
 
@@ -27,54 +27,6 @@ function isRefund(t: TxnRow) {
   const code = (t.category ?? "").toUpperCase();
   if (code === "TRANSFER" || code === "INCOME" || code.startsWith("INCOME_")) return false;
   return true;
-}
-
-function sameRule(t: TxnRow, patch: TxnSave) {
-  if (t.id === patch.id) return true;
-  if (!patch.applyToMerchant) return false;
-  if ((t.cardMatch === "matched") !== (patch.cardMatch === "matched")) return false;
-  const bases = new Set([patch.rawMerchant, patch.name, patch.merchant].map((x) => merchantKey(x)).filter(Boolean));
-  return [t.rawMerchant, t.merchant, t.name].some((x) => bases.has(merchantKey(x)));
-}
-
-function reviseTxn(t: TxnRow, patch: TxnSave): TxnRow {
-  const userMerchant = patch.merchant || null;
-  const userCategory = patch.category;
-  const fields = {
-    userCategory,
-    userMerchant,
-    merchantName: t.rawMerchant,
-    name: t.name,
-    merchant: userMerchant || t.rawMerchant || t.name,
-    pairedTransfer: t.cardMatch === "matched",
-    isTransfer: t.isTransfer,
-    isCcPayment: t.isCcPayment,
-  };
-  return {
-    ...t,
-    merchant: fields.merchant,
-    category: effectiveCategory(fields),
-    internal: isInternalMove(fields),
-    memo: t.id === patch.id ? patch.memo : t.memo,
-  };
-}
-
-/** Same rows the transactions table stores, for one category in the open window. */
-function groupCategory(txns: TxnRow[], title: string): MerchantLine[] {
-  const groups = new Map<string, TxnRow[]>();
-  for (const t of txns) {
-    if (t.internal || t.amount <= 0) continue;
-    if (categoryLabel(t.category) !== title) continue;
-    const list = groups.get(t.merchant) ?? [];
-    list.push(t);
-    groups.set(t.merchant, list);
-  }
-  return [...groups.entries()].map(([merchant, rows]) => ({
-    category: title,
-    merchant,
-    amount: rows.reduce((sum, row) => sum + row.amount, 0),
-    txns: rows,
-  }));
 }
 
 type RecurringRow = { label: string; amount: number; cadence: string; lastDate: string; annual: number };
@@ -114,25 +66,9 @@ export function SpendingClient({
   );
 
   function applySave(patch: TxnSave) {
-    const revised = new Map<string, TxnRow>();
-    for (const row of liveTxns) {
-      if (sameRule(row, patch)) revised.set(row.id, reviseTxn(row, patch));
-    }
+    const revised = reviseMatching(liveTxns, patch);
     setLiveTxns((prev) => prev.map((row) => revised.get(row.id) ?? row));
-    setLiveFlows((prev) =>
-      prev.map((flow) => {
-        const row = flow.id ? revised.get(flow.id) : undefined;
-        if (!row) return flow;
-        const code = (row.category ?? "").toUpperCase();
-        const spend = row.amount > 0 && !row.internal && code !== "INCOME" && !code.startsWith("INCOME_");
-        return {
-          ...flow,
-          merchant: row.merchant,
-          kind: spend ? "spend" : "income",
-          category: categoryLabel(row.category),
-        };
-      }),
-    );
+    setLiveFlows((prev) => prev.map((flow) => flowAfterRevision(flow, revised)));
     setEdit((cur) => (cur && revised.has(cur.id) ? revised.get(cur.id)! : cur));
   }
 

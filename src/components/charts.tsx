@@ -28,7 +28,8 @@ import { ChartRange, useChartRange } from "./chart-range";
 import { SliceBreakdownDialog, type SliceItem } from "./category-merchants";
 import { CategoryIcon, hasCategoryIcon } from "@/lib/category-icons";
 import { colorFor, donutColorMap } from "@/lib/category-colors";
-import { FROM_SAVINGS, isOtherSlice, OTHER_CATEGORIES, TO_INVESTMENTS, TO_SAVINGS } from "@/lib/flow-labels";
+import { FROM_SAVINGS, isOtherSlice, TO_INVESTMENTS, TO_SAVINGS } from "@/lib/flow-labels";
+import { SANKEY_INCOME_LIMIT, SANKEY_SPEND_LIMIT, sankeyIncomeLabel, topSlices } from "@/lib/sankey-slices";
 
 const AXIS = { fontSize: 11, fill: "#8fa0b8", fontFamily: "var(--font-geist-sans)" };
 const MONEY_AXIS = { ...AXIS, className: "money" };
@@ -541,22 +542,6 @@ function CategoryTick({
   );
 }
 
-function keepNamed(label: string) {
-  return /cash.?back|rewards|rebate/i.test(label);
-}
-
-function topSlices(rows: { label: string; value: number }[], limit = 8) {
-  const sorted = [...rows].filter((r) => r.value > 0).sort((a, b) => b.value - a.value || a.label.localeCompare(b.label));
-  const pinned = sorted.filter((r) => keepNamed(r.label));
-  const rest = sorted.filter((r) => !keepNamed(r.label));
-  if (pinned.length + rest.length <= limit) return sorted;
-  const room = Math.max(1, limit - 1 - pinned.length);
-  const head = [...rest.slice(0, room), ...pinned].sort((a, b) => b.value - a.value || a.label.localeCompare(b.label));
-  const leftover = rest.slice(room).reduce((s, r) => s + r.value, 0);
-  if (leftover > 0) head.push({ label: OTHER_CATEGORIES, value: leftover });
-  return head;
-}
-
 export function CashflowSankey({
   income,
   spend,
@@ -572,11 +557,11 @@ export function CashflowSankey({
   onIncomeClick?: (label: string) => void;
   onBalanceClick?: (kind: "from-savings" | "to-savings" | "to-investments") => void;
 }) {
-  const sources = topSlices(income, 7).map((r) => ({
+  const sources = topSlices(income, SANKEY_INCOME_LIMIT).map((r) => ({
     ...r,
-    label: r.label === "Income" ? "Other income" : r.label,
+    label: sankeyIncomeLabel(r.label),
   }));
-  const outflows = topSlices(spend, 9);
+  const outflows = topSlices(spend, SANKEY_SPEND_LIMIT);
   const inTotal = sources.reduce((s, r) => s + r.value, 0);
   const outTotal = outflows.reduce((s, r) => s + r.value, 0);
   if (inTotal <= 0 && outTotal <= 0) {

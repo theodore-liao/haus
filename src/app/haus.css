@@ -71,9 +71,18 @@ main.page-stack textarea {
 
 .page-title {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-columns: minmax(max-content, 1fr) auto;
   align-items: center;
   gap: 0.75rem var(--space-block);
+}
+
+@media (max-width: 639px) {
+  .page-title {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .page-title > div:not(.page-title-desc) {
+    justify-content: flex-start;
+  }
 }
 
 .page-title h1 {
@@ -613,6 +622,241 @@ html.privacy .amort-chart .ytick text:hover {
   white-space: nowrap;
 }
 
+/* ---------- Form fields ----------
+   NumberField (src/components/number-field.tsx). Label on top, the box below with $ or % inside it,
+   one line of help or error under it. Fields sit on .field-grid so boxes line up across rows. */
+
+.field-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(8.5rem, 1fr));
+  align-items: start;
+  gap: 0.875rem 1rem;
+}
+
+.field-grid-wide {
+  grid-template-columns: repeat(auto-fill, minmax(11rem, 1fr));
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.375rem;
+  min-width: 0;
+}
+
+.field > label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.field-box {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  height: 2.25rem;
+  min-width: 0;
+  padding-inline: 0.625rem;
+  border: 1px solid var(--input);
+  border-radius: 0.375rem;
+  background: color-mix(in srgb, var(--background) 45%, var(--card));
+  transition: border-color 120ms ease, box-shadow 120ms ease;
+  cursor: text;
+}
+
+.field-box:hover {
+  border-color: color-mix(in srgb, var(--primary) 35%, var(--input));
+}
+
+.field-box:focus-within {
+  border-color: var(--ring);
+  box-shadow: 0 0 0 1px var(--ring);
+}
+
+.field-box[data-invalid] {
+  border-color: var(--negative);
+  box-shadow: none;
+}
+
+.field-box input {
+  flex: 1 1 auto;
+  width: 100%;
+  min-width: 0;
+  height: 100%;
+  padding: 0;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--foreground);
+  font-family: var(--font-mono-stack);
+  font-size: var(--type-body);
+  font-variant-numeric: tabular-nums;
+}
+
+.field-box input::placeholder {
+  color: color-mix(in srgb, var(--muted-foreground) 60%, transparent);
+}
+
+.field-affix {
+  flex-shrink: 0;
+  font-size: var(--type-table);
+  color: var(--muted-foreground);
+  user-select: none;
+}
+
+.field-note {
+  font-size: var(--type-micro);
+  line-height: 1.4;
+  color: var(--muted-foreground);
+}
+
+.field-note[data-error] {
+  color: var(--negative);
+}
+
+/* A group of fields inside a card, under its own kicker. */
+.form-section + .form-section {
+  margin-top: 1.25rem;
+  padding-top: 1.25rem;
+  border-top: 1px solid color-mix(in srgb, var(--border) 80%, transparent);
+}
+
+.form-section > .kicker {
+  margin-bottom: 0.75rem;
+  color: var(--accent);
+}
+
+/* Segmented choice: one of a few options, same look as TabsList. */
+.segmented {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.25rem;
+  max-width: 100%;
+  min-height: 2.25rem;
+  padding: 0.1875rem;
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+  background: color-mix(in srgb, var(--card) 80%, transparent);
+}
+
+.segmented button {
+  min-height: 1.75rem;
+  padding: 0.125rem 0.75rem;
+  border-radius: 0.375rem;
+  font-size: var(--type-body);
+  color: var(--muted-foreground);
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background-color 120ms ease, color 120ms ease;
+}
+
+.segmented button:hover {
+  color: var(--foreground);
+}
+
+@media (max-width: 639px) {
+  .segmented {
+    display: flex;
+    flex-wrap: nowrap;
+    width: 100%;
+  }
+  .segmented button {
+    flex: 1 1 0;
+    min-width: 0;
+    padding-inline: 0.5rem;
+    white-space: normal;
+    line-height: 1.25;
+  }
+}
+
+.segmented button[aria-checked="true"] {
+  background: var(--secondary);
+  color: var(--foreground);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--primary) 30%, transparent);
+}
+
+/* ---------- Result blocks ----------
+   A result answers the card's question. It is larger than any input and colored when color means something. */
+
+.stat {
+  min-width: 0;
+}
+
+.stat .display-number {
+  margin-top: 0.25rem;
+}
+
+.stat-sub {
+  margin-top: 0.25rem;
+  font-size: var(--type-table);
+  color: var(--muted-foreground);
+}
+
+.meter {
+  height: 0.5rem;
+  overflow: hidden;
+  border-radius: 999px;
+  background: var(--secondary);
+}
+
+.meter > span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--accent);
+  transition: width 200ms ease;
+}
+
+.meter[data-done] > span {
+  background: var(--positive);
+}
+
+/* Stacked bar: each part of a total, with a legend on the shared .legend-row grid. */
+.stack-bar {
+  display: flex;
+  height: 0.5rem;
+  overflow: hidden;
+  gap: 2px;
+  border-radius: 999px;
+  background: var(--secondary);
+}
+
+.stack-bar > span {
+  height: 100%;
+  background: var(--swatch);
+}
+
+/* Status line under a result: what to do next. */
+.callout {
+  display: flex;
+  gap: 0.625rem;
+  align-items: flex-start;
+  padding: 0.75rem 0.875rem;
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--tone, var(--accent));
+  border-radius: 0.5rem;
+  background: color-mix(in srgb, var(--tone, var(--accent)) 7%, transparent);
+  font-size: var(--type-body);
+  line-height: 1.5;
+}
+
+.callout svg {
+  flex-shrink: 0;
+  width: 1rem;
+  height: 1rem;
+  margin-top: 0.1875rem;
+  color: var(--tone, var(--accent));
+}
+
+.callout[data-tone="good"] {
+  --tone: var(--positive);
+}
+
+.callout[data-tone="bad"] {
+  --tone: var(--negative);
+}
+
 /* ---------- Data tables ---------- */
 
 .data-table {
@@ -683,4 +927,338 @@ html.privacy .amort-chart .ytick text:hover {
 .cell-stack > :last-child:not(:only-child) {
   font-size: var(--type-micro);
   color: var(--muted-foreground);
+}
+
+/* The one answer a tool card gives (Retirement number): hero size inside an ordinary card. */
+.display-number.hero-figure {
+  margin-top: 0;
+  font-size: min(var(--type-display-hero), 9vw);
+  letter-spacing: -0.025em;
+  overflow-wrap: normal;
+  white-space: nowrap;
+}
+
+@media (min-width: 768px) {
+  .display-number.hero-figure {
+    font-size: var(--type-display-hero-lg);
+  }
+}
+
+/* Dollar amounts inside a sentence read as words, not a terminal. Tables and legends keep mono. */
+.callout .num,
+.field-note .num,
+.prose-num .num {
+  font-family: inherit;
+}
+
+
+/* Range slider: filled up to the thumb in the accent color. --fill is set by the page (0% to 100%). */
+.range {
+  width: 100%;
+  height: 1.5rem;
+  margin: 0;
+  background: transparent;
+  cursor: pointer;
+  appearance: none;
+}
+
+.range:disabled {
+  cursor: default;
+  opacity: 0.5;
+}
+
+.range::-webkit-slider-runnable-track {
+  height: 0.375rem;
+  border-radius: 999px;
+  background: linear-gradient(to right, var(--accent) var(--fill, 0%), var(--secondary) var(--fill, 0%));
+}
+
+.range::-moz-range-track {
+  height: 0.375rem;
+  border-radius: 999px;
+  background: var(--secondary);
+}
+
+.range::-moz-range-progress {
+  height: 0.375rem;
+  border-radius: 999px;
+  background: var(--accent);
+}
+
+.range::-webkit-slider-thumb {
+  width: 1.25rem;
+  height: 1.25rem;
+  margin-top: -0.4375rem;
+  border: 2px solid var(--accent);
+  border-radius: 999px;
+  background: var(--foreground);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.5);
+  appearance: none;
+}
+
+.range::-moz-range-thumb {
+  width: 1.25rem;
+  height: 1.25rem;
+  border: 2px solid var(--accent);
+  border-radius: 999px;
+  background: var(--foreground);
+}
+
+.range:focus-visible {
+  outline: none;
+}
+
+.range:focus-visible::-webkit-slider-thumb {
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--ring) 60%, transparent);
+}
+
+/* The planner's one-sentence answer, above the figures behind it. Tinted by whether the plan works. */
+.verdict {
+  padding: 1rem 1.25rem;
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--tone, var(--primary));
+  border-radius: 0.5rem;
+  background: color-mix(in srgb, var(--tone, var(--primary)) 6%, transparent);
+}
+
+.verdict-good {
+  --tone: var(--positive);
+}
+
+.verdict-warn {
+  --tone: var(--accent);
+}
+
+.verdict-line {
+  font-size: var(--type-display);
+  font-weight: 500;
+  line-height: 1.3;
+  letter-spacing: var(--track-display);
+  color: var(--foreground);
+}
+
+.verdict-line .num {
+  font-family: var(--font-sans-stack);
+}
+
+/* A what-if the planner can apply in one click: title, then what it would change. */
+.lever {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  min-width: 0;
+  padding: 0.75rem 0.875rem;
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+  background: color-mix(in srgb, var(--card-elevated) 50%, transparent);
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 120ms ease, background-color 120ms ease;
+}
+
+.lever:hover {
+  border-color: color-mix(in srgb, var(--primary) 45%, var(--border));
+  background: var(--card-elevated);
+}
+
+.lever:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--ring);
+}
+
+/* Kid costs on the planner's years: one row per child under the chart, lined up with its plot area (y-axis 64px, right margin 16px). */
+.kid-list {
+  display: none;
+}
+
+@media (max-width: 639px) {
+  .kid-strip {
+    display: none !important;
+  }
+  .kid-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+    margin-top: 0.5rem;
+    font-size: var(--type-table);
+    color: var(--muted-foreground);
+  }
+}
+
+.kid-strip {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  margin: 0.25rem 16px 0 64px;
+}
+
+.kid-row {
+  position: relative;
+  height: 1.375rem;
+}
+
+.kid-bar {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  display: flex;
+  align-items: center;
+  overflow: hidden;
+  padding-inline: 0.375rem;
+  border-radius: 0.25rem;
+  background: color-mix(in srgb, #d4be7a 16%, transparent);
+  color: #d4be7a;
+  font-size: var(--type-micro);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.kid-bar-college {
+  background: color-mix(in srgb, #d4be7a 34%, transparent);
+  color: var(--foreground);
+}
+
+/* Two yearly amounts compared on one scale: what's needed and what's saved, with the gap underneath. */
+.save-compare {
+  display: grid;
+  gap: 0.625rem;
+}
+
+/* Fixed label column so both bars start at the same point, whatever sits beside a label (like a "?"). */
+.save-compare-row {
+  display: grid;
+  grid-template-columns: 8.5rem minmax(4rem, 1fr) minmax(6rem, auto);
+  align-items: center;
+  gap: 0.75rem;
+  font-size: var(--type-body);
+}
+
+/* Phone: label and figure share a line, the bar runs full width underneath. */
+@media (max-width: 639px) {
+  .save-compare-row {
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 0.375rem 0.75rem;
+  }
+  .save-compare-track {
+    grid-column: 1 / -1;
+    grid-row: 2;
+  }
+}
+
+.save-compare-track {
+  height: 0.625rem;
+  overflow: hidden;
+  border-radius: 999px;
+  background: var(--secondary);
+}
+
+.save-compare-track > span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  transition: width 200ms ease;
+}
+
+.save-compare-value {
+  font-size: 1.125rem;
+  font-weight: 500;
+  text-align: right;
+  white-space: nowrap;
+}
+
+.save-compare-value .num {
+  font-family: var(--font-sans-stack);
+}
+
+/* Retirement planner: the answer and chart on the left, the inputs beside them on wide screens,
+   so a change and its effect stay in view together. Below that, the inputs sit under the chart. */
+.planner-layout {
+  display: grid;
+  gap: 2rem 2.5rem;
+}
+
+.planner-inputs {
+  display: grid;
+  grid-template-areas: "spend" "kids" "other";
+  column-gap: 2.5rem;
+  padding-top: 1.5rem;
+  border-top: 1px solid var(--border);
+}
+
+.planner-spend {
+  grid-area: spend;
+}
+
+.planner-kids {
+  grid-area: kids;
+  align-self: start;
+}
+
+.planner-other {
+  grid-area: other;
+}
+
+.planner-kids,
+.planner-other {
+  margin-top: 1.25rem;
+  padding-top: 1.25rem;
+  border-top: 1px solid color-mix(in srgb, var(--border) 80%, transparent);
+}
+
+@media (min-width: 1280px) and (max-width: 1535px) {
+  .planner-inputs {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    grid-template-areas: "spend kids" "other kids";
+  }
+  .planner-kids {
+    margin-top: 0;
+    padding-top: 0;
+    border-top: 0;
+  }
+}
+
+@media (min-width: 1536px) {
+  .planner-layout {
+    grid-template-columns: minmax(0, 1fr) minmax(20rem, 24rem);
+    align-items: start;
+  }
+  .planner-inputs {
+    padding-top: 0;
+    padding-left: 2.5rem;
+    border-top: 0;
+    border-left: 1px solid var(--border);
+  }
+}
+
+/* A check the planner ran, as a short pill that opens its explanation. */
+.check-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  min-height: 1.875rem;
+  padding: 0.25rem 0.75rem;
+  border: 1px solid color-mix(in srgb, var(--tone) 45%, var(--border));
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--tone) 8%, transparent);
+  font-size: var(--type-table);
+  color: var(--foreground);
+  cursor: pointer;
+}
+
+.check-pill[data-tone="good"] {
+  --tone: var(--positive);
+}
+
+.check-pill[data-tone="warn"] {
+  --tone: var(--accent);
+}
+
+.check-pill svg {
+  width: 0.875rem;
+  height: 0.875rem;
+  color: var(--tone);
+}
+
+.check-pill .num {
+  font-family: inherit;
 }

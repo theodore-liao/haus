@@ -17,6 +17,8 @@ export function SearchInput({
 }) {
   return (
     <Input
+      // Search filters as you type; the ux check tells it apart from number boxes, which apply on Enter.
+      data-search=""
       placeholder={placeholder}
       value={value}
       onChange={(e) => onChange(e.target.value)}

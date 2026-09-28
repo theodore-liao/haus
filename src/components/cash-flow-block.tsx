@@ -1,13 +1,13 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Money } from "@/components/money";
 import { ObjectTitle, kickerClass } from "@/components/type";
 import { Pills, Pill } from "@/components/pills";
 import { ChartCard } from "@/components/chart-card";
 import { CashflowSankey } from "@/components/charts";
-import { FROM_SAVINGS, OTHER_CATEGORIES } from "@/lib/flow-labels";
+import { FROM_SAVINGS, TO_INVESTMENTS } from "@/lib/flow-labels";
 import { formatPct } from "@/lib/format";
 import { ReportRange } from "@/components/chart-range";
 import {
@@ -20,39 +20,70 @@ import {
 import { format } from "date-fns";
 import { cn } from "@/lib/utils";
 import { CategoryMerchantDialog } from "@/components/category-merchants";
-import { aggregateMerchants, type MerchantLine } from "@/lib/merchant-lines";
+import { groupIncomeNode, groupInvestNode, groupSpendNode } from "@/lib/category-breakdown";
+import type { MerchantLine } from "@/lib/merchant-lines";
 import { applyMerchantRefunds, aggregateFlows, type FlowRow } from "@/lib/spend-net";
+import { flowAfterRevision, reviseMatching } from "@/lib/txn-revise";
+import type { TxnRow } from "@/lib/txn-row";
+import { TransactionSheet, type TxnSave } from "@/app/(office)/transactions/table";
+
+type Popup =
+  | { kind: "spend" | "income"; title: string }
+  | { kind: "invest" }
+  | { kind: "from-savings" };
 
 export function CashFlowBlock({
   flows,
+  txns,
   archiveCoversFrom = null,
 }: {
   flows: FlowRow[];
+  txns: TxnRow[];
   /** First day the saved archive covers every institution. Older months before this are incomplete. */
   archiveCoversFrom?: string | null;
 }) {
   const [range, setRange] = useState<WindowKey>(defaultReportWindow());
-  const [popup, setPopup] = useState<{ title: string; lines: MerchantLine[]; note?: string } | null>(null);
+  const [popup, setPopup] = useState<Popup | null>(null);
+  const [edit, setEdit] = useState<TxnRow | null>(null);
+  const [liveTxns, setLiveTxns] = useState(txns);
+  const [liveFlows, setLiveFlows] = useState(flows);
+  useEffect(() => {
+    setLiveTxns(txns);
+    setLiveFlows(flows);
+  }, [txns, flows]);
 
-  const sliced = useMemo(() => flows.filter((f) => inWindow(f.date, range)), [flows, range]);
+  function applySave(patch: TxnSave) {
+    const revised = reviseMatching(liveTxns, patch);
+    setLiveTxns((prev) => prev.map((row) => revised.get(row.id) ?? row));
+    setLiveFlows((prev) => prev.map((flow) => flowAfterRevision(flow, revised)));
+    setEdit((cur) => (cur && revised.has(cur.id) ? revised.get(cur.id)! : cur));
+  }
+
+  const sliced = useMemo(() => liveFlows.filter((f) => inWindow(f.date, range)), [liveFlows, range]);
   const netted = useMemo(() => applyMerchantRefunds(sliced), [sliced]);
   const agg = useMemo(() => aggregateFlows(netted), [netted]);
   const spendAll = agg.spendRows.reduce((s, r) => s + r.value, 0);
   const incomeAll = agg.incomeRows.reduce((s, r) => s + r.value, 0);
   const savings = incomeAll - spendAll;
 
-  const spendMerch: MerchantLine[] = netted
-    .filter((f) => f.kind === "spend")
-    .map((f) => ({ category: f.category, merchant: f.merchant, amount: f.amount }));
-  const incomeMerch: MerchantLine[] = netted
-    .filter((f) => f.kind === "income")
-    .map((f) => ({ category: f.category, merchant: f.merchant, amount: f.amount }));
+  const windowTxns = useMemo(() => liveTxns.filter((t) => inWindow(t.date, range)), [liveTxns, range]);
+  const popupLines = useMemo((): MerchantLine[] => {
+    if (!popup) return [];
+    if (popup.kind === "from-savings") {
+      return agg.spendRows.map((r) => ({ category: r.label, merchant: r.label, amount: r.value }));
+    }
+    if (popup.kind === "invest") return groupInvestNode(windowTxns, netted);
+    if (popup.kind === "income") return groupIncomeNode(windowTxns, netted, agg.incomeRows, popup.title);
+    return groupSpendNode(windowTxns, netted, agg.spendRows, popup.title);
+  }, [popup, windowTxns, netted, agg]);
+  const popupTitle =
+    popup?.kind === "from-savings" ? FROM_SAVINGS : popup?.kind === "invest" ? TO_INVESTMENTS : (popup?.title ?? "");
 
   // The latest three months always show. Older months appear only when the saved archive
   // covers that month from the first day, so a fresh ~90-day pull does not pad the table.
   const months = useMemo(() => {
     const byMonth: Record<string, { income: number; spend: number }> = {};
-    for (const f of flows) {
+    for (const f of liveFlows) {
       if (f.kind !== "spend" && f.kind !== "income") continue;
       const row = byMonth[f.month] ?? { income: 0, spend: 0 };
       if (f.kind === "spend") row.spend += f.amount;
@@ -69,7 +100,7 @@ export function CashFlowBlock({
         savings: v.income - v.spend,
       };
     });
-  }, [flows, archiveCoversFrom]);
+  }, [liveFlows, archiveCoversFrom]);
 
   return (
     <section className="page-stack pt-2">
@@ -92,31 +123,11 @@ export function CashFlowBlock({
           <CashflowSankey
             income={agg.incomeRows}
             spend={agg.spendRows}
-            onSpendClick={(label) =>
-              setPopup({
-                title: label,
-                lines:
-                  label === OTHER_CATEGORIES
-                    ? leftover(spendMerch, agg.spendRows, 8)
-                    : aggregateMerchants(spendMerch, label),
-              })
-            }
-            onIncomeClick={(label) =>
-              setPopup({
-                title: label,
-                lines:
-                  label === OTHER_CATEGORIES
-                    ? leftover(incomeMerch, agg.incomeRows, 6)
-                    : aggregateMerchants(incomeMerch, label),
-              })
-            }
+            onSpendClick={(label) => setPopup({ kind: "spend", title: label })}
+            onIncomeClick={(label) => setPopup({ kind: "income", title: label })}
             onBalanceClick={(kind) => {
-              if (kind !== "from-savings") return;
-              setPopup({
-                title: FROM_SAVINGS,
-                note: "Spending exceeded income in this window.",
-                lines: agg.spendRows.map((r) => ({ category: r.label, merchant: r.label, amount: r.value })),
-              });
+              if (kind === "to-investments") setPopup({ kind: "invest" });
+              else if (kind === "from-savings") setPopup({ kind: "from-savings" });
             }}
           />
       </ChartCard>
@@ -170,28 +181,16 @@ export function CashFlowBlock({
       </Card>
       <CategoryMerchantDialog
         open={popup != null}
-        title={popup?.title ?? ""}
-        lines={popup?.lines ?? []}
-        note={popup?.note}
+        title={popupTitle}
+        lines={popupLines}
+        note={popup?.kind === "from-savings" ? "Spending exceeded income in this window." : undefined}
         onClose={() => setPopup(null)}
+        onOpenTxn={popup?.kind === "from-savings" ? undefined : setEdit}
+        positiveAmounts={popup?.kind !== "from-savings"}
       />
+      <TransactionSheet row={edit} onClose={() => setEdit(null)} onSaved={applySave} />
     </section>
   );
-}
-
-function leftover(lines: MerchantLine[], ranked: { label: string }[], keep: number): MerchantLine[] {
-  const top = new Set(ranked.slice(0, keep).map((r) => r.label));
-  const rest = new Set(ranked.filter((r) => !top.has(r.label)).map((r) => r.label));
-  const map: Record<string, number> = {};
-  for (const l of lines) {
-    if (!rest.has(l.category)) continue;
-    map[l.merchant] = (map[l.merchant] ?? 0) + l.amount;
-  }
-  return Object.entries(map).map(([merchant, amount]) => ({
-    category: OTHER_CATEGORIES,
-    merchant,
-    amount,
-  }));
 }
 
 

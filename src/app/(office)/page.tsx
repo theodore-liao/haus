@@ -6,7 +6,7 @@ import { Pills, Pill } from "@/components/pills";
 import { ChartCard } from "@/components/chart-card";
 import { AllocationChart, NetWorthChart } from "@/components/charts";
 import { CashFlowBlock } from "@/components/cash-flow-block";
-import { getOverview, getReports, hasAnyLedger } from "@/lib/queries";
+import { getOverview, getReports, getTransactions, hasAnyLedger } from "@/lib/queries";
 import { overviewPillFigures } from "@/lib/overview-pills";
 import { getOwnerFilter } from "@/lib/request";
 
@@ -27,7 +27,11 @@ export default async function OverviewPage() {
     );
   }
 
-  const [data, reports] = await Promise.all([getOverview(owner), getReports(owner)]);
+  const [data, reports, txns] = await Promise.all([
+    getOverview(owner),
+    getReports(owner),
+    getTransactions(owner),
+  ]);
   const pills = overviewPillFigures({
     investments: data.tiles.investments,
     cash: data.tiles.cash,
@@ -86,7 +90,7 @@ export default async function OverviewPage() {
         </ChartCard>
       </div>
       {reports.flows.length > 0 ? (
-        <CashFlowBlock flows={reports.flows} archiveCoversFrom={reports.archiveCoversFrom} />
+        <CashFlowBlock flows={reports.flows} txns={txns} archiveCoversFrom={reports.archiveCoversFrom} />
       ) : null}
     </>
   );

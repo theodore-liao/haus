@@ -40,6 +40,18 @@ const isoDay = z
   .nullable()
   .optional();
 
+const planChildSchema = z.object({
+  id: z.string().min(1).max(80),
+  name: z.string().max(80),
+  birthYear: z.number().int().min(1900).max(2200).nullable(),
+  planned: z.boolean().optional(),
+});
+
+const milestoneSchema = z.object({
+  amount: z.number().finite().nullable(),
+  age: z.number().finite().nullable(),
+});
+
 const projectionPrefsSchema = z
   .object({
     rate: z.number().finite().optional(),
@@ -47,6 +59,27 @@ const projectionPrefsSchema = z
     retireAge: z.number().finite().optional(),
     yearsFallback: z.number().finite().optional(),
     holderKey: z.enum(["A", "B"]).optional(),
+    inflation: z.number().finite().optional(),
+    becomesAmount: z.number().finite().optional(),
+    becomesYears: z.number().finite().optional(),
+    invested: z.number().finite().nullable().optional(),
+    annualSpend: z.number().finite().optional(),
+    liveTo: z.number().finite().optional(),
+    spendMode: z.enum(["forever", "down"]).optional(),
+    childAnnual: z.number().finite().optional(),
+    collegeAnnual: z.number().finite().optional(),
+    planChildren: z.array(planChildSchema).max(12).optional(),
+    housePrice: z.number().finite().nullable().optional(),
+    houseAge: z.number().finite().nullable().optional(),
+    otherIncome: z.number().finite().optional(),
+    otherIncomeAge: z.number().finite().optional(),
+    taxPct: z.number().finite().optional(),
+    returnAfter: z.number().finite().nullable().optional(),
+    milestones: z.array(milestoneSchema).max(3).optional(),
+    todayMoney: z.boolean().optional(),
+    saveOverride: z.number().finite().nullable().optional(),
+    healthcareAnnual: z.number().finite().optional(),
+    houseAtRetire: z.boolean().optional(),
   })
   .strict();
 

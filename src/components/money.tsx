@@ -1,7 +1,7 @@
 "use client";
 
 import type { ReactNode } from "react";
-import { formatMoney, formatPct } from "@/lib/format";
+import { formatApprox, formatMoney, formatPct } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
 export function HeroMetric({
@@ -24,10 +24,13 @@ export function HeroMetric({
 export function Money({
   value,
   signed,
+  approx,
   className,
 }: {
   value: number | null | undefined;
   signed?: boolean;
+  /** A projection: rounded ($2.48M, $49,100) instead of shown to the cent. */
+  approx?: boolean;
   className?: string;
 }) {
   const n = value ?? null;
@@ -39,7 +42,7 @@ export function Money({
         : n < 0
           ? "text-negative"
           : "";
-  return <span className={cn("num money", tone, className)}>{formatMoney(n, { signed })}</span>;
+  return <span className={cn("num money", tone, className)}>{approx ? formatApprox(n) : formatMoney(n, { signed })}</span>;
 }
 
 export function Delta({

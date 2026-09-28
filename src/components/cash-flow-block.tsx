@@ -3,10 +3,10 @@
 import { useEffect, useMemo, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Money } from "@/components/money";
-import { ObjectTitle, kickerClass } from "@/components/type";
-import { Pills, Pill } from "@/components/pills";
+import { kickerClass } from "@/components/type";
+import { Pill } from "@/components/pills";
 import { ChartCard } from "@/components/chart-card";
-import { CashflowSankey } from "@/components/charts";
+import { CashflowSankey, SavingsRateTrend } from "@/components/charts";
 import { FROM_SAVINGS, TO_INVESTMENTS } from "@/lib/flow-labels";
 import { formatPct } from "@/lib/format";
 import { ReportRange } from "@/components/chart-range";
@@ -23,6 +23,7 @@ import { CategoryMerchantDialog } from "@/components/category-merchants";
 import { groupIncomeNode, groupInvestNode, groupSpendNode } from "@/lib/category-breakdown";
 import type { MerchantLine } from "@/lib/merchant-lines";
 import { applyMerchantRefunds, aggregateFlows, type FlowRow } from "@/lib/spend-net";
+import { withComparisons } from "@/lib/cashflow-months";
 import { flowAfterRevision, reviseMatching } from "@/lib/txn-revise";
 import type { TxnRow } from "@/lib/txn-row";
 import { TransactionSheet, type TxnSave } from "@/app/(office)/transactions/table";
@@ -102,24 +103,32 @@ export function CashFlowBlock({
     });
   }, [liveFlows, archiveCoversFrom]);
 
+  const monthsWithRate = useMemo(() => withComparisons(months), [months]);
+  const trend = useMemo(
+    () =>
+      [...monthsWithRate]
+        .reverse()
+        .filter((m) => m.rate != null)
+        .map((m) => ({ label: format(asLocalDate(`${m.month}-01`), "MMM"), rate: m.rate as number })),
+    [monthsWithRate],
+  );
+  const showYoy = monthsWithRate.some((m) => m.spendVsLastYear != null);
+
   return (
     <section className="page-stack pt-2">
-      <div className="section-head">
-        <ObjectTitle>Cashflow</ObjectTitle>
-        <ReportRange value={range} onChange={setRange} />
-      </div>
-      <Pills>
-        <Pill kicker="Income" accent="#7EABD4">
-          <Money value={incomeAll} />
-        </Pill>
-        <Pill kicker="Spending" accent="#D4928C">
-          <Money value={spendAll} />
-        </Pill>
-        <Pill kicker="Net Movement" accent="#7DB8A4">
-          <Money value={savings} signed />
-        </Pill>
-      </Pills>
-      <ChartCard kicker="Where money moves">
+      <ChartCard kicker="Cashflow" actions={<ReportRange value={range} onChange={setRange} />}>
+        <div className="pills pills-compact pills-trio mb-4">
+          <Pill kicker="Income" accent="#7EABD4">
+            <Money value={incomeAll} />
+          </Pill>
+          <Pill kicker="Spending" accent="#D4928C">
+            <Money value={spendAll} />
+          </Pill>
+          <Pill kicker="Net Movement" accent="#7DB8A4">
+            <Money value={savings} signed />
+          </Pill>
+        </div>
+        <div className={cn(kickerClass, "mb-2")}>Where money moves</div>
           <CashflowSankey
             income={agg.incomeRows}
             spend={agg.spendRows}
@@ -135,41 +144,68 @@ export function CashFlowBlock({
         <CardHeader>
           <CardTitle>Month by month</CardTitle>
         </CardHeader>
+        {trend.length >= 3 ? (
+          <div className="px-[var(--space-card)] pb-3">
+            <div className="footnote mb-1">Savings rate</div>
+            <SavingsRateTrend data={trend} />
+          </div>
+        ) : null}
         <CardContent className="px-0 pb-0">
           <div className="max-h-[min(24rem,calc(100dvh-18rem))] overflow-y-auto overscroll-contain">
             <table className="data-table">
               <thead className="sticky top-0 z-10 bg-card">
                 <tr className={cn("border-b border-border", kickerClass)}>
                   <th>Month</th>
-                  <th className="num">Income</th>
+                  {/* Phones keep Month, Spend, and Saved so the table fits without scrolling sideways. */}
+                  <th className="num hidden sm:table-cell">Income</th>
                   <th className="num">Spend</th>
+                  {showYoy ? <th className="num hidden md:table-cell">Spend vs last year</th> : null}
                   <th className="num">Saved</th>
                   {/* Rate is derivable from Saved/Income; phones drop it so the table fits without scrolling. */}
                   <th className="num hidden sm:table-cell">Rate</th>
                 </tr>
               </thead>
               <tbody>
-                {months.length === 0 ? (
+                {monthsWithRate.length === 0 ? (
                   <tr>
-                    <td colSpan={5} className="py-8 text-center text-muted-foreground">
+                    <td colSpan={showYoy ? 6 : 5} className="py-8 text-center text-muted-foreground">
                       No full months yet.
                     </td>
                   </tr>
                 ) : (
-                  months.map((m) => (
+                  monthsWithRate.map((m) => (
                     <tr key={m.month} className="border-b border-border last:border-0">
-                      <td>{m.label}</td>
-                      <td className="num">
+                      <td>
+                        {m.label}
+                        {m.current ? <span className="footnote"> · so far</span> : null}
+                        {m.mark === "best" ? <span className="footnote text-positive"> · best</span> : null}
+                        {m.mark === "worst" ? <span className="footnote text-negative"> · lowest</span> : null}
+                      </td>
+                      <td className="num hidden sm:table-cell">
                         <Money value={m.income} />
                       </td>
                       <td className="num">
                         <Money value={m.spend} />
                       </td>
+                      {showYoy ? (
+                        <td
+                          className={cn(
+                            "num hidden md:table-cell",
+                            m.spendVsLastYear == null
+                              ? "text-muted-foreground"
+                              : m.spendVsLastYear > 0
+                                ? "text-negative"
+                                : "text-positive",
+                          )}
+                        >
+                          {m.spendVsLastYear == null ? "—" : formatPct(m.spendVsLastYear * 100, 0, true)}
+                        </td>
+                      ) : null}
                       <td className="num">
                         <Money value={m.savings} signed />
                       </td>
                       <td className="num hidden text-muted-foreground sm:table-cell">
-                        {m.income > 0 ? formatPct((m.savings / m.income) * 100, 0, true) : "—"}
+                        {m.rate != null ? formatPct(m.rate * 100, 0, true) : "—"}
                       </td>
                     </tr>
                   ))
@@ -192,5 +228,3 @@ export function CashFlowBlock({
     </section>
   );
 }
-
-

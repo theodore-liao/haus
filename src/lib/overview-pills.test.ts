@@ -14,7 +14,7 @@ function netWorth(parts: {
 
 function sum(parts: Parameters<typeof overviewPillFigures>[0]) {
   const pills = overviewPillFigures(parts);
-  return pills.equities + pills.cash + pills.property + pills.liabilities;
+  return pills.investments + pills.cash + pills.property + pills.liabilities;
 }
 
 test("a vehicle is property, so the overview pills add up to net worth", () => {
@@ -25,8 +25,8 @@ test("a vehicle is property, so the overview pills add up to net worth", () => {
   assert.equal(sum(parts), netWorth(parts));
 });
 
-test("investments outside stocks, crypto, and retirement still sit in equities", () => {
+test("investments outside stocks, crypto, and retirement still sit in investments", () => {
   const parts = { investments: 8000, cash: 10, realEstate: 0, otherAssets: 0, liabilities: 0 };
-  assert.equal(overviewPillFigures(parts).equities, 8000);
+  assert.equal(overviewPillFigures(parts).investments, 8000);
   assert.equal(sum(parts), netWorth(parts));
 });

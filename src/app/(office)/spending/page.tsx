@@ -33,6 +33,7 @@ export default async function SpendingPage() {
         budgets={budgets}
         budgetChoices={budgetAverages(reports.flows)}
         spendMonths={spendMonthCount(reports.flows)}
+        archiveCoversFrom={reports.archiveCoversFrom}
       />
     </>
   );

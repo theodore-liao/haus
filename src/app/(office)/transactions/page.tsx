@@ -6,7 +6,12 @@ import { TransactionsTable } from "./table";
 
 export const dynamic = "force-dynamic";
 
-export default async function TransactionsPage() {
+export default async function TransactionsPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ [key: string]: string | string[] | undefined }>;
+}) {
+  const { q } = await searchParams;
   const owner = await getOwnerFilter();
   const connections = await getConnectionCount();
   if (!connections) {
@@ -24,7 +29,7 @@ export default async function TransactionsPage() {
   return (
     <>
       <PageHeader title="Transactions" />
-      <TransactionsTable rows={rows} dateChips />
+      <TransactionsTable rows={rows} dateChips initialQuery={typeof q === "string" ? q.trim() : ""} />
     </>
   );
 }

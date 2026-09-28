@@ -3,7 +3,8 @@
 import { useRouter } from "next/navigation";
 import { ConnectPlaid } from "@/components/connect-plaid";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
+import { ConfirmButton } from "@/components/confirm-button";
+import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { formatDateTime } from "@/lib/format";
 import { hausTypeLabel } from "@/lib/account-types";
@@ -92,16 +93,20 @@ export function ConnectionsPanel({
                     {item.status}
                   </Badge>
                   <ConnectPlaid label="Relink" itemId={item.id} relink />
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={async () => {
-                      await fetch(`/api/plaid/items/${item.id}`, { method: "DELETE" });
+                  <ConfirmButton
+                    title={`Remove ${item.institutionName ?? "this institution"}?`}
+                    description="Its accounts, balances, and holdings leave Haus. Saved transaction history stays."
+                    onConfirm={async () => {
+                      const res = await fetch(`/api/plaid/items/${item.id}`, { method: "DELETE" });
+                      if (!res.ok) {
+                        toast.error("Could not remove this connection.");
+                        return;
+                      }
                       router.refresh();
                     }}
                   >
                     Remove
-                  </Button>
+                  </ConfirmButton>
                 </div>
               </div>
               {item.errorMessage ? <p className="mt-2 text-xs text-negative">{connectionError(item.errorMessage)}</p> : null}

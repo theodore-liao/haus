@@ -18,6 +18,7 @@ import { Button } from "./ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "./ui/card";
 import { cn } from "@/lib/utils";
 import { withHolder } from "@/lib/owners";
+import { portfolioSummary } from "@/lib/portfolio";
 
 export type HoldingRow = {
   id: string;
@@ -59,8 +60,10 @@ export function InvestmentsBoard({
   hideDonuts,
   hideTable,
   classMode = "class",
-  accountOnly,
   besideAccount,
+  afterHero,
+  heroKicker = "Market value",
+  heroSummary,
   accountSlot,
   headerAction,
   onEditManual,
@@ -74,8 +77,13 @@ export function InvestmentsBoard({
   hideDonuts?: boolean;
   hideTable?: boolean;
   classMode?: "class" | "asset";
-  accountOnly?: boolean;
+  /** A third card after the two donuts (Stocks puts largest moves here). */
   besideAccount?: ReactNode;
+  /** Cards between the summary and the donuts. */
+  afterHero?: ReactNode;
+  heroKicker?: string;
+  /** Add day change, cost basis, and gain to the summary card. */
+  heroSummary?: boolean;
   /** Replaces the "By account" donut (crypto uses largest moves here). */
   accountSlot?: ReactNode;
   headerAction?: ReactNode;
@@ -185,20 +193,16 @@ export function InvestmentsBoard({
 
   return (
     <div className="page-stack">
-      {hideHero ? null : (
-        <HeroCard kicker="Market value">
+      {hideHero ? null : heroSummary ? (
+        <SummaryHero kicker={heroKicker} rows={material} />
+      ) : (
+        <HeroCard kicker={heroKicker}>
           <Money value={total} />
         </HeroCard>
       )}
-      {hideDonuts ? null : accountOnly ? (
-      <div className="relative z-0 grid items-stretch gap-4 lg:grid-cols-2">
-        <ChartCard kicker="By account">
-          <AllocationChart data={byAccount} />
-        </ChartCard>
-        {besideAccount ? <div className="min-w-0">{besideAccount}</div> : null}
-      </div>
-      ) : (
-      <div className="relative z-0 grid items-stretch gap-4 lg:grid-cols-2">
+      {afterHero}
+      {hideDonuts ? null : (
+      <div className={cn("relative z-0 grid items-stretch gap-4 lg:grid-cols-2", besideAccount && "xl:grid-cols-3")}>
         <ChartCard kicker={classMode === "asset" ? "By asset" : "By class"}>
           <AllocationChart className={classMode === "asset" ? "legend-quiet" : undefined} data={byClass} />
         </ChartCard>
@@ -209,6 +213,7 @@ export function InvestmentsBoard({
             <AllocationChart data={byAccount} />
           </ChartCard>
         )}
+        {besideAccount ? <div className="min-w-0 lg:col-span-2 xl:col-span-1">{besideAccount}</div> : null}
       </div>
       )}
       {beforeTable ? <div className="relative z-0">{beforeTable}</div> : null}
@@ -559,4 +564,32 @@ function rollupByAsset(rows: HoldingRow[], minItem = 10) {
     });
   }
   return slices.sort((a, b) => b.value - a.value);
+}
+
+/** Market value with its day change, cost basis, and gain. Gain covers holdings with a known cost. */
+function SummaryHero({ kicker, rows }: { kicker: string; rows: HoldingRow[] }) {
+  const s = portfolioSummary(rows);
+  return (
+    <HeroCard
+      kicker={kicker}
+      supporting={
+        s.cost != null ? (
+          <>
+            Cost basis <Money value={s.cost} /> · Gain <Delta value={s.gain} pct={s.gainPct} />
+            {s.costed < s.count ? (
+              <span className="footnote">
+                {" "}
+                ({s.costed} of {s.count} holdings have a cost)
+              </span>
+            ) : null}
+          </>
+        ) : (
+          <span className="footnote">Add a cost to see gain or loss.</span>
+        )
+      }
+      deltas={[{ label: "Day", value: s.day, pct: s.dayPct }]}
+    >
+      <Money value={s.value} />
+    </HeroCard>
+  );
 }

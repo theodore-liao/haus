@@ -12,6 +12,9 @@ import {
   PieChart,
   ResponsiveContainer,
   Legend,
+  Line,
+  LineChart,
+  ReferenceLine,
   Sankey,
   Tooltip,
   XAxis,
@@ -23,12 +26,14 @@ import { formatLegendLabel, formatMoney, formatPct, splitHolder } from "@/lib/fo
 import { cn } from "@/lib/utils";
 import { OwnerTag } from "./type";
 import { format } from "date-fns";
-import { inRange } from "@/lib/range";
-import { ChartRange, useChartRange } from "./chart-range";
+import { inRange, type RangeKey } from "@/lib/range";
+import { ChartRange, Chip, ChipGroup, useChartRange } from "./chart-range";
+import { Delta } from "./money";
 import { SliceBreakdownDialog, type SliceItem } from "./category-merchants";
 import { CategoryIcon, hasCategoryIcon } from "@/lib/category-icons";
 import { colorFor, donutColorMap } from "@/lib/category-colors";
-import { FROM_SAVINGS, isOtherSlice, TO_INVESTMENTS, TO_SAVINGS } from "@/lib/flow-labels";
+import type { CategoryChange } from "@/lib/spend-compare";
+import { FROM_SAVINGS, isOtherSlice, OTHER_CATEGORIES, TO_INVESTMENTS, TO_SAVINGS } from "@/lib/flow-labels";
 import { SANKEY_INCOME_LIMIT, SANKEY_SPEND_LIMIT, sankeyIncomeLabel, topSlices } from "@/lib/sankey-slices";
 
 const AXIS = { fontSize: 11, fill: "#8fa0b8", fontFamily: "var(--font-geist-sans)" };
@@ -97,17 +102,49 @@ function Tip({
   );
 }
 
-export function NetWorthChart({ data }: { data: { date: string; netWorth: number }[] }) {
+const RANGE_SPAN: Record<RangeKey, string> = {
+  "1m": "the last month",
+  "3m": "the last 3 months",
+  "6m": "the last 6 months",
+  "1y": "the last year",
+  all: "all history",
+};
+const ASSET_FILL = "#7DB8A4";
+const DEBT_FILL = "#D4928C";
+
+type NetWorthPoint = { date: string; netWorth: number; assets?: number; liabilities?: number };
+
+export function NetWorthChart({
+  data,
+  name = "Net worth",
+  empty,
+  zeroBased = true,
+}: {
+  data: NetWorthPoint[];
+  /** False fits the axis to the data, for prices and values that never approach zero. */
+  zeroBased?: boolean;
+  /** Series name in the tooltip. */
+  name?: string;
+  /** Shown when there is no history yet. */
+  empty?: string;
+}) {
   const [range, setRange] = useChartRange();
+  const [split, setSplit] = useState(false);
   const sliced = useMemo(() => data.filter((d) => inRange(d.date, range)), [data, range]);
   if (data.length === 0) {
     return (
       <p className="py-10 text-sm text-muted-foreground">
-        History is built from linked transactions, holdings marked at historical prices, and manual entries. Sync an
-        institution or add crypto to populate this path.
+        {empty ??
+          "History is built from linked transactions, holdings marked at historical prices, and manual entries. Sync an institution or add crypto to populate this path."}
       </p>
     );
   }
+  const canSplit = sliced.length > 0 && sliced.every((d) => d.assets != null && d.liabilities != null);
+  const showSplit = split && canSplit;
+  const first = sliced[0];
+  const last = sliced[sliced.length - 1];
+  const change = sliced.length >= 2 ? last.netWorth - first.netWorth : null;
+  const changePct = change != null && first.netWorth > 0 ? (change / first.netWorth) * 100 : null;
   // Sub-year windows label by day so adjacent ticks never read "Aug Aug Aug".
   const tickFmt = range === "1m" || range === "3m" || range === "6m" ? "d MMM" : "MMM yyyy";
   const rows = sliced.map((d) => ({
@@ -117,34 +154,110 @@ export function NetWorthChart({ data }: { data: { date: string; netWorth: number
   const tickEvery = Math.max(1, Math.ceil(rows.length / (range === "all" || range === "1y" ? 6 : 8)));
   return (
     <div>
-      <div className="mb-2 flex justify-end">
-        <ChartRange value={range} onChange={setRange} />
+      <div className="mb-2 flex flex-wrap items-center gap-2">
+        <div className="min-w-0 text-sm text-muted-foreground">
+          <Delta value={change} pct={changePct} className="text-sm" /> over {RANGE_SPAN[range]}
+        </div>
+        <div className="ml-auto flex flex-wrap items-center justify-end gap-2">
+          {canSplit ? (
+            <ChipGroup>
+              <Chip active={!showSplit} onClick={() => setSplit(false)}>
+                Net
+              </Chip>
+              <Chip active={showSplit} onClick={() => setSplit(true)}>
+                Split
+              </Chip>
+            </ChipGroup>
+          ) : null}
+          <ChartRange value={range} onChange={setRange} />
+        </div>
       </div>
-    <div className="h-64 w-full">
+      <div className="h-64 w-full">
+        <ResponsiveContainer>
+          <AreaChart data={rows} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
+            <defs>
+              <linearGradient id="nw" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stopColor={ICE} stopOpacity={0.42} />
+                <stop offset="100%" stopColor={ICE} stopOpacity={0} />
+              </linearGradient>
+              <linearGradient id="nw-assets" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stopColor={ASSET_FILL} stopOpacity={0.32} />
+                <stop offset="100%" stopColor={ASSET_FILL} stopOpacity={0} />
+              </linearGradient>
+              <linearGradient id="nw-debt" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stopColor={DEBT_FILL} stopOpacity={0.32} />
+                <stop offset="100%" stopColor={DEBT_FILL} stopOpacity={0} />
+              </linearGradient>
+            </defs>
+            <CartesianGrid stroke={GRID} vertical={false} />
+            <XAxis dataKey="label" tick={AXIS} axisLine={false} tickLine={false} interval={tickEvery - 1} minTickGap={28} />
+            <YAxis
+              tick={MONEY_AXIS}
+              axisLine={false}
+              tickLine={false}
+              width={72}
+              domain={zeroBased ? undefined : ["auto", "auto"]}
+              tickFormatter={(v) =>
+                new Intl.NumberFormat("en-US", { notation: "compact", maximumFractionDigits: 1 }).format(v)
+              }
+            />
+            <Tooltip content={<Tip />} />
+            {showSplit ? (
+              <>
+                <Area type="monotone" dataKey="assets" name="Assets" stroke={ASSET_FILL} fill="url(#nw-assets)" strokeWidth={1.5} />
+                <Area type="monotone" dataKey="liabilities" name="Liabilities" stroke={DEBT_FILL} fill="url(#nw-debt)" strokeWidth={1.5} />
+                <Area type="monotone" dataKey="netWorth" name="Net worth" stroke={ICE} fill="none" strokeWidth={2} />
+              </>
+            ) : (
+              <Area type="monotone" dataKey="netWorth" name={name} stroke={ICE} fill="url(#nw)" strokeWidth={2} />
+            )}
+          </AreaChart>
+        </ResponsiveContainer>
+      </div>
+      {showSplit ? (
+        <div className="footnote mt-2 flex flex-wrap justify-center gap-x-4 gap-y-1">
+          <LegendKey color={ASSET_FILL} label="Assets" />
+          <LegendKey color={DEBT_FILL} label="Liabilities" />
+          <LegendKey color={ICE} label="Net worth" />
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function LegendKey({ color, label }: { color: string; label: string }) {
+  return (
+    <span className="inline-flex items-center gap-1.5">
+      <span className="size-2 rounded-sm" style={{ background: color }} />
+      {label}
+    </span>
+  );
+}
+
+/** Month-by-month savings rate. Rates are fractions (0.25 = 25%). */
+export function SavingsRateTrend({ data }: { data: { label: string; rate: number }[] }) {
+  const rows = data.map((d) => ({ label: d.label, pct: Math.round(d.rate * 1000) / 10 }));
+  return (
+    <div className="h-28 w-full">
       <ResponsiveContainer>
-        <AreaChart data={rows} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
-          <defs>
-            <linearGradient id="nw" x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0%" stopColor={ICE} stopOpacity={0.42} />
-              <stop offset="100%" stopColor={ICE} stopOpacity={0} />
-            </linearGradient>
-          </defs>
+        <LineChart data={rows} margin={{ top: 6, right: 8, left: 0, bottom: 0 }}>
           <CartesianGrid stroke={GRID} vertical={false} />
-          <XAxis dataKey="label" tick={AXIS} axisLine={false} tickLine={false} interval={tickEvery - 1} minTickGap={28} />
-          <YAxis
-            tick={MONEY_AXIS}
-            axisLine={false}
-            tickLine={false}
-            width={72}
-            tickFormatter={(v) =>
-              new Intl.NumberFormat("en-US", { notation: "compact", maximumFractionDigits: 1 }).format(v)
+          <XAxis dataKey="label" tick={AXIS} axisLine={false} tickLine={false} minTickGap={16} />
+          <YAxis tick={AXIS} axisLine={false} tickLine={false} width={44} tickFormatter={(v) => `${v}%`} />
+          <ReferenceLine y={0} stroke="rgba(148,163,184,0.35)" />
+          <Tooltip
+            content={({ active, payload, label }) =>
+              active && payload?.length ? (
+                <div className="rounded-md border border-border bg-card-elevated px-3 py-2 text-xs">
+                  <div className="mb-1 text-muted-foreground">{label}</div>
+                  <div className="num">Savings rate {formatPct(Number(payload[0].value), 0, true)}</div>
+                </div>
+              ) : null
             }
           />
-          <Tooltip content={<Tip />} />
-          <Area type="monotone" dataKey="netWorth" name="Net worth" stroke={ICE} fill="url(#nw)" strokeWidth={2} />
-        </AreaChart>
+          <Line type="monotone" dataKey="pct" name="Savings rate" stroke={SAVED_FILL} strokeWidth={2} dot={{ r: 2.5 }} />
+        </LineChart>
       </ResponsiveContainer>
-    </div>
     </div>
   );
 }
@@ -162,6 +275,7 @@ export function AllocationChart({
   onSelectionChange,
   size,
   className,
+  changes,
 }: {
   data: AllocSlice[];
   /** Kept for call-site compatibility; layout now follows the container width. */
@@ -180,6 +294,8 @@ export function AllocationChart({
   /** `large` for a page whose only content is this donut. */
   size?: "large";
   className?: string;
+  /** Optional change per slice against an earlier period, shown beside each amount (Spending). */
+  changes?: Map<string, CategoryChange> | null;
 }) {
   const [openKey, setOpenKey] = useState<string | null>(null);
   // Uncontrolled selection is stored as the set of *unchecked* keys so new slices default to on.
@@ -331,7 +447,14 @@ export function AllocationChart({
                 {hasCategoryIcon(r.key) ? <CategoryIcon category={r.key} /> : null}
                 <LegendName label={label} />
               </button>
-              <strong className="money">{formatMoney(r.value)}</strong>
+              {changes ? (
+                <span className="legend-amount">
+                  <LegendChange change={changes.get(r.key)} />
+                  <strong className="money">{formatMoney(r.value)}</strong>
+                </span>
+              ) : (
+                <strong className="money">{formatMoney(r.value)}</strong>
+              )}
             </li>
           );
         })}
@@ -344,6 +467,18 @@ export function AllocationChart({
       onClose={() => setOpenKey(null)}
     />
     </>
+  );
+}
+
+/** Spending up is shown as a loss, spending down as a gain. */
+function LegendChange({ change }: { change: CategoryChange | undefined }) {
+  if (change === undefined) return <span className="legend-change" />;
+  if (change === "new") return <span className="legend-change text-muted-foreground">new</span>;
+  const pct = Math.round(change * 100);
+  return (
+    <span className={cn("legend-change", pct > 0 ? "text-negative" : pct < 0 ? "text-positive" : "text-muted-foreground")}>
+      {pct === 0 ? "0%" : `${pct > 0 ? "+" : "−"}${Math.abs(pct)}%`}
+    </span>
   );
 }
 

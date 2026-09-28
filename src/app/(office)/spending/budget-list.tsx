@@ -6,7 +6,9 @@ import { Button } from "@/components/ui/button";
 import { colorFor } from "@/lib/category-colors";
 import { Money } from "@/components/money";
 import { ChartCard } from "@/components/chart-card";
-import type { BudgetRow } from "@/lib/budget-window";
+import { budgetStatus, type BudgetRow } from "@/lib/budget-window";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { cn } from "@/lib/utils";
 
 export function BudgetList({
   rows,
@@ -14,6 +16,7 @@ export function BudgetList({
   spent,
   months,
   daysLeft,
+  elapsed,
 }: {
   rows: BudgetRow[];
   /** Every category that can be added, with the 3-month average as its starting monthly amount. */
@@ -21,6 +24,8 @@ export function BudgetList({
   spent: Record<string, number>;
   months: number;
   daysLeft: number | null;
+  /** Share of the open month gone. Null unless the chip is the current month. */
+  elapsed: number | null;
 }) {
   const [list, setList] = useState(rows);
   const remaining = useMemo(
@@ -76,6 +81,7 @@ export function BudgetList({
         {months === 1
           ? "Each figure is that category’s monthly budget."
           : `Each figure is the monthly budget × ${months} for this window.`}
+        {elapsed != null ? ` The tick marks how much of the month has gone (${Math.round(elapsed * 100)}%).` : null}
       </p>
       <ul className="min-h-0 flex-1 space-y-3 overflow-x-clip overflow-y-auto pr-1">
         {list.map((row) => (
@@ -84,6 +90,7 @@ export function BudgetList({
             row={row}
             spent={spent[row.category] ?? 0}
             months={months}
+            elapsed={elapsed}
             onCommit={(monthly) => {
               const previous = list;
               setList(list.map((item) => (item.category === row.category ? { ...item, monthly } : item)));
@@ -94,22 +101,23 @@ export function BudgetList({
         ))}
       </ul>
       {remaining.length > 0 ? (
-        <select
-          className="mt-4 h-9 w-full rounded-md border border-border bg-card px-3 text-sm"
+        <Select
           value=""
-          aria-label="Add a category"
-          onChange={(e) => {
-            const category = e.target.value;
+          onValueChange={(category) => {
             if (category) void add(category);
           }}
         >
-          <option value="">Add a category</option>
-          {remaining.map((c) => (
-            <option key={c.category} value={c.category}>
-              {c.category}
-            </option>
-          ))}
-        </select>
+          <SelectTrigger className="mt-4 w-full" aria-label="Add a category">
+            <SelectValue placeholder="Add a category" />
+          </SelectTrigger>
+          <SelectContent>
+            {remaining.map((c) => (
+              <SelectItem key={c.category} value={c.category}>
+                {c.category}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
       ) : null}
     </ChartCard>
   );
@@ -119,12 +127,14 @@ function BudgetRowView({
   row,
   spent,
   months,
+  elapsed,
   onCommit,
   onRemove,
 }: {
   row: BudgetRow;
   spent: number;
   months: number;
+  elapsed: number | null;
   onCommit: (monthly: number) => void;
   onRemove: () => void;
 }) {
@@ -136,7 +146,9 @@ function BudgetRowView({
     setDraft(String(row.monthly));
   }
   const target = row.monthly * months;
-  const over = spent > target + 0.005;
+  const status = budgetStatus(spent, target, elapsed);
+  const over = status === "over";
+  const barColor = over ? "var(--negative)" : status === "ahead" ? "var(--accent)" : colorFor(row.category);
   const left = Math.abs(target - spent);
   const pct = target > 0 ? Math.round((spent / target) * 100) : null;
   const width = target > 0 ? Math.min(100, (spent / target) * 100) : spent > 0 ? 100 : 0;
@@ -207,7 +219,12 @@ function BudgetRowView({
           <X className="h-3.5 w-3.5" />
         </button>
       </div>
-      <div className={over ? "mt-1 pl-4 text-xs text-negative" : "mt-1 pl-4 text-xs text-muted-foreground"}>
+      <div
+        className={cn(
+          "mt-1 pl-4 text-xs",
+          over ? "text-negative" : status === "ahead" ? "text-accent" : "text-muted-foreground",
+        )}
+      >
         <span className="num">
           {pct != null ? `${pct}% · ` : null}
           {over ? (
@@ -219,10 +236,20 @@ function BudgetRowView({
               <Money value={left} /> to go
             </>
           )}
+          {status === "ahead" ? " · ahead of pace" : null}
         </span>
       </div>
-      <div className="mt-1 ml-4 h-1 overflow-hidden rounded-full bg-secondary">
-        <div className="h-full rounded-full" style={{ width: `${width}%`, background: colorFor(row.category) }} />
+      <div className="relative mt-1 ml-4 h-1 rounded-full bg-secondary">
+        <div className="h-full overflow-hidden rounded-full">
+          <div className="h-full rounded-full" style={{ width: `${width}%`, background: barColor }} />
+        </div>
+        {elapsed != null ? (
+          <span
+            aria-hidden
+            className="absolute -top-0.5 h-2 w-px bg-foreground/70"
+            style={{ left: `${Math.min(100, elapsed * 100)}%` }}
+          />
+        ) : null}
       </div>
     </li>
   );

@@ -25,6 +25,9 @@ Sizes, spacing, and placement come from shared styles, not from each page. Use t
 - Haus text size 100% equals the old 130%. The slider runs from 75% to 150%, and everything scales with it, including numbers inside donuts.
 - Dollar amounts show cents. Do not round to whole dollars. The exception is projections (the Retirement planner's forecasts): they round to what they can claim, like $2.48M or $49,100, with `Money approx`. Real balances and the "?" working keep cents.
 - Privacy blur covers dollar amounts only. Counts, dates, rates, and percents stay clear.
+- The eye button beside HAUS (and in the phone header) turns the blur on and off. It stays in step with the Settings switch.
+- Removing a connection, a recurring bill, or an insurance card asks first.
+- The phone bar shows the first three tabs in the sidebar order. The More sheet can pin any tab to the bar.
 - Every button looks and acts like a button. It shows the hand cursor on hover, and only the button itself is clickable, not the row around it.
 - Clicking outside a popup or modal closes it. Explanations open from a "?" button in a `Popover` (src/components/ui/popover.tsx).
 - No nested scroll bars. No horizontal scroll bar on any legend. If content does not fit, make room.
@@ -64,9 +67,14 @@ Sizes, spacing, and placement come from shared styles, not from each page. Use t
 
 ## Overview
 
-- Pills are Equities (every investment account), Cash, Property (homes, vehicles, and other non-cash assets), and Liabilities (total debt). They add up to household net worth.
+- Pills are Investments (every investment account, including crypto and brokerage cash), Cash, Property (homes, vehicles, and other non-cash assets), and Liabilities (total debt). They add up to household net worth.
 - The four pills sit inside the right side of the Household net worth box. Day, week, and month change live in that box.
 - Month-by-month shows every complete month plus the current one. Older months appear only when stored transaction history covers the whole month.
+- Needs attention sits directly under the net worth box. It lists connections to relink or that have not synced in 48 hours, wallets that failed to sync, cards at 30% or more of their limit, categories over budget this month, unusual recent charges, and insurance renewing within 60 days. With nothing to show it says "Nothing needs attention."
+- An unusual charge is one from the last 7 days at least twice the merchant's usual amount and $100 above it, or a first charge from a merchant larger than 95% of the last 90 days of charges. Review opens Transactions searched for that merchant.
+- The Net worth chart shows the change over the chosen range above the chart. Net and Split chips sit beside the range chips; Split draws assets, liabilities, and net worth.
+- Cashflow is one card with its date chips in the header, the Income, Spending, and Net Movement figures, then the Sankey.
+- Month by month has a savings-rate line above the table. The open month is marked "so far". With three or more complete months, the best and lowest months by amount saved are marked. Spend vs last year shows only when the same month a year earlier is on file. Phones show Month, Spend, and Saved.
 
 ## Spending
 
@@ -78,6 +86,10 @@ Sizes, spacing, and placement come from shared styles, not from each page. Use t
 - Clicking a donut slice opens a large window. Merchant rows expand only when clicked, and they use the same transactions table as the Transactions page, so edits show everywhere immediately. Amounts there are positive and use the smaller grey sub-line style.
 - Refunds shows the transactions table filtered to refunds in the chosen window, before netting against spending.
 - Budget starts from each category's 3-month average. Rows are added by choosing a category from the dropdown, with no separate Add button. Editing needs an Edit button and a Save button. Each row shows percent used and dollars left or over. The header shows days left in the current month, and the budget scales with the date chip.
+- In the current month, each budget bar has a tick for how much of the month has gone. A bar turns red when over budget and amber (with "ahead of pace") when the share spent is more than 10 points past that tick. Otherwise it keeps the category color.
+- The spend donut legend shows each category's change against the earlier period, left of the dollar amount: the month before for a month chip (up to the same day while the month is open), or the same length of time before a rolling chip. Up is red, down is green, and "new" means no spend then. There is no comparison for All, or when stored history does not reach back far enough. A line under the total says what it compares with. Other donuts do not show changes.
+- The category window shows that category month by month above the merchants, with a dashed average of the complete months. The open month is faded.
+- Recurring opens with Per month, Per year, and Price changes figures, and sorts by Amount or Next due. Each bill shows its latest charge, the next expected date, and "up from" or "down from" the previous charge when the price moved by at least 2% and 50 cents.
 
 ## Transactions
 
@@ -91,11 +103,17 @@ Sizes, spacing, and placement come from shared styles, not from each page. Use t
 ## Stocks and crypto
 
 - Largest moves on Stocks shows stocks only, and Crypto shows crypto only. Each shows up to seven gainers and seven losers.
+- Stocks opens with Market value, its day change, and cost basis and gain. When one holding is more than 15% of the stocks total, a note under the summary names it.
+- Below that, Value (the Stocks holdings over time, axis fitted to the data) sits beside Dividends (last 12 months, this year, yield on today's value, and number of payments). Then By class, By account, and Largest moves share one row.
+- A symbol page opens with that holding's value, shares, average cost, gain, share of the stocks total, and day change, then its price chart. A Stocks button at the top right goes back.
 - A window with price movement always has gainers and losers. Percent changes are sane and never come from a bad price.
 - Day change is filled for every holding, including options and manually entered assets. It is computed from quantity and price change when the connection has not refreshed.
 - Manual entries show "Last updated" with date and time. Edit and Remove sit at the right end of the account column. Edit reopens the entry window with values filled in, and Add becomes Save.
 - The manual entry window clearly separates Ticker + shares from Name + dollar value. Ticker entries take cost per share, and dollar entries take total cost basis.
-- Crypto holdings have no Cost or Total columns. "Manual Entries" is the name, not "Manual Lots".
+- Crypto holdings show Cost and Total only once some coin has a cost: a manual entry's own cost, or an average cost per coin entered with the Average cost button on the Holdings card. "Manual Entries" is the name, not "Manual Lots".
+- The Crypto summary card is "Crypto value" and covers wallets, brokerage crypto, and manual entries. Like Stocks, it shows day change, and cost basis and gain once costs exist, saying how many holdings have a cost.
+- The Crypto page renders from stored prices and never waits on the price feed. After it loads it asks for fresh prices (at most every five minutes) and redraws only if something changed.
+- A "Wallets" heading sits above the wallet boxes.
 - Crypto wallet boxes are all the same size, have no account-holder box, and can be renamed. The By-asset legend does not show an obtrusive scroll bar.
 
 ## Retirement, property, insights

@@ -11,6 +11,7 @@ import {
   DEFAULT_MOVERS_WINDOW,
   setDefaultRange,
   setMoversWindow,
+  onPrivacyChange,
   setPrivacy,
   storedDefaultRange,
   storedMoversWindow,
@@ -32,6 +33,7 @@ export function DisplayPrefs() {
     setRange(storedDefaultRange() ?? DEFAULT_RANGE);
     setMovers(storedMoversWindow() ?? DEFAULT_MOVERS_WINDOW);
     setPrivacyState(storedPrivacy());
+    return onPrivacyChange(setPrivacyState);
   }, []);
 
   return (

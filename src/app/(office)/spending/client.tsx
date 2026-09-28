@@ -1,15 +1,20 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { X } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Money } from "@/components/money";
 import { ChartCard } from "@/components/chart-card";
 import { AllocationChart } from "@/components/charts";
-import { ReportRange } from "@/components/chart-range";
+import { Chip, ChipGroup, ReportRange } from "@/components/chart-range";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Button } from "@/components/ui/button";
+import { ConfirmButton } from "@/components/confirm-button";
 import { BudgetList } from "./budget-list";
-import { budgetMonths, daysLeftInMonth, type BudgetRow } from "@/lib/budget-window";
+import { budgetMonths, daysLeftInMonth, monthElapsed, type BudgetRow } from "@/lib/budget-window";
+import { categoryChanges, categoryTrend } from "@/lib/spend-compare";
+import type { RecurringBill } from "@/lib/recurring";
+import { Pill } from "@/components/pills";
+import { cn } from "@/lib/utils";
 import { defaultReportWindow, inWindow, type WindowKey } from "@/lib/range";
 import { formatDate } from "@/lib/format";
 import { BrandLabel } from "@/components/brand-mark";
@@ -29,8 +34,6 @@ function isRefund(t: TxnRow) {
   return true;
 }
 
-type RecurringRow = { label: string; amount: number; cadence: string; lastDate: string; annual: number };
-
 /** Category labels treated as fixed costs; unchecked by default in the breakdown. */
 const FIXED_COSTS = ["Loan payments", "Rent and utilities"];
 
@@ -41,13 +44,16 @@ export function SpendingClient({
   budgets,
   budgetChoices,
   spendMonths,
+  archiveCoversFrom,
 }: {
   flows: FlowRow[];
-  recurring: RecurringRow[];
+  recurring: RecurringBill[];
   txns: TxnRow[];
   budgets: BudgetRow[];
   budgetChoices: BudgetRow[];
   spendMonths: number;
+  /** First day stored history covers every institution; older months are only partly on file. */
+  archiveCoversFrom: string | null;
 }) {
   const [range, setRange] = useState<WindowKey>(defaultReportWindow());
   const [tab, setTab] = useState("mix");
@@ -56,14 +62,26 @@ export function SpendingClient({
   const [liveTxns, setLiveTxns] = useState(txns);
   const [liveFlows, setLiveFlows] = useState(flows);
   const [dismissed, setDismissed] = useState<Set<string>>(() => new Set());
+  const [billSort, setBillSort] = useState<"amount" | "next">("amount");
   useEffect(() => {
     setLiveTxns(txns);
     setLiveFlows(flows);
   }, [txns, flows]);
-  const visibleRecurring = useMemo(
-    () => recurring.filter((r) => !dismissed.has(recurringMerchantKey(r.label))),
-    [recurring, dismissed],
+  const visibleRecurring = useMemo(() => {
+    const list = recurring.filter((r) => !dismissed.has(recurringMerchantKey(r.label)));
+    return billSort === "next"
+      ? [...list].sort((a, b) => a.nextDate.localeCompare(b.nextDate))
+      : [...list].sort((a, b) => b.annual - a.annual);
+  }, [recurring, dismissed, billSort]);
+  const billTotals = useMemo(
+    () => ({
+      monthly: visibleRecurring.reduce((s, r) => s + r.monthly, 0),
+      annual: visibleRecurring.reduce((s, r) => s + r.annual, 0),
+      changed: visibleRecurring.filter((r) => r.priceChange).length,
+    }),
+    [visibleRecurring],
   );
+  const today = new Date().toISOString().slice(0, 10);
 
   function applySave(patch: TxnSave) {
     const revised = reviseMatching(liveTxns, patch);
@@ -104,6 +122,11 @@ export function SpendingClient({
   const spendKeys = agg.spendRows.map((r) => r.label);
   const spendSel = off.size === 0 ? null : new Set(spendKeys.filter((k) => !off.has(k)));
   const shownTotal = agg.spendRows.filter((r) => !off.has(r.label)).reduce((s, r) => s + r.value, 0);
+  const compare = useMemo(() => categoryChanges(liveFlows, agg.spendRows, range), [liveFlows, agg.spendRows, range]);
+  const popupTrend = useMemo(
+    () => (popupTitle ? categoryTrend(liveFlows, popupTitle, archiveCoversFrom) : []),
+    [liveFlows, popupTitle, archiveCoversFrom],
+  );
   const windowTxns = useMemo(() => liveTxns.filter((t) => inWindow(t.date, range)), [liveTxns, range]);
   const popupLines = useMemo(
     () => (popupTitle ? groupCategory(windowTxns, popupTitle) : []),
@@ -137,6 +160,7 @@ export function SpendingClient({
               <p className="spend-category-sub">
                 Total spend <Money value={spendTotal} />
               </p>
+              {compare ? <p className="footnote mt-1">Changes compare with {compare.label}.</p> : null}
             </div>
             <AllocationChart
               className="donut-fixed"
@@ -152,6 +176,7 @@ export function SpendingClient({
                 })
               }
               onSliceClick={(label) => setPopupTitle(label)}
+              changes={compare?.changes ?? null}
             />
           </ChartCard>
           <BudgetList
@@ -160,14 +185,25 @@ export function SpendingClient({
             spent={Object.fromEntries(agg.spendRows.map((r) => [r.label, r.value]))}
             months={budgetMonths(range, spendMonths)}
             daysLeft={daysLeftInMonth(range)}
+            elapsed={monthElapsed(range)}
           />
         </div>
       ) : null}
 
       {tab === "recurring" ? (
         <Card>
-          <CardHeader>
+          <CardHeader row>
             <CardTitle>Recurring</CardTitle>
+            {visibleRecurring.length > 1 ? (
+              <ChipGroup>
+                <Chip active={billSort === "amount"} onClick={() => setBillSort("amount")}>
+                  Amount
+                </Chip>
+                <Chip active={billSort === "next"} onClick={() => setBillSort("next")}>
+                  Next due
+                </Chip>
+              </ChipGroup>
+            ) : null}
           </CardHeader>
           <CardContent className="space-y-3">
             {visibleRecurring.length === 0 ? (
@@ -175,38 +211,55 @@ export function SpendingClient({
                 Need at least three similar charges at a weekly, monthly, or annual cadence to infer a bill.
               </p>
             ) : (
-              visibleRecurring.map((r) => (
-                <div key={r.label} className="flex items-center justify-between gap-3 border-b border-border pb-2 last:border-0">
-                  <button
-                    type="button"
-                    className="flex min-w-0 flex-1 cursor-pointer items-center justify-between gap-3 text-left"
-                    onClick={() => dismissRecurring(r.label)}
-                  >
-                    <div className="min-w-0">
-                      <BrandLabel className="min-w-0" kind="merchant" name={r.label}>
-                        <span className="truncate text-sm">{r.label}</span>
-                      </BrandLabel>
-                      <div className="text-xs text-muted-foreground">
-                        {r.cadence} · last {formatDate(r.lastDate)}
-                      </div>
-                    </div>
-                    <div className="text-right">
-                      <Money value={r.amount} className="text-sm" />
-                      <div className="footnote">
-                        <Money value={r.annual} /> / yr
-                      </div>
-                    </div>
-                  </button>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => dismissRecurring(r.label)}
-                  >
-                    Remove
-                  </Button>
+              <>
+                <div className="pills pills-compact pills-trio mb-2">
+                  <Pill kicker="Per month" accent="#D4928C">
+                    <Money value={billTotals.monthly} />
+                  </Pill>
+                  <Pill kicker="Per year" accent="#7EABD4">
+                    <Money value={billTotals.annual} />
+                  </Pill>
+                  <Pill kicker="Price changes" accent="#D4BE7A">
+                    <span className={cn("num", billTotals.changed > 0 && "text-accent")}>{billTotals.changed}</span>
+                  </Pill>
                 </div>
-              ))
+                {visibleRecurring.map((r) => (
+                  <div key={r.label} className="flex items-center justify-between gap-3 border-b border-border pb-2 last:border-0">
+                    <div className="flex min-w-0 flex-1 items-center justify-between gap-3">
+                      <div className="min-w-0 flex-1 overflow-hidden">
+                        <BrandLabel className="min-w-0 max-w-full" kind="merchant" name={r.label}>
+                          <span className="truncate text-sm">{r.label}</span>
+                        </BrandLabel>
+                        <div className="text-xs text-muted-foreground">
+                          {r.cadence} · {r.nextDate.slice(0, 10) < today ? "was due" : "next"} {formatDate(r.nextDate)}
+                          {r.priceChange ? (
+                            <span className={r.priceChange.to > r.priceChange.from ? "text-negative" : "text-positive"}>
+                              {" · "}
+                              {r.priceChange.to > r.priceChange.from ? "up" : "down"} from <Money value={r.priceChange.from} />
+                            </span>
+                          ) : null}
+                        </div>
+                      </div>
+                      <div className="shrink-0 text-right">
+                        <Money value={r.amount} className="text-sm" />
+                        <div className="footnote whitespace-nowrap">
+                          <Money value={r.annual} /> / yr
+                        </div>
+                      </div>
+                    </div>
+                    <ConfirmButton
+                      title={`Remove ${r.label} from Recurring?`}
+                      description="It stops being listed as a bill. Its transactions stay."
+                      onConfirm={() => dismissRecurring(r.label)}
+                      ariaLabel={`Remove ${r.label}`}
+                      className="shrink-0 px-2 sm:px-3"
+                    >
+                      <X className="sm:hidden" />
+                      <span className="hidden sm:inline">Remove</span>
+                    </ConfirmButton>
+                  </div>
+                ))}
+              </>
             )}
           </CardContent>
         </Card>
@@ -230,6 +283,7 @@ export function SpendingClient({
         onClose={() => setPopupTitle(null)}
         onOpenTxn={setEdit}
         positiveAmounts
+        trend={popupTrend}
       />
       <TransactionSheet row={edit} onClose={() => setEdit(null)} onSaved={applySave} />
     </div>

@@ -87,8 +87,7 @@ export function mergeVisibleOrder(full: NavItem[], visibleNext: NavItem[]): NavI
   return full.map((item) => (moving.has(item.href) ? queue.shift()! : item));
 }
 
-export const MOBILE_PRIMARY = [
-  { href: "/", label: "Overview", icon: LayoutDashboard },
-  { href: "/spending", label: "Spending", icon: Receipt },
-  { href: "/investments", label: "Stocks", icon: LineChart },
-] as const;
+/** The phone bar shows the first three tabs in the sidebar's order; the rest sit under More. */
+export function mobilePrimary(shown: NavItem[], count = 3): NavItem[] {
+  return shown.slice(0, count);
+}

@@ -424,3 +424,10 @@ model Setting {
   key   String @id
   value String
 }
+
+/// Average cost per coin for wallet and brokerage crypto. Created at runtime by src/lib/crypto-cost.ts.
+model CryptoCost {
+  symbol    String   @id
+  avgCost   Float
+  updatedAt DateTime @default(now())
+}

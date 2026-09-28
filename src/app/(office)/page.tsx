@@ -6,7 +6,8 @@ import { Pills, Pill } from "@/components/pills";
 import { ChartCard } from "@/components/chart-card";
 import { AllocationChart, NetWorthChart } from "@/components/charts";
 import { CashFlowBlock } from "@/components/cash-flow-block";
-import { getOverview, getReports, getTransactions, hasAnyLedger } from "@/lib/queries";
+import { getAttention, getOverview, getReports, getTransactions, hasAnyLedger } from "@/lib/queries";
+import { AttentionCard } from "@/components/attention-card";
 import { overviewPillFigures } from "@/lib/overview-pills";
 import { getOwnerFilter } from "@/lib/request";
 
@@ -32,6 +33,7 @@ export default async function OverviewPage() {
     getReports(owner),
     getTransactions(owner),
   ]);
+  const attention = await getAttention(reports.flows);
   const pills = overviewPillFigures({
     investments: data.tiles.investments,
     cash: data.tiles.cash,
@@ -63,8 +65,8 @@ export default async function OverviewPage() {
         ]}
         aside={
           <Pills compact>
-            <Pill kicker="Equities" accent="#D4BE7A">
-              <Money value={pills.equities} />
+            <Pill kicker="Investments" accent="#D4BE7A">
+              <Money value={pills.investments} />
             </Pill>
             <Pill kicker="Cash" accent="#7DB8A4">
               <Money value={pills.cash} />
@@ -80,6 +82,8 @@ export default async function OverviewPage() {
       >
         <Money value={data.netWorth} />
       </HeroCard>
+
+      <AttentionCard items={attention} />
 
       <div className="grid items-stretch gap-4 lg:grid-cols-2">
         <ChartCard kicker="Net worth">

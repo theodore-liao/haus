@@ -12,23 +12,34 @@ import { InvestmentsBoard, type HoldingRow } from "@/components/holdings-table";
 import { LargestMoves } from "@/components/largest-moves";
 import { AddWallet, SyncAllWallets } from "./form";
 import { WalletGrid } from "./wallet-grid";
-import { cryptoDayMoves, refreshCryptoQuotes } from "@/lib/quotes";
+import { cachedCryptoDayMoves } from "@/lib/quotes";
+import { CryptoQuoteRefresher } from "./quote-refresher";
 import { getCryptoLogoMap } from "@/lib/crypto-logos";
 import { COINGECKO_IDS } from "@/lib/crypto-assets";
+import { costKey, listCryptoCosts } from "@/lib/crypto-cost";
+import { CryptoCostEditor, type CostCoin } from "./cost-editor";
+import { SectionLabel } from "@/components/type";
 
 export const dynamic = "force-dynamic";
 
 export default async function CryptoPage() {
   const owner = await getOwnerFilter();
-  await refreshCryptoQuotes();
 
-  const [names, allWallets, allManuals, brokerage, overview] = await Promise.all([
+  const [names, allWallets, allManuals, brokerage, overview, costs] = await Promise.all([
     getNames(),
     prisma.cryptoWallet.findMany({ include: { assets: true }, orderBy: { createdAt: "asc" } }),
     prisma.manualHolding.findMany({ where: { kind: "crypto" } }),
     getBrokerageCrypto(owner),
     getOverview(owner),
+    listCryptoCosts().catch(() => new Map<string, number>()),
   ]);
+  /** Cost from the household's average cost per coin, for lots that carry no cost of their own. */
+  const avgCostFor = (symbol: string, qty: number, value: number) => {
+    const avg = costs.get(costKey(symbol));
+    if (avg == null) return { costBasis: null as number | null, totalPl: null as number | null };
+    const costBasis = avg * qty;
+    return { costBasis, totalPl: value - costBasis };
+  };
   const wallets = allWallets.filter((w) => matchesOwner(w.owner, owner));
   const manuals = allManuals.filter((c) => matchesOwner(c.owner, owner));
 
@@ -57,7 +68,7 @@ export default async function CryptoPage() {
       ...manuals.map((c) => geckoId(c.symbol, c.coingeckoId)),
       ...brokerage.flatMap((g) => g.assets.map((a) => geckoId(a.symbol))),
     ]),
-    cryptoDayMoves([...missing]),
+    Promise.resolve(cachedCryptoDayMoves([...missing])),
   ]);
   const dayOf = (
     change: number | null | undefined,
@@ -111,9 +122,8 @@ export default async function CryptoPage() {
         qty: a.quantity,
         last: a.quotePrice,
         value,
-        costBasis: null,
+        ...avgCostFor(a.symbol, a.quantity, value),
         dayPl: day.dayPl,
-        totalPl: null,
         dayPct: day.dayPct,
         weight: 0,
         manual: false,
@@ -136,9 +146,8 @@ export default async function CryptoPage() {
         qty: a.quantity,
         last: a.quotePrice,
         value: a.value,
-        costBasis: null,
+        ...avgCostFor(a.symbol, a.quantity, a.value),
         dayPl: day.dayPl,
-        totalPl: null,
         dayPct: day.dayPct,
         weight: 0,
         manual: false,
@@ -173,7 +182,17 @@ export default async function CryptoPage() {
     });
   }
 
-  const total = rows.reduce((s, r) => s + r.value, 0);
+  const coinMap = new Map<string, CostCoin>();
+  for (const r of rows) {
+    if (r.manual || !r.symbol) continue;
+    const key = costKey(r.symbol);
+    const coin = coinMap.get(key) ?? { symbol: key, name: r.name, quantity: 0, value: 0, avgCost: costs.get(key) ?? null, logo: r.brandSrc ?? null };
+    coin.quantity += r.qty;
+    coin.value += r.value;
+    coinMap.set(key, coin);
+  }
+  const costCoins = [...coinMap.values()].sort((a, b) => b.value - a.value);
+  const anyCost = rows.some((r) => r.costBasis != null);
 
   return (
     <>
@@ -186,21 +205,23 @@ export default async function CryptoPage() {
           </>
         }
       />
+      <CryptoQuoteRefresher missing={[...missing]} />
       {wallets.length === 0 && manuals.length === 0 && brokerage.length === 0 ? (
         <EmptyLedger
           showConnect={false}
           title="No wallets yet"
           body="Add a wallet address. Haus scans Bitcoin, Ethereum and other EVM chains, Solana, and TRON."
         />
-      ) : (
-        <HeroCard kicker="Wallet value">
-          <Money value={total} />
+      ) : rows.length === 0 ? (
+        <HeroCard kicker="Crypto value">
+          <Money value={0} />
         </HeroCard>
-      )}
+      ) : null}
       {rows.length > 0 ? (
           <InvestmentsBoard
             rows={rows}
-            hideHero
+            heroSummary
+            heroKicker="Crypto value"
             hideTable
             minValue={10}
             classMode="asset"
@@ -223,6 +244,7 @@ export default async function CryptoPage() {
             }
           />
       ) : null}
+      {wallets.length > 0 || brokerage.length > 0 || manuals.length > 0 ? <SectionLabel>Wallets</SectionLabel> : null}
       <WalletGrid
         names={names}
         wallets={[
@@ -293,7 +315,16 @@ export default async function CryptoPage() {
           notes: c.notes,
         }))}
       />
-      {rows.length > 0 ? <InvestmentsBoard rows={rows} hideHero hideDonuts hideCostTotal minValue={10} /> : null}
+      {rows.length > 0 ? (
+        <InvestmentsBoard
+          rows={rows}
+          hideHero
+          hideDonuts
+          hideCostTotal={!anyCost}
+          minValue={10}
+          headerAction={costCoins.length ? <CryptoCostEditor coins={costCoins} /> : null}
+        />
+      ) : null}
     </>
   );
 }

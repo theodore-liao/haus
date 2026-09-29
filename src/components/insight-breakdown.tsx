@@ -3,10 +3,17 @@ import { cn } from "@/lib/utils";
 import type { Insight } from "@/lib/insights";
 
 /** The figures behind a measure, as label and amount rows; total rows sit under a rule. */
-export function InsightBreakdown({ rows }: { rows: NonNullable<Insight["breakdown"]> }) {
+export function InsightBreakdown({
+  rows,
+  collapsible,
+}: {
+  rows: NonNullable<Insight["breakdown"]>;
+  /** Fold the rows behind a "Show breakdown" line, closed until opened. */
+  collapsible?: boolean;
+}) {
   if (!rows.length) return null;
   const firstTotal = rows.findIndex((r) => r.total);
-  return (
+  const list = (
     <dl className="mt-3 space-y-1 text-xs">
       {rows.map((r, i) => (
         <div
@@ -24,5 +31,12 @@ export function InsightBreakdown({ rows }: { rows: NonNullable<Insight["breakdow
         </div>
       ))}
     </dl>
+  );
+  if (!collapsible) return list;
+  return (
+    <details className="mt-2 text-xs">
+      <summary className="cursor-pointer text-muted-foreground hover:text-foreground">Show breakdown</summary>
+      {list}
+    </details>
   );
 }

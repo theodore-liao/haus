@@ -1,6 +1,7 @@
 import { PageHeader } from "@/components/page-header";
 import Link from "next/link";
 import { HeroCard } from "@/components/hero-card";
+import { withBlurredMoney } from "@/components/blur-money";
 import { annualisedPaychecks, annualisedSpend, getConnectionCount, getEquityComp, getOverview, getReports, getRetirement } from "@/lib/queries";
 import { getOwnerFilter } from "@/lib/request";
 import { hausTypeLabel, isChildAccountType } from "@/lib/account-types";
@@ -182,7 +183,7 @@ export default async function RetirementPage() {
                   · <Money value={ytd} /> contributed this year
                 </>
               ) : null}
-              {verdictText ? <span className="block">{verdictText}, by the planner below.</span> : null}
+              {verdictText ? <span className="block">{withBlurredMoney(`${verdictText}, by the planner below.`)}</span> : null}
             </span>
           )
         }

@@ -22,6 +22,12 @@ import type { PlanChildPref } from "@/lib/projection-prefs";
 
 type ChildRow = { id: string; name: string };
 
+const PLACEHOLDER_NAMES = ["new user", "one", "two"];
+function birthdateLabel(name: string, fallback: string) {
+  const n = name.trim();
+  return PLACEHOLDER_NAMES.includes(n.toLowerCase()) || !n ? `${fallback} birthdate` : `${n} birthdate`;
+}
+
 export function SettingsClient({
   nameA,
   nameB,
@@ -286,11 +292,11 @@ export function SettingsClient({
             <Input className="mt-1.5" value={j} onChange={(e) => setJ(e.target.value)} />
           </div>
           <div>
-            <Label>{t || "Primary"} birthdate</Label>
+            <Label>{birthdateLabel(t, "Your")}</Label>
             <Input type="date" className="mt-1.5" value={dobA} onChange={(e) => setDobA(e.target.value)} />
           </div>
           <div>
-            <Label>{j || "Spouse"} birthdate</Label>
+            <Label>{birthdateLabel(j, "Partner's")}</Label>
             <Input type="date" className="mt-1.5" value={dobB} onChange={(e) => setDobB(e.target.value)} />
           </div>
           <p className="footnote sm:col-span-2">Birthdates set ages in the retirement planner.</p>
@@ -392,18 +398,6 @@ export function SettingsClient({
           })}
         </CardContent>
       </Card>
-
-      <Card>
-        <CardHeader>
-          <CardTitle>Privacy &amp; session</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-3 text-sm leading-6 text-muted-foreground">
-          <p>Plaid holds your bank logins. Haus keeps its data in a database on this computer.</p>
-          <Button variant="outline" size="sm" onClick={logout}>
-            Log out
-          </Button>
-        </CardContent>
-      </Card>
       </div>
 
       <div className="grid gap-4">
@@ -467,9 +461,12 @@ export function SettingsClient({
                 aria-label="Store transaction history"
               />
             </div>
-            <Button type="button" variant="outline" size="sm" className="h-7" onClick={() => void openSaved()}>
-              Show saved transactions
-            </Button>
+            <div className="flex items-center justify-between gap-4">
+              <div className="text-foreground">Saved transactions</div>
+              <Button type="button" variant="outline" size="sm" className="h-7" onClick={() => void openSaved()}>
+                Show
+              </Button>
+            </div>
           </div>
           <div className="flex items-center justify-between gap-4">
             <div className="text-foreground">Download transactions</div>
@@ -485,6 +482,18 @@ export function SettingsClient({
       </Card>
 
       </div>
+
+      <Card className="lg:col-span-2">
+        <CardHeader>
+          <CardTitle>Privacy &amp; session</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-3 text-sm leading-6 text-muted-foreground">
+          <p>Plaid holds your bank logins. Haus keeps its data in a database on this computer.</p>
+          <Button variant="outline" size="sm" onClick={logout}>
+            Log out
+          </Button>
+        </CardContent>
+      </Card>
       <Dialog open={showSaved} onOpenChange={setShowSaved}>
         <DialogContent className="flex max-h-[min(90vh,820px)] max-w-[min(96vw,88rem)] flex-col overflow-hidden">
           <DialogHeader>

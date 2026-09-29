@@ -36,7 +36,12 @@ export default async function InvestmentsPage() {
           <EmptyLedger
           page="/investments"
             title="No brokerage holdings"
-            body="Link a brokerage to pull stock and ETF positions. Retirement accounts are under Retirement; crypto wallets are under Crypto."
+            body={
+              data.names.tabs.crypto
+                ? "Link a brokerage to pull stock and ETF positions. Retirement accounts are under Retirement; crypto wallets are under Crypto."
+                : "Link a brokerage to pull stock and ETF positions. Retirement accounts are under Retirement."
+            }
+            plaidReady={Boolean(process.env.PLAID_CLIENT_ID && process.env.PLAID_SECRET)}
           />
         </>
       ) : (

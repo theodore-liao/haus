@@ -25,7 +25,7 @@ export async function POST(req: Request) {
 
     const accountsRes = await plaid.accountsGet({ access_token: accessToken });
     let institutionName: string | null = null;
-    let institutionId: string | null = accountsRes.data.item.institution_id ?? null;
+    const institutionId: string | null = accountsRes.data.item.institution_id ?? null;
     if (institutionId) {
       try {
         const inst = await plaid.institutionsGetById({

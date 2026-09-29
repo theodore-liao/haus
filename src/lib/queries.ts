@@ -1796,8 +1796,9 @@ export async function getInsights(filter: OwnerFilter) {
   return {
     insights: rankInsights(insights),
     actions: topActions(insights),
-    payAnnual: pay.annual,
-    spendAnnual: run ? run.total * run.factor : null,
+    // The checkup line shows the same last-three-months figures (x4) that the savings rate uses.
+    payAnnual: income3 * 4,
+    spendAnnual: window.length ? spend3 * 4 : null,
     savingsRate: income3 > 0 ? (income3 - spend3) / income3 : null,
   };
 }

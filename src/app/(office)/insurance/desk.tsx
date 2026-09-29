@@ -7,7 +7,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { ConfirmButton } from "@/components/confirm-button";
-import { parseJson } from "@/lib/utils";
+import { policyCoversMember } from "@/lib/insurance";
 import { PremiumControl } from "./premium";
 
 type Doc = { id: string; filename: string; mimeType: string };
@@ -203,12 +203,6 @@ export function InsuranceDesk({
       })}
     </Tabs>
   );
-}
-
-function policyCoversMember(p: Policy, memberId: string) {
-  if (p.owner === memberId || p.namedInsured === memberId) return true;
-  const members = parseJson<string[]>(p.coveredMembers, []);
-  return members.includes(memberId);
 }
 
 function CardSlot({

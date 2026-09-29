@@ -17,7 +17,7 @@ export default async function SpendingPage() {
         <EmptyLedger
           page="/spending"
           title="No spend yet"
-          body="Link cards and banks. Spending is built from the ledger, not a spreadsheet."
+          body="Link your cards and banks to see where your money goes."
         />
       </>
     );

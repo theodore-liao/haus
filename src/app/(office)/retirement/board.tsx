@@ -27,6 +27,7 @@ export type RetirementCard = {
 
 /** The retirement accounts table. Balances only; planning lives in the Retirement planner. */
 export function RetirementAccounts({ rows }: { rows: RetirementCard[] }) {
+  const hasManual = rows.some((r) => r.manual);
   return (
         <Card className="h-full">
           <CardHeader>
@@ -41,6 +42,11 @@ export function RetirementAccounts({ rows }: { rows: RetirementCard[] }) {
                   <TableHead className="hidden md:table-cell">Type</TableHead>
                   <TableHead className="hidden lg:table-cell">Holdings</TableHead>
                   <TableHead className="num">Value</TableHead>
+                  {hasManual ? (
+                    <TableHead className="w-24">
+                      <span className="sr-only">Actions</span>
+                    </TableHead>
+                  ) : null}
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -51,7 +57,6 @@ export function RetirementAccounts({ rows }: { rows: RetirementCard[] }) {
                         <BrandLabel className="min-w-0" kind="institution" name={r.institution}>
                           <span className="truncate">{r.name}</span>
                         </BrandLabel>
-                        {r.manual ? <RemoveHsa id={r.id} /> : null}
                       </div>
                     </TableCell>
                     <TableCell className="hidden sm:table-cell">{r.ownerLabel}</TableCell>
@@ -67,6 +72,7 @@ export function RetirementAccounts({ rows }: { rows: RetirementCard[] }) {
                     <TableCell className="num whitespace-nowrap">
                       <Money value={r.balance} />
                     </TableCell>
+                    {hasManual ? <TableCell className="w-24 py-1 text-right">{r.manual ? <RemoveHsa id={r.id} /> : null}</TableCell> : null}
                   </TableRow>
                 ))}
               </TableBody>

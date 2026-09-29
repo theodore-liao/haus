@@ -6,6 +6,7 @@ import { Delta } from "@/components/money";
 import { cn } from "@/lib/utils";
 import { kickerClass } from "@/components/type";
 import { CardIcon } from "@/components/card-icon";
+import { combineBySymbol } from "@/lib/movers";
 import { DEFAULT_MOVERS_WINDOW, storedMoversWindow, type MoversWindow } from "@/lib/prefs";
 export type AssetMover = {
   id: string;
@@ -35,7 +36,7 @@ export function LargestMoves({ movers }: { movers: AssetMover[] }) {
     if (stored) setWin(stored);
   }, []);
   const { gainers, losers, empty } = useMemo(() => {
-    const ranked: Ranked[] = movers
+    const ranked: Ranked[] = combineBySymbol(movers)
       .map((m) => ({ ...m, move: m[win] }))
       .filter((m) => m.move.delta != null);
     const gainers = ranked

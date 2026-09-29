@@ -21,7 +21,7 @@ export function ChipGroup({
 }: {
   children: ReactNode;
 }) {
-  return <div className="flex items-center gap-0.5 rounded-md border border-border bg-background/40 p-0.5">{children}</div>;
+  return <div className="flex max-w-full flex-wrap items-center gap-0.5 rounded-md border border-border bg-background/40 p-0.5">{children}</div>;
 }
 
 export function Chip({

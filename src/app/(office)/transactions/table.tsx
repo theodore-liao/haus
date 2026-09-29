@@ -16,6 +16,9 @@ import { SearchInput } from "@/components/search-input";
 import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
+import { Callout } from "@/components/callout";
+import { ConfirmButton } from "@/components/confirm-button";
+import { withoutInstitution } from "@/lib/account-label";
 import { Badge } from "@/components/ui/badge";
 import { Money } from "@/components/money";
 import { formatDate } from "@/lib/format";
@@ -153,9 +156,9 @@ export function TransactionsTable({
           </span>
         ),
         cell: ({ row }) => (
-          <BrandLabel kind="merchant" name={row.original.merchant}>
-            <span className="flex min-w-0 items-center gap-1.5">
-              <span className="truncate">{row.original.merchant}</span>
+          <BrandLabel kind="merchant" name={row.original.merchant} className="flex max-w-full">
+            <span className="flex min-w-0 max-w-full items-center gap-1.5">
+              <span className="min-w-0 truncate">{row.original.merchant}</span>
               <CardMatchNote match={row.original.cardMatch} />
               <NoteMark memo={row.original.memo} />
             </span>
@@ -314,14 +317,16 @@ export function TransactionsTable({
   return (
     <div className={readOnly ? scrollClass + " min-h-0 overflow-auto" : undefined}>
       <div className="section-head">
-        <SearchInput
-          placeholder={readOnly ? "Search merchant, description, note" : "Search merchant, account, category"}
-          value={q}
-          onChange={setQ}
-        />
-        <span className={readOnly ? "footnote num ml-auto" : "footnote num"}>
-          {filteredRows.length.toLocaleString("en-US")} rows
-        </span>
+        <div className="flex min-w-0 items-center gap-3">
+          <SearchInput
+            placeholder={readOnly ? "Search merchant, description, note" : "Search merchant, account, category"}
+            value={q}
+            onChange={setQ}
+          />
+          <span className="footnote num whitespace-nowrap">
+            {listed.toLocaleString("en-US")} {listed === 1 ? "row" : "rows"}
+          </span>
+        </div>
         <ResetFilters
           dirty={
             Boolean(q) ||
@@ -530,7 +535,7 @@ function TransactionSheetForm({
   const [merchant, setMerchant] = useState(row?.merchant ?? "");
   const [category, setCategory] = useState(row?.category ?? "");
   const [memo, setMemo] = useState(row?.memo ?? "");
-  const [applyAll, setApplyAll] = useState(true);
+  const [applyAll, setApplyAll] = useState(false);
   const [host, setHost] = useState<HTMLDivElement | null>(null);
   const categoryOptions =
     !category || HAUS_CATEGORIES.some((c) => c.code === category)
@@ -581,7 +586,7 @@ function TransactionSheetForm({
               <SheetHeader>
                 <SheetTitle>{row.merchant}</SheetTitle>
                 <SheetDescription>
-                  {formatDate(row.date)} · {row.account} · {row.institution}
+                  {formatDate(row.date)} · {withoutInstitution(row.account, row.institution)}
                   {row.cardMatch === "matched" ? " · Matches another account" : ""}
                 </SheetDescription>
               </SheetHeader>
@@ -630,23 +635,19 @@ function TransactionSheetForm({
                   />
                 </div>
                 {row.cardMatch === "matched" ? (
-                  <p className="text-sm text-negative">
+                  <Callout tone="info">
                     The same amount landed in another linked account, so this is marked Transfer. If you recategorize, the auto-detected Transfer will be overwritten.
-                  </p>
+                  </Callout>
                 ) : null}
                 <div className="flex flex-wrap gap-2">
                   <Button onClick={save}>Save</Button>
-                  <Button
-                    type="button"
+                  <ConfirmButton
                     variant="destructive"
-                    onClick={async () => {
-                      if (
-                        !confirm(
-                          `Hide every current and future transaction matching “${row.merchant}”? They will leave Transactions, Cashflow, and Reports.`,
-                        )
-                      ) {
-                        return;
-                      }
+                    size="default"
+                    title={`Hide ${row.merchant}?`}
+                    description="Every current and future transaction from this merchant will leave Transactions, Cashflow, and Spending."
+                    confirmLabel="Hide"
+                    onConfirm={async () => {
                       const res = await fetch("/api/transactions", {
                         method: "DELETE",
                         headers: { "Content-Type": "application/json" },
@@ -665,7 +666,7 @@ function TransactionSheetForm({
                     }}
                   >
                     Hide this merchant
-                  </Button>
+                  </ConfirmButton>
                 </div>
               </div>
             </div>

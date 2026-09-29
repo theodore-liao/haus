@@ -1,5 +1,6 @@
 import { Landmark, type LucideIcon } from "lucide-react";
 import { ConnectPlaid } from "./connect-plaid";
+import { InfoTip } from "./info-tip";
 import { Skeleton } from "./ui/skeleton";
 import { Button } from "./ui/button";
 import { NAV } from "@/lib/nav";
@@ -36,7 +37,14 @@ export function EmptyLedger({
       {showConnect && (
         <div className="mt-6 flex flex-col items-center gap-2">
           <ConnectPlaid disabled={!plaidReady} />
-          {!plaidReady ? <p className="footnote">Bank linking isn&apos;t set up on this computer yet.</p> : null}
+          {!plaidReady ? (
+            <p className="footnote flex items-center gap-1">
+              Bank linking isn&apos;t set up on this computer yet.
+              <InfoTip label="How to set up bank linking">
+                Add the Plaid keys to the .env file and restart Haus.
+              </InfoTip>
+            </p>
+          ) : null}
         </div>
       )}
     </div>

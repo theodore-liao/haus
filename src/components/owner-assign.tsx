@@ -50,7 +50,7 @@ export function OwnerAssign({ item, onDone }: { item: Item; onDone: () => void }
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ itemId: item.id }),
       });
-      toast.success("Owners saved. Syncing the household ledger.");
+      toast.success("Owners saved. Syncing now.");
       setOpen(false);
       onDone();
     } finally {

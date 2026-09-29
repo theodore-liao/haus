@@ -9,8 +9,10 @@ import { NetWorthChart } from "@/components/charts";
 import { Button } from "@/components/ui/button";
 import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
-import { getSymbolDetail } from "@/lib/queries";
+import { getOverview, getSymbolDetail } from "@/lib/queries";
 import { getOwnerFilter } from "@/lib/request";
+import { holdingPeriodMove } from "@/lib/period-moves";
+import { priceDayKey } from "@/lib/price-window";
 import { isDust } from "@/lib/dust";
 import { formatDate, formatPct } from "@/lib/format";
 
@@ -24,7 +26,8 @@ export default async function SymbolPage({
   searchParams: Promise<{ from?: string }>;
 }) {
   const { symbol } = await params;
-  const back = (await searchParams).from === "crypto" ? { href: "/crypto", label: "Crypto" } : { href: "/investments", label: "Stocks" };
+  const fromCrypto = (await searchParams).from === "crypto";
+  const back = fromCrypto ? { href: "/crypto", label: "Crypto" } : { href: "/investments", label: "Stocks" };
   const owner = await getOwnerFilter();
   const data = await getSymbolDetail(decodeURIComponent(symbol), owner);
   if (data.lots.length === 0 && data.trades.length === 0) notFound();
@@ -42,8 +45,21 @@ export default async function SymbolPage({
   );
   const gain = costed.length ? costedValue - cost : null;
   const moved = data.lots.filter((h) => h.quoteChange != null);
-  const day = moved.length ? moved.reduce((s, h) => s + (h.quoteChange ?? 0) * h.quantity, 0) : null;
-  const weight = data.stocksShare;
+  let day = moved.length ? moved.reduce((s, h) => s + (h.quoteChange ?? 0) * h.quantity, 0) : null;
+  let dayPct = moved[0]?.quoteChangePct ?? null;
+  // A held asset with a price is never blank: with no stored day change, use the close about a day ago (0 at worst).
+  const lastPrice = qty > 0 ? value / qty : 0;
+  if (day == null && lastPrice > 0) {
+    const sym = data.symbol.toUpperCase();
+    const closes = new Map(data.prices.map((p) => [`${sym}|${priceDayKey(new Date(p.date))}`, p.close]));
+    const m = holdingPeriodMove({ symbol: sym, value, last: lastPrice, days: 1, closes, now: new Date() });
+    day = m.delta;
+    dayPct = m.pct;
+  }
+  // From Crypto the share is of the crypto total; otherwise of the stocks total.
+  const cryptoTotal = fromCrypto ? (await getOverview(owner)).allocation.crypto : 0;
+  const weight = fromCrypto ? (cryptoTotal > 0 && value > 0 ? value / cryptoTotal : null) : data.stocksShare;
+  const unit = fromCrypto ? { many: "coins", one: "a coin" } : { many: "shares", one: "a share" };
 
   return (
     <>
@@ -62,23 +78,23 @@ export default async function SymbolPage({
         kicker={`${data.symbol} value`}
         supporting={
           <>
-            <span className="num">{qty.toLocaleString()}</span> shares
+            <span className="num">{qty.toLocaleString()}</span> {unit.many}
             {costed.length ? (
               <>
                 {" "}
-                · Average cost <Money value={costedQty > 0 ? cost / costedQty : null} /> a share · Gain{" "}
+                · Average cost <Money value={costedQty > 0 ? cost / costedQty : null} /> {unit.one} · Gain{" "}
                 <Delta value={gain} pct={cost > 0 && gain != null ? (gain / cost) * 100 : null} />
               </>
             ) : null}
             {weight != null ? (
               <>
                 {" "}
-                · <span className="num">{formatPct(weight * 100, 1, false)}</span> of your stocks
+                · <span className="num">{formatPct(weight * 100, 1, false)}</span> of your {fromCrypto ? "crypto" : "stocks"}
               </>
             ) : null}
           </>
         }
-        deltas={[{ label: "Day", value: day, pct: moved[0]?.quoteChangePct ?? null }]}
+        deltas={[{ label: "Day", value: day, pct: dayPct }]}
       >
         <Money value={value} />
       </HeroCard>
@@ -92,7 +108,7 @@ export default async function SymbolPage({
       </ChartCard>
       <Card>
         <CardHeader>
-          <CardTitle>Lots</CardTitle>
+          <CardTitle>Holdings by account</CardTitle>
         </CardHeader>
         <CardContent className="px-0 pb-0">
           <Table>
@@ -104,7 +120,7 @@ export default async function SymbolPage({
                 <TableHead className="num">Last</TableHead>
                 <TableHead className="num">Value</TableHead>
                 <TableHead className="num">Cost</TableHead>
-                <TableHead className="num">Day P/L</TableHead>
+                <TableHead className="num">Day</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>

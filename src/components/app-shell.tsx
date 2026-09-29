@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
 import { Menu, Pin } from "lucide-react";
 import { NAV, NAV_ORDER_KEY, mobilePrimary, mergeVisibleOrder, resolveNavOrder, visibleNav, type NavItem, type TabVisibility } from "@/lib/nav";
@@ -28,7 +28,10 @@ export function AppShell({
   lastSynced?: string | null;
   tabs: TabVisibility;
 }) {
-  const pathname = usePathname();
+  const path = usePathname();
+  const from = useSearchParams().get("from");
+  // A coin's page lives under /investments; opened from Crypto, the sidebar keeps Crypto lit.
+  const pathname = from === "crypto" && path.startsWith("/investments/") ? "/crypto" : path;
   const [more, setMore] = useState(false);
   const [items, setItems] = useState<NavItem[]>(NAV);
   const shown = visibleNav(items, tabs);
@@ -51,6 +54,12 @@ export function AppShell({
 
   return (
     <div className="app-canvas min-h-screen">
+      <a
+        href="#main"
+        className="sr-only focus:not-sr-only focus:fixed focus:left-3 focus:top-3 focus:z-50 focus:rounded-md focus:bg-card focus:px-3 focus:py-2 focus:text-sm focus:text-foreground focus:shadow-lg"
+      >
+        Skip to content
+      </a>
       <UiScaleSync />
       <PlaidLinkHost />
       <aside className="nav-panel fixed inset-y-0 left-0 z-30 hidden w-[var(--nav-width)] border-r border-border md:flex md:flex-col">
@@ -83,7 +92,7 @@ export function AppShell({
             <RefreshButton lastSynced={lastSynced} autoSync={false} />
           </div>
         </header>
-        <main className="page-stack py-5 pb-24 md:py-8 md:pb-12">{children}</main>
+        <main id="main" tabIndex={-1} className="page-stack py-5 pb-24 outline-none md:py-8 md:pb-12">{children}</main>
       </div>
 
       <nav className="fixed inset-x-0 bottom-0 z-30 grid grid-cols-4 border-t border-border bg-sidebar md:hidden">

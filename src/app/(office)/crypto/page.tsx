@@ -10,10 +10,11 @@ import { CHAIN_META, collapseDuplicateSpot, isDefiAsset, shortAddress } from "@/
 import { lotValue } from "@/lib/crypto-lots";
 import { InvestmentsBoard, type HoldingRow } from "@/components/holdings-table";
 import { LargestMoves } from "@/components/largest-moves";
+import { AddCrypto } from "@/components/add-crypto";
 import { AddWallet, SyncAllWallets } from "./form";
 import { WalletGrid } from "./wallet-grid";
 import { cachedCryptoDayMoves, loadPriceMap, priceOnOrBefore } from "@/lib/quotes";
-import { fillMoverWindows } from "@/lib/period-moves";
+import { fillMoverWindows, holdingPeriodMove } from "@/lib/period-moves";
 import { holdingsPath, lastDays } from "@/lib/sparkline";
 import { SparklineAside } from "@/components/sparkline-aside";
 import { CryptoQuoteRefresher } from "./quote-refresher";
@@ -87,7 +88,8 @@ export default async function CryptoPage() {
       const q = moves.get(geckoId(symbol, id) ?? "");
       if (q) return { dayPl: q.change * qty, dayPct: q.changePct };
     }
-    if (change != null) return { dayPl: change * qty, dayPct: pct ?? null };
+    // A stored 0/0 with no live move is filled from stored closes below.
+    if (!needsLive(change, pct) && change != null) return { dayPl: change * qty, dayPct: pct ?? null };
     return { dayPl: null as number | null, dayPct: null as number | null };
   };
   const logoFor = (symbol: string, id?: string | null) => {
@@ -170,7 +172,7 @@ export default async function CryptoPage() {
       symbol: c.symbol,
       name: c.name,
       class: "Manual",
-      account: "Entered lot",
+      account: "Manual entry",
       institution: "Self-custody",
       ownerLabel: ownerLabel(c.owner, names),
       qty: c.quantity,
@@ -211,6 +213,13 @@ export default async function CryptoPage() {
   // 1D, 1W and 1M are today's holding against past prices, so no window is left empty.
   const lastBySymbol = new Map<string, number>();
   for (const r of rows) if (r.symbol && r.last != null && r.last > 0) lastBySymbol.set(r.symbol.toUpperCase(), r.last);
+  // A held coin with a price is never blank: fill any missing day change from the closes, zero at worst.
+  for (const r of rows) {
+    if (r.dayPl != null || !r.symbol || !(r.last != null && r.last > 0)) continue;
+    const m = holdingPeriodMove({ symbol: r.symbol, value: r.value, last: r.last, days: 1, closes, now });
+    r.dayPl = m.delta;
+    r.dayPct = m.pct;
+  }
   // With no stored closes at all, a flat line would read as "no change"; show that the line is still coming instead.
   const spark = closes.size
     ? lastDays(
@@ -232,6 +241,8 @@ export default async function CryptoPage() {
       .map((r) => [r.symbol!.toUpperCase(), { symbol: r.symbol!.toUpperCase(), coingeckoId: geckoId(r.symbol!), spot: r.last }] as const),
   ).values()].slice(0, 40);
 
+  const isEmpty = wallets.length === 0 && manuals.length === 0 && brokerage.length === 0;
+
   return (
     <>
       <PageHeader
@@ -239,6 +250,7 @@ export default async function CryptoPage() {
         actions={
           <>
             {wallets.length > 0 ? <SyncAllWallets /> : null}
+            {isEmpty ? <AddCrypto names={names} /> : null}
             <AddWallet names={names} />
           </>
         }
@@ -291,6 +303,7 @@ export default async function CryptoPage() {
           />
       ) : null}
       {wallets.length > 0 || brokerage.length > 0 || manuals.length > 0 ? <SectionLabel>Wallets</SectionLabel> : null}
+      {isEmpty ? null : (
       <WalletGrid
         names={names}
         wallets={[
@@ -361,6 +374,7 @@ export default async function CryptoPage() {
           notes: c.notes,
         }))}
       />
+      )}
       {rows.length > 0 ? (
         <InvestmentsBoard
           symbolFrom="crypto"

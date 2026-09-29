@@ -6,12 +6,11 @@ import { Button } from "@/components/ui/button";
 import { HeroCard } from "@/components/hero-card";
 import { Pill, Pills } from "@/components/pills";
 import { Money } from "@/components/money";
-import { SectionLabel } from "@/components/type";
+import { SectionLabel, kickerClass } from "@/components/type";
 import { cn } from "@/lib/utils";
 import { netStatus, type BudgetTracker, type TrackerCell } from "@/lib/budget-tracker";
 import type { Insight } from "@/lib/insights";
 import { withBlurredMoney } from "@/components/blur-money";
-import { EmptyLedger } from "@/components/states";
 import { InfoTip } from "@/components/info-tip";
 import { InsightBreakdown } from "@/components/insight-breakdown";
 
@@ -36,6 +35,7 @@ function EditBudgets({ label = "Edit budgets" }: { label?: string }) {
 
 export function GoalsClient({
   tracker,
+  linked,
   monthBudget,
   daysLeft,
   reserve,
@@ -43,6 +43,8 @@ export function GoalsClient({
   retirementOn,
 }: {
   tracker: BudgetTracker;
+  /** At least one account is linked, so Spending has a Budget card. */
+  linked: boolean;
   /** This month's whole budget, every category. */
   monthBudget: number;
   daysLeft: number;
@@ -65,12 +67,12 @@ export function GoalsClient({
         kicker="Budget, last 3 months"
         supporting={
           rows.length === 0 ? (
-            "Set monthly budgets on Spending to see, month by month, where you come out ahead or behind."
+            linked ? "Set monthly budgets on Spending to see where you come out ahead or behind." : "Budgets start once accounts are linked."
           ) : (
             <span className="prose-num">
               Against today&apos;s budgets, {span}, with {months[months.length - 1].label} counted through today.
               <span className="block">
-                This month: <Money value={current.spent} approx /> spent of <Money value={monthBudget} approx />, {daysLeft} {daysLeft === 1 ? "day" : "days"} left.
+                This month: <Money value={current.spent} /> spent of <Money value={monthBudget} />, {daysLeft} {daysLeft === 1 ? "day" : "days"} left.
               </span>            </span>
           )
         }
@@ -101,7 +103,7 @@ export function GoalsClient({
           <span className="text-muted-foreground">—</span>
         ) : (
           <span className={cn(status === "ahead" && "text-positive", status === "behind" && "text-negative")}>
-            <Money value={Math.abs(net)} approx />
+            <Money value={Math.abs(net)} />
             <span className="ml-2 text-[0.45em] font-medium text-muted-foreground">{status === "even" ? "on budget" : status}</span>
           </span>
         )}
@@ -113,38 +115,40 @@ export function GoalsClient({
           {rows.length ? <EditBudgets /> : null}
         </div>
         {rows.length === 0 ? (
-          <div className="goal-empty">
-            <EmptyLedger
-              page="/goals"
-              showConnect={false}
-              title="No budgets yet"
-              body="Budgets are set per category on Spending. Once they are, each month shows here as saved or over."
-              action={<EditBudgets label="Set budgets" />}
-            />
+          <div className="chart-card flex flex-wrap items-center justify-between gap-3">
+            <p className="text-sm text-muted-foreground">
+              {linked ? "No budgets yet. Set one per category on Spending." : "Budgets start once accounts are linked."}
+            </p>
+            {linked ? (
+              <EditBudgets label="Set budgets" />
+            ) : (
+              <Button asChild size="sm" variant="outline">
+                <Link href="/connections">
+                  Link accounts <ArrowRight aria-hidden className="size-3.5" />
+                </Link>
+              </Button>
+            )}
           </div>
         ) : (
           <div className="chart-card">
             <p className="footnote mb-3">
-              Each month is that category&apos;s budget minus what it spent: <span className="text-positive">green</span> is saved,{" "}
-              <span className="text-negative">red</span> is over. This month counts only the share of its budget the days so far allow.
+              Budget minus spent: <span className="text-positive">green</span> is saved, <span className="text-negative">red</span> is over.
             </p>
             {/* Wide screens: one table. */}
             <div className="soft-scroll hidden max-h-[32rem] sm:block">
               <table className="w-full text-sm">
-                <thead className="sticky top-0 bg-card text-left text-xs text-muted-foreground">
-                  <tr>
-                    <th className="py-2 pr-3 font-medium">Category</th>
-                    <th className="py-2 pr-3 text-right font-medium">Budget / mo</th>
+                <thead className="sticky top-0 bg-card text-left">
+                  <tr className={cn("border-b border-border", kickerClass)}>
+                    <th className="py-2 pr-3">Category</th>
+                    <th className="py-2 pr-3 text-right">Budget / mo</th>
                     {months.map((m) => (
-                      <th key={m.ym} className="py-2 pr-3 text-right font-medium">
+                      <th key={m.ym} className="py-2 pr-3 text-right">
                         {m.label}
                         {m.partial ? ", so far" : ""}
                       </th>
                     ))}
-                    <th className="py-2 pr-3 text-right font-medium">Net</th>
-                    <th className="py-2 font-medium">
-                      <span className="sr-only">Status</span>
-                    </th>
+                    <th className="py-2 pr-3 text-right">Net</th>
+                    <th className="py-2 text-right">Status</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-border">
@@ -154,7 +158,7 @@ export function GoalsClient({
                         {r.category}
                       </td>
                       <td className="py-2.5 pr-3 text-right text-muted-foreground">
-                        <Money value={r.monthly} approx />
+                        <Money value={r.monthly} />
                       </td>
                       {r.cells.map((c, i) => (
                         <td key={months[i].ym} className="py-2.5 pr-3 text-right">
@@ -162,7 +166,7 @@ export function GoalsClient({
                         </td>
                       ))}
                       <td className="py-2.5 pr-3 text-right font-semibold">
-                        <Money value={r.net} signed approx />
+                        <Money value={r.net} signed />
                       </td>
                       <td className="py-2.5 text-right">
                         <NetChip net={r.net} />
@@ -174,7 +178,7 @@ export function GoalsClient({
                   <tr>
                     <td className="py-2.5 pr-3">All budgets</td>
                     <td className="py-2.5 pr-3 text-right text-muted-foreground">
-                      <Money value={monthBudget} approx />
+                      <Money value={monthBudget} />
                     </td>
                     {totals.map((c, i) => (
                       <td key={months[i].ym} className="py-2.5 pr-3 text-right">
@@ -182,7 +186,7 @@ export function GoalsClient({
                       </td>
                     ))}
                     <td className="py-2.5 pr-3 text-right">
-                      <Money value={net} signed approx />
+                      <Money value={net} signed />
                     </td>
                     <td className="py-2.5 text-right">
                       <NetChip net={net} />
@@ -196,15 +200,15 @@ export function GoalsClient({
               {rows.map((r) => (
                 <li key={r.category} className="rounded-md border border-border p-3">
                   <div className="flex items-center justify-between gap-2">
-                    <span className="min-w-0 truncate text-sm font-medium">{r.category}</span>
+                    <span className="min-w-0 truncate text-sm">{r.category}</span>
                     <NetChip net={r.net} />
                   </div>
                   <div className="mt-1 flex items-baseline justify-between gap-2 text-xs text-muted-foreground">
                     <span>
-                      <Money value={r.monthly} approx /> / mo
+                      <Money value={r.monthly} /> / mo
                     </span>
                     <span className="text-sm font-semibold text-foreground">
-                      <Money value={r.net} signed approx /> net
+                      <Money value={r.net} signed /> net
                     </span>
                   </div>
                   <div className="mt-2 grid grid-cols-3 gap-2 text-xs">
@@ -254,7 +258,7 @@ export function GoalsClient({
 /** Saved (green, +) or over (red, −) for one month; a month with nothing budgeted yet reads as a dash. */
 function Diff({ cell }: { cell: TrackerCell }) {
   if (cell.budget <= 0 && cell.spent <= 0) return <span className="text-muted-foreground">—</span>;
-  return <Money value={cell.diff} signed approx />;
+  return <Money value={cell.diff} signed />;
 }
 
 function NetChip({ net }: { net: number }) {

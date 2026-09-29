@@ -102,7 +102,7 @@ export function PremiumControl({
           money
           min={0}
           allowBlank
-          help="Enter saves. Blank removes it."
+          help="Leave blank to remove."
         />
       </PopoverContent>
     </Popover>

@@ -214,7 +214,7 @@ export function CashFlowBlock({
                         <Money value={m.savings} signed />
                       </td>
                       <td className="num hidden text-muted-foreground sm:table-cell">
-                        {m.rate != null ? formatPct(m.rate * 100, 0, true) : "—"}
+                        {m.rate != null ? formatPct(m.rate * 100, 0) : "—"}
                       </td>
                     </tr>
                   ))

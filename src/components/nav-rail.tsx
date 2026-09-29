@@ -170,6 +170,7 @@ export function NavRail({
               <button
                 type="button"
                 aria-label={`Reorder ${item.label}`}
+                tabIndex={-1}
                 onPointerDown={(e) => onGripDown(e, item.href, index)}
                 className="cursor-grab touch-none px-1.5 py-2 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-60 focus-visible:opacity-90 active:cursor-grabbing"
               >

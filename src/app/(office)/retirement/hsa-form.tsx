@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
+import { ConfirmButton } from "@/components/confirm-button";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
@@ -101,20 +102,23 @@ export function AddHsa({
 export function RemoveHsa({ id }: { id: string }) {
   const router = useRouter();
   return (
-    <button
-      type="button"
-      className="text-[11px] text-muted-foreground hover:text-negative"
-      onClick={async (e) => {
-        e.stopPropagation();
-        await fetch("/api/manual-accounts", {
+    <ConfirmButton
+      title="Remove this account?"
+      description="It leaves the retirement accounts. Add it again to bring it back."
+      onConfirm={async () => {
+        const res = await fetch("/api/manual-accounts", {
           method: "DELETE",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ id }),
         });
+        if (!res.ok) {
+          toast.error("Could not remove this account.");
+          return;
+        }
         router.refresh();
       }}
     >
       Remove
-    </button>
+    </ConfirmButton>
   );
 }

@@ -263,7 +263,7 @@ export function RetirementPlan({
   // Retire age runs from next year of age to 65. A saved age outside that range is shown at the nearest end.
   const minRetire = ageNow == null ? RETIRE_MIN : Math.max(RETIRE_MIN, Math.floor(ageNow) + 1);
   const maxRetire = Math.max(RETIRE_MAX, minRetire);
-  const retireAge = ageNow == null ? ASSUMED_AGE + yearsFallback : Math.min(maxRetire, Math.max(minRetire, retireAgeSaved));
+  const retireAge = ageNow == null ? Math.min(RETIRE_MAX, ASSUMED_AGE + yearsFallback) : Math.min(maxRetire, Math.max(minRetire, retireAgeSaved));
   const planAge = ageNow ?? ASSUMED_AGE;
   // By default the house is bought the year you retire, and moves with the slider.
   const houseAge = houseAtRetire ? retireAge : houseAgeSaved;
@@ -300,7 +300,7 @@ export function RetirementPlan({
   // What the household saves: its own figure when it gave one, otherwise the estimate from pay and spending.
   const saving = saveOverride ?? (saveNow != null ? saveNow.amount : null);
   const pacePath = number != null && saving != null ? balancePath(input, Math.max(0, saving)) : null;
-  const latestRetire = ageNow != null ? maxRetire : ASSUMED_AGE + 40;
+  const latestRetire = ageNow != null ? maxRetire : RETIRE_MAX;
   const paceAge = number != null && saving != null ? earliestRetireAge(input, Math.max(0, saving), liveTo - 1) : null;
 
   // Your path is what you save now; without that, the target path stands in for it.
@@ -444,7 +444,7 @@ export function RetirementPlan({
                 <RetireSlider
                   value={yearsFallback}
                   min={1}
-                  max={40}
+                  max={RETIRE_MAX - ASSUMED_AGE}
                   label={`Retire in ${yearsFallback} ${yearsFallback === 1 ? "year" : "years"}`}
                   note={
                     <>
@@ -555,7 +555,7 @@ export function RetirementPlan({
                     placeholder="0"
                     value={annualSpend}
                     min={0}
-                    max={1e9}
+                    max={1e7}
                     onValue={(v) => bind("annualSpend", setAnnualSpend)(v ?? 0)}
                     help={spendHelp(annualSpend, spendNow, (v) => bind("annualSpend", setAnnualSpend)(v))}
                   />
@@ -1109,7 +1109,7 @@ function PlannerAnswer({
         You can {retireText} spending <span className="num money">{formatWhole(annualSpend)}</span> a year.
       </>
     ) : needed > 3 * Math.max(saving, 10_000) ? (
-      <>Saving alone can&apos;t get you to {retireText.replace(/^retire/, "retiring")}; it would take about <Money value={needed} approx /> a year.</>
+      <>At what you save now, you can&apos;t {retireText}; it would take about <Money value={needed} approx /> a year.</>
     ) : (
       <>
         You&apos;re about <Money value={-gap} approx /> a year short of being able to {retireText}.
@@ -1309,12 +1309,12 @@ function PlannerAnswer({
               title={levers.later.age > retireAge ? "Retire a year later" : "Retire a year earlier"}
               onClick={() => levers.onRetire(levers.later!.age)}
             >
-              {levers.later.needed == null ? "Nothing left to save." : <SavingChange from={needed} to={levers.later.needed} />}
+              {levers.later.needed == null ? "Nothing left to save." : <SavingChange from={needed} to={levers.later.needed} short={saving != null && saving < needed} />}
             </LeverButton>
           ) : null}
           {levers.spendLess != null ? (
             <LeverButton title="Spend $5,000 less a year" onClick={levers.onSpend}>
-              <SavingChange from={needed} to={levers.spendLess} />
+              <SavingChange from={needed} to={levers.spendLess} short={saving != null && saving < needed} />
             </LeverButton>
           ) : null}
           {saving != null ? (
@@ -1432,17 +1432,17 @@ function LeverButton({ title, onClick, children }: { title: string; onClick: () 
   );
 }
 
-function SavingChange({ from, to }: { from: number; to: number }) {
+function SavingChange({ from, to, short }: { from: number; to: number; short?: boolean }) {
   // Worked out from the figures as shown, so the lever and Needed a year agree to the dollar.
   const change = roundApprox(to) - roundApprox(from);
   if (Math.abs(change) < 50) return <>About the same saving.</>;
   return change < 0 ? (
     <>
-      Save <span className="font-medium text-positive">{formatApprox(-change)}</span> less a year.
+      {short ? "Needs" : "Save"} <span className="money font-medium text-positive">{formatApprox(-change)}</span> less a year.
     </>
   ) : (
     <>
-      Save <span className="font-medium text-negative">{formatApprox(change)}</span> more a year.
+      Save <span className="money font-medium text-negative">{formatApprox(change)}</span> more a year.
     </>
   );
 }

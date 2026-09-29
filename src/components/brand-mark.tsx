@@ -4,6 +4,10 @@ import { useState, type ReactNode } from "react";
 import { brandLogoCandidates, type BrandKind } from "@/lib/logos";
 import { cn } from "@/lib/utils";
 
+function isGenericFavicon(url: string, img: HTMLImageElement) {
+  return url.includes("/s2/favicons") && img.naturalWidth > 0 && img.naturalWidth <= 16;
+}
+
 export function BrandMark({
   kind,
   name,
@@ -50,6 +54,7 @@ export function BrandMark({
   return (
     // eslint-disable-next-line @next/next/no-img-element
     <img
+      key={url}
       src={url}
       alt=""
       width={size}
@@ -57,6 +62,14 @@ export function BrandMark({
       className={cn("inline-block shrink-0 rounded-[3px] bg-white object-contain", className)}
       style={{ width: size, height: size }}
       onError={() => setAttempt((a) => a + 1)}
+      // The favicon service answers a missing site with its 16px generic globe; treat that as a miss.
+      // An image can finish loading before hydration, when onLoad never fires, so the ref checks it too.
+      ref={(el) => {
+        if (el?.complete && el.naturalWidth > 0 && isGenericFavicon(url, el)) setAttempt((a) => a + 1);
+      }}
+      onLoad={(e) => {
+        if (isGenericFavicon(url, e.currentTarget)) setAttempt((a) => a + 1);
+      }}
     />
   );
 }

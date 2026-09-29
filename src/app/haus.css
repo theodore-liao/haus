@@ -343,6 +343,13 @@ html.privacy .amort-chart .ytick text:hover {
   }
 }
 
+/* Below 1280px the figure keeps its full width and the aside stacks under it. */
+@media (min-width: 1024px) and (max-width: 1279px) {
+  .hero-card-split {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
 .hero-card-split .delta-row {
   padding-top: 0.75rem;
 }
@@ -385,7 +392,7 @@ html.privacy .amort-chart .ytick text:hover {
 }
 
 .pills-compact .pill .display-number {
-  font-size: clamp(1rem, 11cqi, 1.375rem);
+  font-size: clamp(0.75rem, 11cqi, 1.375rem);
 }
 
 .pill {
@@ -811,6 +818,7 @@ body *:hover,
 }
 
 .field-box input::placeholder {
+  font-family: var(--font-sans-stack);
   color: color-mix(in srgb, var(--muted-foreground) 60%, transparent);
 }
 

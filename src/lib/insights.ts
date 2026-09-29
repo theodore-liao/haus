@@ -361,7 +361,7 @@ export function buildInsights(x: InsightInput): Insight[] {
               ? `Up ${pct(Math.abs(change) / x.netWorthThen.value, 1)}. Keep saving at this pace and it keeps compounding.`
               : `Down ${pct(Math.abs(change) / x.netWorthThen.value, 1)}. The Overview chart shows when it fell.`
             : `${change >= 0 ? "Up" : "Down"} over this stretch.`,
-      math: `${money(x.netWorth)} today vs ${money(x.netWorthThen.value)} on ${x.netWorthThen.date}.${x.savedSince != null ? ` Saving is income minus spending over the same months; the rest is markets, home and car values, and anything not in transactions.` : ""}`,
+      math: `${money(x.netWorth)} today vs ${money(x.netWorthThen.value)} in ${x.netWorthThen.date}.${x.savedSince != null ? ` Saving is income minus spending over the same months; the rest is markets, home and car values, and anything not in transactions.` : ""}`,
       href: "/",
     });
   }

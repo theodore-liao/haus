@@ -4,7 +4,7 @@ import { getOwnerFilter } from "@/lib/request";
 import { HeroCard } from "@/components/hero-card";
 import { Pill, Pills } from "@/components/pills";
 import { Money } from "@/components/money";
-import { yearlyPremium } from "@/lib/insurance";
+import { shownPolicies, yearlyPremium } from "@/lib/insurance";
 import { InsuranceDesk } from "./desk";
 
 export const dynamic = "force-dynamic";
@@ -12,9 +12,11 @@ export const dynamic = "force-dynamic";
 export default async function InsurancePage() {
   const owner = await getOwnerFilter();
   const data = await getInsurance(owner);
-  const priced = data.policies.map(yearlyPremium).filter((n): n is number => n != null);
+  const memberIds = ["a", "b", ...data.names.children.map((c) => `child:${c.id}`)];
+  const shown = shownPolicies(data.policies, memberIds, data.vehicles.map((v) => v.id));
+  const priced = shown.map(yearlyPremium).filter((n): n is number => n != null);
   const sectionTotal = (types: string[]) =>
-    data.policies.filter((p) => types.includes(p.type)).reduce((sum, p) => sum + (yearlyPremium(p) ?? 0), 0);
+    shown.filter((p) => types.includes(p.type)).reduce((sum, p) => sum + (yearlyPremium(p) ?? 0), 0);
   const sections = [
     { kicker: "Health", accent: "#6FC4B0", value: sectionTotal(["health", "vision", "dental"]) },
     { kicker: "Vehicle", accent: "#7EABD4", value: sectionTotal(["vehicle", "auto"]) },

@@ -8,6 +8,8 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { ConfirmButton } from "@/components/confirm-button";
+import { InfoTip } from "@/components/info-tip";
 import { ownerOptions } from "@/lib/owners";
 import { shortAddress } from "@/lib/onchain";
 
@@ -19,27 +21,32 @@ export function AddWallet({
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   return (
     <>
-      <Button type="button" size="sm" onClick={() => setOpen(true)}>
+      <Button type="button" size="sm" onClick={() => { setError(null); setOpen(true); }}>
         Add wallet
       </Button>
       <Dialog open={open} onOpenChange={setOpen}>
-        <DialogContent persist>
+        <DialogContent>
           <DialogHeader>
             <DialogTitle>Add wallet</DialogTitle>
           </DialogHeader>
-          <p className="text-sm text-muted-foreground">
-            Paste a Bitcoin, Litecoin or Dogecoin address (or a BTC xpub/zpub), an EVM 0x address or ENS name (Ethereum, Base,
-            Arbitrum, Optimism, Polygon, BNB Chain, Avalanche and more), Solana, TRON, Sui, or Cosmos (cosmos1…). Haus reads
-            balances and DeFi positions from public explorers and RPCs, then prices them on CoinGecko.
+          <p className="flex items-center gap-1 text-sm text-muted-foreground">
+            Paste a wallet address from Bitcoin, Ethereum, Solana and other major chains.
+            <InfoTip label="Supported wallets">
+              Bitcoin, Litecoin and Dogecoin addresses (or a BTC xpub/zpub), EVM 0x addresses or ENS names (Ethereum, Base,
+              Arbitrum, Optimism, Polygon, BNB Chain, Avalanche and more), Solana, TRON, Sui and Cosmos (cosmos1…). Balances
+              and DeFi positions come from public explorers, priced on CoinGecko.
+            </InfoTip>
           </p>
           <form
             className="grid gap-3"
             onSubmit={async (e) => {
               e.preventDefault();
               setBusy(true);
+              setError(null);
               const fd = new FormData(e.currentTarget);
               try {
                 const res = await fetch("/api/crypto-wallets", {
@@ -52,8 +59,11 @@ export function AddWallet({
                   }),
                 });
                 const data = await res.json();
-                if (!res.ok) toast.error(data.error ?? "Could not add wallet.");
-                else {
+                if (!res.ok) {
+                  const msg = data.error ?? "Could not add wallet.";
+                  setError(msg);
+                  toast.error(msg);
+                } else {
                   toast.success("Wallet added.");
                   setOpen(false);
                   router.refresh();
@@ -70,7 +80,15 @@ export function AddWallet({
                 name="address"
                 placeholder="0x… / bc1… / ltc1… / xpub…"
                 required
+                aria-invalid={error ? true : undefined}
+                aria-describedby={error ? "wallet-address-error" : undefined}
+                onChange={() => setError(null)}
               />
+              {error ? (
+                <p id="wallet-address-error" role="alert" className="mt-1 text-sm text-negative">
+                  {error}
+                </p>
+              ) : null}
             </div>
             <div>
               <Label>Label (optional)</Label>
@@ -213,20 +231,29 @@ export function WalletActions({ id }: { id: string }) {
       >
         {busy ? "Syncing…" : "Sync"}
       </Button>
-      <Button
-        variant="ghost"
-        size="sm"
-        onClick={async () => {
-          await fetch("/api/crypto-wallets", {
-            method: "DELETE",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ id }),
-          });
-          router.refresh();
+      <ConfirmButton
+        title="Remove this wallet?"
+        description="Its balances leave your crypto total."
+        onConfirm={async () => {
+          try {
+            const res = await fetch("/api/crypto-wallets", {
+              method: "DELETE",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ id }),
+            });
+            if (!res.ok) {
+              const data = await res.json().catch(() => ({}));
+              toast.error(data.error ?? "Could not remove wallet.");
+              return;
+            }
+            router.refresh();
+          } catch {
+            toast.error("Could not remove wallet.");
+          }
         }}
       >
         Remove
-      </Button>
+      </ConfirmButton>
     </div>
   );
 }

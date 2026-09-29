@@ -1,3 +1,5 @@
+import { parseJson } from "@/lib/utils";
+
 // Policy kinds and yearly premiums for the Insurance page and the Overview renewal note.
 
 export const POLICY_TYPES = [
@@ -35,4 +37,30 @@ export function billingPerYear(frequency: string | null | undefined) {
 
 export function yearlyPremium(p: { premium: number | null; billingFrequency: string | null }) {
   return p.premium != null && p.premium > 0 ? p.premium * billingPerYear(p.billingFrequency) : null;
+}
+
+type SlotPolicy = {
+  id: string;
+  type: string;
+  owner: string;
+  namedInsured: string;
+  coveredMembers: string;
+  vehicleId: string | null;
+};
+
+export function policyCoversMember(p: SlotPolicy, memberId: string) {
+  if (p.owner === memberId || p.namedInsured === memberId) return true;
+  return parseJson<string[]>(p.coveredMembers, []).includes(memberId);
+}
+
+/** The policies the Insurance page shows in a card slot; a premium on any other one is out of sight, so it is not counted. */
+export function shownPolicies<T extends SlotPolicy>(policies: T[], memberIds: string[], vehicleIds: string[]): T[] {
+  const shown = new Map<string, T>();
+  const add = (p?: T) => {
+    if (p) shown.set(p.id, p);
+  };
+  for (const m of memberIds) for (const kind of ["health", "vision", "dental"]) add(policies.find((p) => p.type === kind && policyCoversMember(p, m)));
+  for (const v of vehicleIds) add(policies.find((p) => p.type === "vehicle" && p.vehicleId === v));
+  add(policies.find((p) => p.type === "home" && !p.vehicleId));
+  return [...shown.values()];
 }

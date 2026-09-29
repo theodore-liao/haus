@@ -2,6 +2,8 @@
 
 import { useMemo, useState } from "react";
 import { X } from "lucide-react";
+import { toast } from "sonner";
+import { NumberField } from "@/components/number-field";
 import { Button } from "@/components/ui/button";
 import { colorFor } from "@/lib/category-colors";
 import { Money } from "@/components/money";
@@ -39,7 +41,19 @@ export function BudgetList({
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ category, monthly }),
     });
-    if (!res.ok) setList(previous);
+    if (!res.ok) {
+      setList(previous);
+      toast.error("Couldn’t save that budget.");
+    }
+  }
+
+  async function post(choice: BudgetRow) {
+    const res = await fetch("/api/budgets", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(choice),
+    }).catch(() => null);
+    return Boolean(res?.ok);
   }
 
   async function add(category: string) {
@@ -47,23 +61,38 @@ export function BudgetList({
     if (!choice) return;
     const previous = list;
     setList([...list, choice]);
-    const res = await fetch("/api/budgets", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(choice),
-    });
-    if (!res.ok) setList(previous);
+    if (!(await post(choice))) {
+      setList(previous);
+      toast.error("Couldn’t add that budget.");
+    }
   }
 
-  async function remove(category: string) {
+  async function remove(row: BudgetRow) {
     const previous = list;
-    setList(list.filter((row) => row.category !== category));
+    setList(list.filter((item) => item.category !== row.category));
     const res = await fetch("/api/budgets", {
       method: "DELETE",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ category }),
+      body: JSON.stringify({ category: row.category }),
+    }).catch(() => null);
+    if (!res?.ok) {
+      setList(previous);
+      toast.error(`Couldn’t remove ${row.category}.`);
+      return;
+    }
+    toast(`Removed ${row.category}`, {
+      action: {
+        label: "Undo",
+        onClick: () => {
+          setList((cur) => (cur.some((item) => item.category === row.category) ? cur : [...cur, row]));
+          void post(row).then((ok) => {
+            if (ok) return;
+            setList((cur) => cur.filter((item) => item.category !== row.category));
+            toast.error(`Couldn’t restore ${row.category}.`);
+          });
+        },
+      },
     });
-    if (!res.ok) setList(previous);
   }
 
   return (
@@ -73,7 +102,7 @@ export function BudgetList({
       actions={
         daysLeft != null ? (
           <span className="normal-case tracking-normal text-muted-foreground">
-            {daysLeft} {daysLeft === 1 ? "day" : "days"} to go
+            {daysLeft} {daysLeft === 1 ? "day" : "days"} left
           </span>
         ) : null
       }
@@ -97,7 +126,7 @@ export function BudgetList({
               setList(list.map((item) => (item.category === row.category ? { ...item, monthly } : item)));
               void save(row.category, monthly, previous);
             }}
-            onRemove={() => void remove(row.category)}
+            onRemove={() => void remove(row)}
           />
         ))}
       </ul>
@@ -140,12 +169,6 @@ function BudgetRowView({
   onRemove: () => void;
 }) {
   const [editing, setEditing] = useState(false);
-  const [draft, setDraft] = useState(String(row.monthly));
-  const [prev, setPrev] = useState(row.monthly);
-  if (prev !== row.monthly) {
-    setPrev(row.monthly);
-    setDraft(String(row.monthly));
-  }
   const target = row.monthly * months;
   const status = budgetStatus(spent, target, elapsed);
   const over = status === "over";
@@ -154,14 +177,6 @@ function BudgetRowView({
   const pct = target > 0 ? Math.round((spent / target) * 100) : null;
   const width = target > 0 ? Math.min(100, (spent / target) * 100) : spent > 0 ? 100 : 0;
 
-  function commit() {
-    const n = Number(draft.replace(/[^0-9.]/g, ""));
-    const monthly = Number.isFinite(n) ? Math.max(0, Math.round(n * 100) / 100) : row.monthly;
-    setDraft(String(monthly));
-    setEditing(false);
-    if (monthly !== row.monthly) onCommit(monthly);
-  }
-
   return (
     <li>
       <div className="flex min-w-0 items-center gap-2">
@@ -169,44 +184,29 @@ function BudgetRowView({
         <span className="min-w-0 flex-1 truncate text-sm">{row.category}</span>
         {editing ? (
           <>
-            <label className="sr-only" htmlFor={`budget-${row.category}`}>
-              Monthly budget for {row.category}
-            </label>
-            <span className="text-xs text-muted-foreground">$</span>
-            <input
-              id={`budget-${row.category}`}
-              inputMode="decimal"
-              className="num money h-8 w-20 rounded-md border border-border bg-card px-2 text-right text-sm"
-              value={draft}
-              onChange={(e) => setDraft(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") {
-                  e.preventDefault();
-                  commit();
-                }
-                if (e.key === "Escape") {
-                  setDraft(String(row.monthly));
-                  setEditing(false);
-                }
+            {/* The box applies on Enter or leaving it; Save closes the editor once the typed amount has gone in. */}
+            <NumberField
+              className="w-36 shrink-0"
+              ariaLabel={`Monthly budget for ${row.category}`}
+              value={row.monthly}
+              onValue={(v) => {
+                if (v != null && v !== row.monthly) onCommit(v);
+                setEditing(false);
               }}
+              prefix="$"
+              suffix="/mo"
+              money
+              min={0}
+              max={1000000}
             />
-            <span className="text-xs text-muted-foreground">/mo</span>
-            <Button type="button" size="sm" onClick={commit}>
+            <Button type="button" size="sm" onClick={() => setEditing(false)}>
               Save
             </Button>
           </>
         ) : (
           <>
             <Money value={target} />
-            <Button
-              type="button"
-              size="sm"
-              variant="outline"
-              onClick={() => {
-                setDraft(String(row.monthly));
-                setEditing(true);
-              }}
-            >
+            <Button type="button" size="sm" variant="outline" onClick={() => setEditing(true)}>
               Edit
             </Button>
           </>
@@ -227,16 +227,12 @@ function BudgetRowView({
         )}
       >
         <span className="num">
-          {pct != null ? `${pct}% · ` : null}
-          {over ? (
+          {pct != null ? (
             <>
-              <Money value={left} /> over
+              {pct}% of <Money value={target} /> ·{" "}
             </>
-          ) : (
-            <>
-              <Money value={left} /> to go
-            </>
-          )}
+          ) : null}
+          <Money value={left} /> {over ? "over" : "left"}
           {status === "ahead" ? " · ahead of pace" : null}
         </span>
       </div>

@@ -316,10 +316,7 @@ export function classifyAddress(raw: string): { type: AddressType; address: stri
   }
   if (addr.endsWith(".eth") && addr.length > 4) return { type: "evm", address: addr.toLowerCase() };
   if (/^0x[a-fA-F0-9]{40}$/.test(addr)) return { type: "evm", address: addr.toLowerCase() };
-  if (/^0x[a-fA-F0-9]{1,64}$/.test(addr) && addr.length !== 42) {
-    const hex = addr.slice(2).toLowerCase().padStart(64, "0");
-    return { type: "sui", address: `0x${hex}` };
-  }
+  if (/^0x[a-fA-F0-9]{64}$/.test(addr)) return { type: "sui", address: addr.toLowerCase() };
   if (/^(bc1|tb1)[a-zA-HJ-NP-Z0-9]{25,87}$/i.test(addr)) return { type: "bitcoin", address: addr };
   if (/^[13][a-km-zA-HJ-NP-Z1-9]{25,34}$/.test(addr)) return { type: "bitcoin", address: addr };
   if (/^T[1-9A-HJ-NP-Za-km-z]{33}$/.test(addr)) return { type: "tron", address: addr };
@@ -331,6 +328,16 @@ export function classifyAddress(raw: string): { type: AddressType; address: stri
   if (bech && COSMOS_HRP[bech[1]]) return { type: "cosmos", address: addr.toLowerCase() };
   if (/^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(addr)) return { type: "solana", address: addr };
   return null;
+}
+
+/** Why a string that starts with 0x was refused, or null when it is not a 0x string. */
+export function hexAddressProblem(raw: string): string | null {
+  const addr = raw.trim();
+  if (!/^0x/i.test(addr)) return null;
+  const body = addr.slice(2);
+  if (!/^[a-fA-F0-9]*$/.test(body)) return "That 0x address has characters that are not hex.";
+  if (body.length === 40 || body.length === 64) return null;
+  return `That 0x address has ${body.length} characters; Ethereum-style addresses have 40 and Sui addresses have 64.`;
 }
 
 /** Version bytes of base58check Litecoin (L, M) and Dogecoin (D, 9, A) addresses. */
@@ -1887,6 +1894,8 @@ export async function scanAddress(raw: string, known: KnownToken[] = []): Promis
 }> {
   const classified = classifyAddress(raw);
   if (!classified) {
+    const hexProblem = hexAddressProblem(raw);
+    if (hexProblem) throw new Error(hexProblem);
     throw new Error("Unrecognized wallet address. Use a Bitcoin, Litecoin or Dogecoin address (or a BTC xpub), an EVM 0x address or ENS name, Solana, TRON, Sui, or Cosmos (cosmos1…).");
   }
   const { type } = classified;

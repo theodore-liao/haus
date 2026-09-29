@@ -151,9 +151,9 @@ export function HomeLoan({
             suffix="/ mo"
             money
             min={0}
-            max={1_000_000}
+            max={Math.max(1, Math.floor(balance))}
             allowBlank
-            placeholder={String(suggestedExtra(pi))}
+            placeholder={`e.g. ${suggestedExtra(pi)}`}
             help={extra ? "Saved. Clear the box to remove it." : "Try an amount to see what it saves."}
           />
         </div>
@@ -183,7 +183,7 @@ export function HomeLoan({
               <XAxis dataKey="x" type="number" domain={["dataMin", "dataMax"]} ticks={ticks} tick={AXIS} axisLine={false} tickLine={false} />
               <YAxis tick={{ ...AXIS, className: "money" }} axisLine={false} tickLine={false} width={60} tickFormatter={compact} />
               <Tooltip
-                formatter={(v, key) => [formatMoney(Number(v)), key === "now" ? "On schedule" : "With extra"]}
+                formatter={(v, key) => [<span key="v" className="money">{formatMoney(Number(v))}</span>, key === "now" ? "On schedule" : "With extra"]}
                 labelFormatter={(x) => (Number(x) === todayX ? "Today" : `End of ${Number(x) - 1}`)}
                 contentStyle={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: 8, fontSize: 12 }}
               />

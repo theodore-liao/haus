@@ -79,7 +79,7 @@ export function InsightsClient({
                 {payAnnual > 0 ? (
                   <>
                     {" "}
-                    · take-home <Money value={payAnnual} /> a year
+                    · income <Money value={payAnnual} /> a year
                   </>
                 ) : null}
                 {spendAnnual != null ? (
@@ -153,7 +153,7 @@ export function InsightsClient({
                   <div className="footnote mt-1.5 prose-num">{withBlurredMoney(c.meter.label)}</div>
                 </div>
               ) : null}
-              {c.breakdown ? <InsightBreakdown rows={c.breakdown} /> : null}
+              {c.breakdown ? <InsightBreakdown rows={c.breakdown} collapsible /> : null}
               <p className="prose-num mt-3 flex-1 text-sm leading-relaxed text-muted-foreground">{withBlurredMoney(c.next)}</p>
               {c.href ? (
                 <Link href={c.href} className="insight-link">

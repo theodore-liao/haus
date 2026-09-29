@@ -47,6 +47,11 @@ export type HoldingRow = {
 
 type SortKey = "symbol" | "name" | "class" | "account" | "ownerLabel" | "qty" | "last" | "value" | "costBasis" | "dayPl" | "totalPl" | "weight";
 
+/** One key per class, whatever the capitalisation of the saved value. */
+function classKey(c: string | null) {
+  return formatHoldingClass(c || "other");
+}
+
 function LastUpdated({ iso }: { iso?: string | null }) {
   if (!iso) return null;
   return <span className="footnote block">Last updated: {formatDateTime(iso)}</span>;
@@ -123,7 +128,7 @@ export function InvestmentsBoard({
   const [q, setQ] = useState("");
   const [sort, setSort] = useState<{ key: SortKey; dir: SortDir }>({ key: "value", dir: "desc" });
 
-  const classOpts = useMemo(() => [...new Set(tableMaterial.map((r) => r.class || "other"))].sort(), [tableMaterial]);
+  const classOpts = useMemo(() => [...new Set(tableMaterial.map((r) => classKey(r.class)))].sort(), [tableMaterial]);
   const acctOpts = useMemo(
     () => [...new Set(tableMaterial.map((r) => withHolder(r.account, r.ownerLabel)))].sort(),
     [tableMaterial],
@@ -132,7 +137,7 @@ export function InvestmentsBoard({
   const visible = useMemo(() => {
     const needle = q.trim().toLowerCase();
     let list = tableMaterial.filter((r) => {
-      if (classSel && !classSel.has(r.class || "other")) return false;
+      if (classSel && !classSel.has(classKey(r.class))) return false;
       if (acctSel && !acctSel.has(withHolder(r.account, r.ownerLabel))) return false;
       if (needle) {
         const hay = [
@@ -279,7 +284,7 @@ export function InvestmentsBoard({
                   <>
                     <BrandMark kind={brandKind} symbol={r.symbol} name={r.name} src={r.brandSrc} size={22} />
                     <span className="min-w-0 flex-1">
-                      <span className={cn("block truncate text-sm font-medium", r.symbol && !r.manual && "text-primary")}>
+                      <span className={cn("block truncate text-sm font-medium", r.symbol && "text-primary")}>
                         {r.symbol ?? r.name}
                       </span>
                       <span className="block truncate text-xs text-muted-foreground">
@@ -305,13 +310,22 @@ export function InvestmentsBoard({
                   <li key={`m:${r.id}:${r.symbol ?? ""}:${r.account}`} className="border-b border-border last:border-0">
                     {r.manual && onEditManual ? (
                       <div className={cn(rowClass, "flex-wrap gap-y-1.5")}>
-                        <button
-                          type="button"
-                          className="flex min-w-0 basis-full cursor-pointer items-center gap-3 text-left"
-                          onClick={() => onEditManual(r.id)}
-                        >
-                          {body}
-                        </button>
+                        {r.symbol ? (
+                          <Link
+                            href={symbolHref(r.symbol, symbolFrom)}
+                            className="flex min-w-0 basis-full items-center gap-3 text-left"
+                          >
+                            {body}
+                          </Link>
+                        ) : (
+                          <button
+                            type="button"
+                            className="flex min-w-0 basis-full cursor-pointer items-center gap-3 text-left"
+                            onClick={() => onEditManual(r.id)}
+                          >
+                            {body}
+                          </button>
+                        )}
                         <span className="flex w-full items-center justify-end gap-1.5">
                           <Button type="button" size="sm" variant="outline" className="h-7 px-2" onClick={() => onEditManual(r.id)}>
                             Edit
@@ -319,7 +333,7 @@ export function InvestmentsBoard({
                           <RemoveCrypto id={r.id} />
                         </span>
                       </div>
-                    ) : r.symbol && !r.manual ? (
+                    ) : r.symbol ? (
                       <Link href={symbolHref(r.symbol, symbolFrom)} className={rowClass}>
                         {body}
                       </Link>
@@ -390,10 +404,10 @@ export function InvestmentsBoard({
                     <span className="flex min-w-0 items-center gap-2">
                       <BrandMark kind={brandKind} symbol={r.symbol} name={r.name} src={r.brandSrc} size={18} />
                       <span className="cell-stack">
-                        <span className={cn("font-medium", r.symbol && !r.manual && "text-primary")}>
+                        <span className={cn("font-medium", r.symbol && "text-primary")}>
                           {r.symbol ?? r.name}
                         </span>
-                        {r.symbol ? <span>{r.name}</span> : null}
+                        {r.symbol && r.name.trim().toUpperCase() !== r.symbol.trim().toUpperCase() ? <span>{r.name}</span> : null}
                         {r.manual ? <LastUpdated iso={r.updatedAt} /> : null}
                       </span>
                     </span>
@@ -404,7 +418,7 @@ export function InvestmentsBoard({
                       className={cn(r.manual && "bg-secondary/40")}
                     >
                       <TableCell title={r.symbol ? `${r.symbol} · ${r.name}` : r.name}>
-                        {r.manual ? (
+                        {r.manual && !r.symbol ? (
                           editable(r.id, asset)
                         ) : r.symbol ? (
                           <Link href={symbolHref(r.symbol, symbolFrom)} className="block min-w-0">
@@ -443,7 +457,8 @@ export function InvestmentsBoard({
                         </span>
                       </TableCell>
                       <TableCell className="num" title={String(r.qty)}>
-                        {formatQty(r.qty)}
+                        {/* An entry made as a dollar value has no share count to show. */}
+                        {r.qty === 0 && r.value !== 0 ? <span className="text-muted-foreground">—</span> : formatQty(r.qty)}
                       </TableCell>
                       <TableCell className="num">
                         <Money value={r.last} />

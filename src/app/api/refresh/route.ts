@@ -29,6 +29,9 @@ export async function POST(req: Request) {
   });
 
   if (plan === "local") {
+    const held =
+      (await prisma.holding.count()) + (await prisma.manualHolding.count()) + (await prisma.cryptoWallet.count());
+    if (held === 0) return NextResponse.json({ skipped: true });
     await enrichHoldingsQuotes();
     await syncAllWallets().catch(() => null);
     await snapshotNetWorth();

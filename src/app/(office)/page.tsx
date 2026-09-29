@@ -26,7 +26,7 @@ export default async function OverviewPage() {
         <EmptyLedger
           page="/"
           title="No institutions connected"
-          body="Connect banks, brokerages, and retirement accounts to populate the household ledger. Balances, holdings, and history arrive from live links — nothing is invented."
+          body="Connect your banks, brokerages, and retirement accounts to see your balances and history."
         />
       </>
     );
@@ -51,7 +51,7 @@ export default async function OverviewPage() {
       key="budget"
       rows={budgetOutlook(reports.flows, budgets, now)}
       dismissed={dismissed}
-      daysLeft={lastDay - now.getDate()}
+      daysLeft={lastDay - now.getDate() + 1}
       elapsed={now.getDate() / lastDay}
       notices={notices}
     />
@@ -71,7 +71,7 @@ export default async function OverviewPage() {
   const netWorthRow = (
     <div key="net-worth" className="grid items-stretch gap-4 lg:grid-cols-2">
       <ChartCard kicker="Net worth">
-        <NetWorthChart data={data.path} />
+        <NetWorthChart data={data.path} zeroBased={false} />
       </ChartCard>
       <ChartCard kicker="Allocation">
         <AllocationChart data={alloc} />

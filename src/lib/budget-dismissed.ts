@@ -23,3 +23,10 @@ export async function dismissBudget(id: string, now = new Date()) {
   await prisma.setting.upsert({ where: { key: KEY }, create: { key: KEY, value }, update: { value } });
   return ids;
 }
+
+export async function undismissBudget(id: string, now = new Date()) {
+  const ids = (await readBudgetDismissed(now)).filter((existing) => existing !== id);
+  const value = JSON.stringify({ month: ymKey(now), ids });
+  await prisma.setting.upsert({ where: { key: KEY }, create: { key: KEY, value }, update: { value } });
+  return ids;
+}

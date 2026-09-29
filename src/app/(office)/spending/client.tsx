@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { X } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Money } from "@/components/money";
@@ -15,7 +15,7 @@ import { categoryChanges, categoryTrend } from "@/lib/spend-compare";
 import type { RecurringBill } from "@/lib/recurring";
 import { Pill } from "@/components/pills";
 import { cn } from "@/lib/utils";
-import { defaultReportWindow, inWindow, type WindowKey } from "@/lib/range";
+import { defaultReportWindow, defaultTxnWindow, inWindow, type WindowKey } from "@/lib/range";
 import { BrandLabel } from "@/components/brand-mark";
 import { CategoryMerchantDialog } from "@/components/category-merchants";
 import { applyMerchantRefunds, aggregateFlows, type FlowRow } from "@/lib/spend-net";
@@ -56,6 +56,11 @@ export function SpendingClient({
 }) {
   const [range, setRange] = useState<WindowKey>(defaultReportWindow());
   const [tab, setTab] = useState("mix");
+  // Arriving from a Budget link (Overview, Goals): show the current month so the figures match theirs.
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    if (window.location.hash === "#budget") setRange(defaultTxnWindow());
+  }, []);
   const [popupTitle, setPopupTitle] = useState<string | null>(null);
   const [edit, setEdit] = useState<TxnRow | null>(null);
   const [liveTxns, setLiveTxns] = useState(txns);
@@ -145,7 +150,7 @@ export function SpendingClient({
             <TabsTrigger value="refunds">Refunds</TabsTrigger>
           </TabsList>
         </Tabs>
-        <ReportRange value={range} onChange={setRange} />
+        {tab === "recurring" ? null : <ReportRange value={range} onChange={setRange} />}
       </div>
 
       {tab === "mix" ? (

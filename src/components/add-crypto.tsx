@@ -7,6 +7,7 @@ import { Button } from "./ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "./ui/dialog";
 import { Input } from "./ui/input";
 import { Label } from "./ui/label";
+import { ConfirmButton } from "./confirm-button";
 import { ownerOptions } from "@/lib/owners";
 
 export function AddCrypto({
@@ -96,19 +97,28 @@ export function AddCrypto({
 export function RemoveCrypto({ id }: { id: string }) {
   const router = useRouter();
   return (
-    <button
-      type="button"
-      className="cursor-pointer text-[11px] text-muted-foreground hover:text-negative"
-      onClick={async () => {
-        await fetch("/api/manual-holdings", {
-          method: "DELETE",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ id }),
-        });
-        router.refresh();
+    <ConfirmButton
+      title="Remove this entry?"
+      description="It leaves your crypto total."
+      onConfirm={async () => {
+        try {
+          const res = await fetch("/api/manual-holdings", {
+            method: "DELETE",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ id }),
+          });
+          if (!res.ok) {
+            const data = await res.json().catch(() => ({}));
+            toast.error(data.error ?? "Could not remove.");
+            return;
+          }
+          router.refresh();
+        } catch {
+          toast.error("Could not remove.");
+        }
       }}
     >
       Remove
-    </button>
+    </ConfirmButton>
   );
 }

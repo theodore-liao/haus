@@ -18,7 +18,7 @@ export default async function ConnectionsPage() {
           body={
             data.plaidReady
               ? "Link a bank, card, or brokerage. Some institutions start with no accounts selected, so check every account you want."
-              : "Link a bank, card, or brokerage once bank linking is set up on this computer: add the Plaid keys to the .env file and restart Haus."
+              : "Link a bank, card, or brokerage."
           }
           plaidReady={data.plaidReady}
         />

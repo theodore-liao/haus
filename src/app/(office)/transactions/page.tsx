@@ -21,7 +21,7 @@ export default async function TransactionsPage({
         <EmptyLedger
           page="/transactions"
           title="No transactions"
-          body="Connect institutions with the Transactions product. Haus stores the full available history and never asks for a spreadsheet."
+          body="Connect your banks and cards to see every transaction here."
         />
       </>
     );

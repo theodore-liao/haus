@@ -164,7 +164,7 @@ export function TradesTable({
   }
 
   if (!rows.length)
-    return <p className="px-[var(--space-card)] py-6 text-sm text-muted-foreground">No investment transactions in this slice.</p>;
+    return <p className="px-[var(--space-card)] py-6 text-sm text-muted-foreground">No investment transactions in this view.</p>;
 
   return (
     <div className="max-h-72 overflow-y-auto">

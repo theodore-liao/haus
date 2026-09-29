@@ -1150,21 +1150,6 @@ async function scanXpub(xpub: string): Promise<ScanPart> {
 
 const B58 = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
 
-function toLegacyXpub(extended: string): string | null {
-  if (extended.startsWith("xpub")) return null;
-  try {
-    const bytes = b58decode(extended);
-    if (bytes.length < 78) return null;
-    bytes[0] = 0x04;
-    bytes[1] = 0x88;
-    bytes[2] = 0xb2;
-    bytes[3] = 0x1e;
-    return b58encodeCheck(bytes.slice(0, bytes.length - 4));
-  } catch {
-    return null;
-  }
-}
-
 function b58decode(str: string): Uint8Array {
   let num = BigInt(0);
   for (const c of str) {
@@ -1183,26 +1168,6 @@ function b58decode(str: string): Uint8Array {
   }
   const out = new Uint8Array(zeros + body.length);
   out.set(body, zeros);
-  return out;
-}
-
-function b58encodeCheck(payload: Uint8Array): string {
-  const hash = createHash("sha256").update(createHash("sha256").update(payload).digest()).digest();
-  const full = new Uint8Array(payload.length + 4);
-  full.set(payload, 0);
-  full.set(hash.subarray(0, 4), payload.length);
-  let num = BigInt(0);
-  for (const b of full) num = num * BigInt(256) + BigInt(b);
-  let out = "";
-  while (num > 0) {
-    const rem = Number(num % BigInt(58));
-    num = num / BigInt(58);
-    out = B58[rem] + out;
-  }
-  for (const b of full) {
-    if (b === 0) out = `1${out}`;
-    else break;
-  }
   return out;
 }
 

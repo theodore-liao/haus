@@ -1490,6 +1490,7 @@ export async function getReports(filter: OwnerFilter) {
   // that already had years on this machine).
   const earliestByInstitution = new Map<string, string>();
   let archiveCoversFrom: string | null = null;
+  const savedCharges: Parameters<typeof inferRecurring>[0] = [];
   for (const s of archived) {
     // Vests and ESPP purchases are read by getEquityComp above.
     if (s.plaidTransactionId.startsWith(EQUITY_ID_PREFIX)) continue;
@@ -1505,6 +1506,18 @@ export async function getReports(filter: OwnerFilter) {
     }
     const month = date.slice(0, 7);
     if (s.internal) continue;
+    // Bills need their history: a yearly or every-two-months charge is often older than what the bank still returns.
+    savedCharges.push({
+      userMerchant: s.merchant,
+      merchantName: s.rawMerchant,
+      name: s.name,
+      amount: s.amount,
+      date: s.date,
+      isTransfer: s.isTransfer,
+      isCcPayment: s.isCcPayment,
+      categoryPrimary: s.category,
+      categoryDetailed: s.categoryDetailed,
+    });
     const code = (s.category ?? "").toUpperCase();
     if (code === "INCOME" || code.startsWith("INCOME_") || s.amount < 0) {
       const src = incomeSourceLabel({
@@ -1541,7 +1554,7 @@ export async function getReports(filter: OwnerFilter) {
 
   return {
     flows,
-    recurring: inferRecurring(txns, ignoredRecurring),
+    recurring: inferRecurring([...txns, ...savedCharges], ignoredRecurring),
     archiveCoversFrom,
   };
 }

@@ -29,7 +29,6 @@ export default async function SpendingPage() {
       <PageHeader title="Spending" />
       <SpendingClient
         flows={reports.flows}
-        recurring={reports.recurring}
         txns={txns}
         budgets={budgets}
         budgetChoices={budgetAverages(reports.flows)}

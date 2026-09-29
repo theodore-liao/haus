@@ -83,24 +83,26 @@ Sizes, spacing, and placement come from shared styles, not from each page. Use t
 
 ## Spending
 
-- Tabs are Breakdown, Recurring, and Refunds. There is no Activity tab.
+- Spending is the Breakdown only, with no tab bar. Recurring and Refunds live on the Transactions page.
 - The Spend Category box takes two thirds of the width, and Budget takes one third. The donut is large and has a fixed size that does not shrink when budget rows change.
 - The top of Spend Category shows the checked-category total in the same font as the Overview net worth number, with total spend in smaller grey text directly beneath. There is no separate spending pill.
 - Loan payments and Rent and utilities start unchecked.
 - "Shopping" is the category name everywhere, not "General merchandise".
 - Clicking a donut slice opens a large window. Merchant rows expand only when clicked, and they use the same transactions table as the Transactions page, so edits show everywhere immediately. Amounts there are positive and use the smaller grey sub-line style.
-- Refunds shows the transactions table filtered to refunds in the chosen window, before netting against spending.
 - Budget starts from each category's 3-month average. Rows are added by choosing a category from the dropdown, with no separate Add button. Editing needs an Edit button and a Save button. While editing, the monthly amount is a number box that applies on Enter or when you leave it, and says why when the entry is not a usable dollar amount; bad input is never saved. Removing a row (the X) shows a toast with Undo; a failed save or remove shows an error toast. Each row shows percent used and "$X left" or "$X over" to the cent. The header shows "N days left" in the current month, and the budget scales with the date chip.
 - In the current month, each budget bar has a tick for how much of the month has gone. A bar turns red when over budget and amber (with "ahead of pace") when the share spent is more than 10 points past that tick. Otherwise it keeps the category color.
 - The spend donut legend shows each category's change against the earlier period, left of the dollar amount: the month before for a month chip (up to the same day while the month is open), or the same length of time before a rolling chip. Up is red, down is green, and "new" means no spend then. There is no comparison for All, or when stored history does not reach back far enough. A line under the total says what it compares with. Other donuts do not show changes.
 - The category window shows that category month by month above the merchants, with a dashed average of the complete months. The open month is faded.
-- Recurring opens with Per month, Per year, and Price changes figures, and sorts by yearly amount. Each bill shows its cadence, its latest charge, and "up from" or "down from" the previous charge when the price moved by at least 2% and 50 cents. There is no next-due date.
 
-- Date chips show on Breakdown and Refunds, not on Recurring.
+- Date chips show on the Breakdown.
 - The Budget card has the anchor `/spending#budget`, which Goals and Overview link to; arriving with that anchor selects the current-month chip so the figures match theirs.
 
 ## Transactions
 
+- Tabs are All, Recurring, and Refunds. Date chips show on All and Refunds, not on Recurring.
+- Refunds shows the transactions table filtered to refunds in the chosen window, before netting against spending.
+- Recurring opens with Per month, Per year, and Price changes figures, then two sections: Loan payments and Subscriptions and bills. Each has its own per-month total, sorts by yearly amount, and is hidden when empty. Each bill shows its cadence (Weekly, Every 2 weeks, Monthly, Every 2 months, Quarterly, Twice a year, Yearly), its latest charge, and "up from" or "down from" the previous charge when the price moved by at least 2% and 50 cents. Remove asks first. There is no next-due date.
+- A charge is recurring only when it lands on a set cadence: weekly, every 2 weeks, monthly, every 2 months, quarterly, twice a year, or yearly. Every gap in the run has to fit a window around that cadence. Visiting the same shop often is not a bill. It takes three charges (four for weekly), or two in bill categories (rent and utilities, loan payments, services, insurance). The run must still be going; a bill more than half a cycle overdue (plus 10 days) drops off. Amounts hold within 25% (10% for a two-charge bill); utilities may vary up to 60%. A stray charge after a steady run doesn't hide it. "Inc", "LLC" and the like don't split one biller. Saved history counts, so yearly bills are found. Loan payments are their own kind (recurring.ts).
 - Transfers between linked accounts are detected automatically when the same amount leaves one account and lands in another. There is no in/out distinction. It can be turned off in Settings.
 - A matched transfer shows its label as small grey text beside the merchant, so row height stays the same. The warning reads: "The same amount landed in another linked account, so this is marked Transfer. If you recategorize, the auto-detected Transfer will be overwritten."
 - Recategorizing a matched transfer, including with "Always categorize this merchant this way", applies to every matching transaction and overrides the automatic Transfer.
@@ -200,7 +202,7 @@ Sizes, spacing, and placement come from shared styles, not from each page. Use t
 - Under Store transaction history, show "Since <date>" for when it was first turned on. "Show saved transactions" lines up with the other data controls.
 - Turning off Store transaction history asks for confirmation: "Warning: This permanently deletes your local transaction history. Turning this feature back on will not recover transactions that exceed your financial institution's download limits." Nothing else ever deletes stored history, including reloads, redeploys, and turning the feature off and on without confirming.
 - Log out sits directly below the other settings, with no gap above it.
-- Settings has two columns of about equal height: Household and Tabs on the left; Display and Data on the right; Privacy & session runs full width beneath them. A birthdate label uses the name, or "Your" / "Partner's" when the name is blank or a placeholder. There is no Targets card.
+- Settings has two columns of about equal height: Household and Tabs on the left; Display and Data on the right; Privacy & session runs full width right beneath them. Each column stacks its own cards and the last card stretches, so both columns end level with no gap. A birthdate label uses the name, or "Your" / "Partner's" when the name is blank or a placeholder. There is no Targets card.
 - Children are listed with a name and a birth year under "Name" and "Birth year" headings. Birth years are the Retirement planner's, so editing either place changes both. Years run from 1900 to 40 years ahead, the same as the planner, so planned children fit. A bad year says why under the box when Save household is pressed.
 - The chart and movers windows are `Segmented` choices.
 

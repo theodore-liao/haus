@@ -1,8 +1,8 @@
 import { PageHeader } from "@/components/page-header";
 import { EmptyLedger } from "@/components/states";
-import { getConnectionCount, getTransactions } from "@/lib/queries";
+import { getConnectionCount, getReports, getTransactions } from "@/lib/queries";
 import { getOwnerFilter } from "@/lib/request";
-import { TransactionsTable } from "./table";
+import { TransactionsView } from "./client";
 
 export const dynamic = "force-dynamic";
 
@@ -26,11 +26,11 @@ export default async function TransactionsPage({
       </>
     );
   }
-  const rows = await getTransactions(owner);
+  const [rows, reports] = await Promise.all([getTransactions(owner), getReports(owner)]);
   return (
     <>
       <PageHeader title="Transactions" />
-      <TransactionsTable rows={rows} dateChips initialQuery={typeof q === "string" ? q.trim() : ""} />
+      <TransactionsView rows={rows} recurring={reports.recurring} initialQuery={typeof q === "string" ? q.trim() : ""} />
     </>
   );
 }

@@ -276,8 +276,8 @@ export function SettingsClient({
   }
 
   return (
-    <div className="grid min-w-0 items-start gap-4 lg:grid-cols-2 [&>*]:min-w-0">
-      <div className="grid gap-4">
+    <div className="grid min-w-0 gap-4 lg:grid-cols-2 [&>*]:min-w-0">
+      <div className="flex flex-col gap-4 [&>:last-child]:flex-1">
       <Card>
         <CardHeader>
           <CardTitle>Household</CardTitle>
@@ -400,7 +400,7 @@ export function SettingsClient({
       </Card>
       </div>
 
-      <div className="grid gap-4">
+      <div className="flex flex-col gap-4 [&>:last-child]:flex-1">
       <Card>
         <CardHeader>
           <CardTitle>Display</CardTitle>

@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import {
   flexRender,
   getCoreRowModel,
@@ -76,10 +76,16 @@ export function TransactionsTable({
   dateChips = false,
   containerClassName,
   initialQuery = "",
+  lead,
+  defaultRange,
 }: {
   rows: TxnRow[];
+  /** Shown at the start of the toolbar (the page's tabs). */
+  lead?: ReactNode;
+  /** Chip selected on first show when dateChips is on. */
+  defaultRange?: WindowKey;
   readOnly?: boolean;
-  /** Preset month chips. Only the transactions page sets this; refunds uses the spending chips. */
+  /** Preset month chips. Transactions page (All and Refunds tabs). */
   dateChips?: boolean;
   containerClassName?: string;
   /** Opens with this search (a link from Overview). It also widens the window to the last month. */
@@ -88,7 +94,7 @@ export function TransactionsTable({
   const [q, setQ] = useState(initialQuery);
   const [limit, setLimit] = useState(PAGE);
   const [range, setRange] = useState<WindowKey | null>(() =>
-    dateChips ? (initialQuery ? "1m" : defaultTxnWindow()) : null,
+    dateChips ? (initialQuery ? "1m" : (defaultRange ?? defaultTxnWindow())) : null,
   );
   const [sorting, setSorting] = useState<SortingState>([{ id: "date", desc: true }]);
   const [merchantSel, setMerchantSel] = useState<Set<string> | null>(null);
@@ -317,7 +323,8 @@ export function TransactionsTable({
   return (
     <div className={readOnly ? scrollClass + " min-h-0 overflow-auto" : undefined}>
       <div className="section-head">
-        <div className="flex min-w-0 items-center gap-3">
+        <div className="flex min-w-0 flex-wrap items-center gap-3">
+          {lead}
           <SearchInput
             placeholder={readOnly ? "Search merchant, description, note" : "Search merchant, account, category"}
             value={q}

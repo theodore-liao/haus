@@ -1,44 +1,26 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { X } from "lucide-react";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Money } from "@/components/money";
 import { ChartCard } from "@/components/chart-card";
 import { AllocationChart } from "@/components/charts";
 import { ReportRange } from "@/components/chart-range";
-import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { ConfirmButton } from "@/components/confirm-button";
 import { BudgetList } from "./budget-list";
 import { budgetMonths, daysLeftInMonth, monthElapsed, type BudgetRow } from "@/lib/budget-window";
 import { categoryChanges, categoryTrend } from "@/lib/spend-compare";
-import type { RecurringBill } from "@/lib/recurring";
-import { Pill } from "@/components/pills";
-import { cn } from "@/lib/utils";
 import { defaultReportWindow, defaultTxnWindow, inWindow, type WindowKey } from "@/lib/range";
-import { BrandLabel } from "@/components/brand-mark";
 import { CategoryMerchantDialog } from "@/components/category-merchants";
 import { applyMerchantRefunds, aggregateFlows, type FlowRow } from "@/lib/spend-net";
-import { recurringMerchantKey } from "@/lib/categories";
 import { groupCategory } from "@/lib/category-breakdown";
 import { flowAfterRevision, reviseMatching } from "@/lib/txn-revise";
-import { TransactionSheet, TransactionsTable, type TxnSave } from "../transactions/table";
+import { TransactionSheet, type TxnSave } from "../transactions/table";
 import type { TxnRow } from "@/lib/txn-row";
-
-/** A credit that is not pay, interest, or a transfer. Listed before spend is reduced by it. */
-function isRefund(t: TxnRow) {
-  if (t.amount >= 0 || t.isTransfer || t.isCcPayment) return false;
-  const code = (t.category ?? "").toUpperCase();
-  if (code === "TRANSFER" || code === "INCOME" || code.startsWith("INCOME_")) return false;
-  return true;
-}
 
 /** Category labels treated as fixed costs; unchecked by default in the breakdown. */
 const FIXED_COSTS = ["Loan payments", "Rent and utilities"];
 
 export function SpendingClient({
   flows,
-  recurring,
   txns,
   budgets,
   budgetChoices,
@@ -46,7 +28,6 @@ export function SpendingClient({
   archiveCoversFrom,
 }: {
   flows: FlowRow[];
-  recurring: RecurringBill[];
   txns: TxnRow[];
   budgets: BudgetRow[];
   budgetChoices: BudgetRow[];
@@ -55,7 +36,6 @@ export function SpendingClient({
   archiveCoversFrom: string | null;
 }) {
   const [range, setRange] = useState<WindowKey>(defaultReportWindow());
-  const [tab, setTab] = useState("mix");
   // Arriving from a Budget link (Overview, Goals): show the current month so the figures match theirs.
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
@@ -65,7 +45,6 @@ export function SpendingClient({
   const [edit, setEdit] = useState<TxnRow | null>(null);
   const [liveTxns, setLiveTxns] = useState(txns);
   const [liveFlows, setLiveFlows] = useState(flows);
-  const [dismissed, setDismissed] = useState<Set<string>>(() => new Set());
   // Fresh server data replaces local edits, adjusted during render rather than in an effect.
   const [seen, setSeen] = useState({ txns, flows });
   if (seen.txns !== txns || seen.flows !== flows) {
@@ -73,47 +52,11 @@ export function SpendingClient({
     setLiveTxns(txns);
     setLiveFlows(flows);
   }
-  const visibleRecurring = useMemo(
-    () => recurring.filter((r) => !dismissed.has(recurringMerchantKey(r.label))).sort((a, b) => b.annual - a.annual),
-    [recurring, dismissed],
-  );
-  const billTotals = useMemo(
-    () => ({
-      monthly: visibleRecurring.reduce((s, r) => s + r.monthly, 0),
-      annual: visibleRecurring.reduce((s, r) => s + r.annual, 0),
-      changed: visibleRecurring.filter((r) => r.priceChange).length,
-    }),
-    [visibleRecurring],
-  );
-
   function applySave(patch: TxnSave) {
     const revised = reviseMatching(liveTxns, patch);
     setLiveTxns((prev) => prev.map((row) => revised.get(row.id) ?? row));
     setLiveFlows((prev) => prev.map((flow) => flowAfterRevision(flow, revised)));
     setEdit((cur) => (cur && revised.has(cur.id) ? revised.get(cur.id)! : cur));
-  }
-
-  function dismissRecurring(label: string) {
-    const key = recurringMerchantKey(label);
-    setDismissed((cur) => {
-      const next = new Set(cur);
-      next.add(key);
-      return next;
-    });
-    void fetch("/api/merchant-rules", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ merchant: label, ignoreRecurring: true }),
-    }).then((res) => {
-      if (res.ok) return;
-      throw new Error("dismiss failed");
-    }).catch(() => {
-      setDismissed((cur) => {
-        const next = new Set(cur);
-        next.delete(key);
-        return next;
-      });
-    });
   }
 
   const sliced = useMemo(() => liveFlows.filter((f) => inWindow(f.date, range)), [liveFlows, range]);
@@ -135,25 +78,13 @@ export function SpendingClient({
     () => (popupTitle ? groupCategory(windowTxns, popupTitle) : []),
     [popupTitle, windowTxns],
   );
-  const refunds = useMemo(
-    () => windowTxns.filter((t) => !t.internal && isRefund(t)).sort((a, b) => b.date.localeCompare(a.date)),
-    [windowTxns],
-  );
-
   return (
     <div className="page-stack">
       <div className="section-head">
-        <Tabs value={tab} onValueChange={setTab}>
-          <TabsList>
-            <TabsTrigger value="mix">Breakdown</TabsTrigger>
-            <TabsTrigger value="recurring">Recurring</TabsTrigger>
-            <TabsTrigger value="refunds">Refunds</TabsTrigger>
-          </TabsList>
-        </Tabs>
-        {tab === "recurring" ? null : <ReportRange value={range} onChange={setRange} />}
+        <div className="ml-auto"><ReportRange value={range} onChange={setRange} /></div>
       </div>
 
-      {tab === "mix" ? (
+      {(
         <div className="breakdown-grid grid gap-4 lg:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
           <ChartCard kicker="Spend Category">
             <div className="spend-category-total">
@@ -191,83 +122,7 @@ export function SpendingClient({
             elapsed={monthElapsed(range)}
           />
         </div>
-      ) : null}
-
-      {tab === "recurring" ? (
-        <Card>
-          <CardHeader>
-            <CardTitle>Recurring</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            {visibleRecurring.length === 0 ? (
-              <p className="text-sm text-muted-foreground">
-                Need at least three similar charges at a weekly, monthly, or annual cadence to infer a bill.
-              </p>
-            ) : (
-              <>
-                <div className="pills pills-compact pills-trio mb-2">
-                  <Pill kicker="Per month" accent="#D4928C">
-                    <Money value={billTotals.monthly} />
-                  </Pill>
-                  <Pill kicker="Per year" accent="#7EABD4">
-                    <Money value={billTotals.annual} />
-                  </Pill>
-                  <Pill kicker="Price changes" accent="#D4BE7A">
-                    <span className={cn("num", billTotals.changed > 0 && "text-accent")}>{billTotals.changed}</span>
-                  </Pill>
-                </div>
-                {visibleRecurring.map((r) => (
-                  <div key={r.label} className="flex items-center justify-between gap-3 border-b border-border pb-2 last:border-0">
-                    <div className="flex min-w-0 flex-1 items-center justify-between gap-3">
-                      <div className="min-w-0 flex-1 overflow-hidden">
-                        <BrandLabel className="min-w-0 max-w-full" kind="merchant" name={r.label}>
-                          <span className="truncate text-sm">{r.label}</span>
-                        </BrandLabel>
-                        <div className="text-xs text-muted-foreground">
-                          <span className="capitalize">{r.cadence}</span>
-                          {r.priceChange ? (
-                            <span className={r.priceChange.to > r.priceChange.from ? "text-negative" : "text-positive"}>
-                              {" · "}
-                              {r.priceChange.to > r.priceChange.from ? "up" : "down"} from <Money value={r.priceChange.from} />
-                            </span>
-                          ) : null}
-                        </div>
-                      </div>
-                      <div className="shrink-0 text-right">
-                        <Money value={r.amount} className="text-sm" />
-                        <div className="footnote whitespace-nowrap">
-                          <Money value={r.annual} /> / yr
-                        </div>
-                      </div>
-                    </div>
-                    <ConfirmButton
-                      title={`Remove ${r.label} from Recurring?`}
-                      description="It stops being listed as a bill. Its transactions stay."
-                      onConfirm={() => dismissRecurring(r.label)}
-                      ariaLabel={`Remove ${r.label}`}
-                      className="shrink-0 px-2 sm:px-3"
-                    >
-                      <X className="sm:hidden" />
-                      <span className="hidden sm:inline">Remove</span>
-                    </ConfirmButton>
-                  </div>
-                ))}
-              </>
-            )}
-          </CardContent>
-        </Card>
-      ) : null}
-
-      {tab === "refunds" ? (
-        <div className="space-y-3">
-          <p className="text-sm text-muted-foreground">Credits in this window, before they reduce spend.</p>
-          {refunds.length === 0 ? (
-            <p className="text-sm text-muted-foreground">No refunds in this window.</p>
-          ) : (
-            <TransactionsTable rows={refunds} />
-          )}
-        </div>
-      ) : null}
+      )}
 
       <CategoryMerchantDialog
         open={popupTitle != null}

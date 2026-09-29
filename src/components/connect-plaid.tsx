@@ -25,10 +25,16 @@ export function ConnectPlaid({
   label = "Add institution",
   itemId,
   relink = false,
+  variant = "default",
+  disabled = false,
 }: {
   label?: string;
   itemId?: string;
   relink?: boolean;
+  /** Quiet when the connection is healthy, so the loudest button is the one that needs pressing. */
+  variant?: "default" | "outline" | "ghost";
+  /** Off when bank linking is not set up here. */
+  disabled?: boolean;
 }) {
   const router = useRouter();
   const [busy, setBusy] = useState(false);
@@ -75,9 +81,9 @@ export function ConnectPlaid({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ itemId, relink }),
       });
-      const data = await res.json();
+      const data = await res.json().catch(() => ({}));
       if (!res.ok) {
-        toast.error(data.error ?? "Plaid is not configured.");
+        toast.error(data.error ?? "Bank linking isn't set up on this computer.");
         setBusy(false);
         return;
       }
@@ -89,13 +95,14 @@ export function ConnectPlaid({
         onExit: () => setBusy(false),
       });
     } catch {
+      toast.error("Could not start bank linking. Try again.");
       setBusy(false);
     }
   }, [itemId, relink, onSuccess]);
 
   return (
     <>
-      <Button onClick={() => loadToken()} disabled={busy}>
+      <Button variant={variant} size={variant === "default" ? undefined : "sm"} onClick={() => loadToken()} disabled={busy || disabled}>
         {busy ? "Connecting…" : label}
       </Button>
       {assignment && (

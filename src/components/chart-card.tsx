@@ -1,21 +1,27 @@
 import type { ReactNode } from "react";
 import { cn } from "@/lib/utils";
+import { CardIcon } from "./card-icon";
 
 export function ChartCard({
   kicker,
   actions,
   children,
   className,
+  id,
 }: {
   kicker: string;
   actions?: ReactNode;
   children: ReactNode;
   className?: string;
+  id?: string;
 }) {
   return (
-    <section className={cn("chart-card", className)}>
-      <div className="kicker">
-        <span>{kicker}</span>
+    <section id={id} className={cn("chart-card", id && "scroll-mt-6", className)}>
+      <div className="kicker card-title">
+        <span className="inline-flex items-center">
+          <CardIcon title={kicker} />
+          {kicker}
+        </span>
         {actions}
       </div>
       {children}

@@ -72,7 +72,7 @@ export function mapPlaidToHausType(type: string, subtype: string | null): HausTy
 
   if (t === "investment" || t === "brokerage") {
     if (s.includes("roth")) return "roth";
-    if (s.includes("401k") || s === "401k") return "401k";
+    if (s.includes("401k") || s.includes("401a") || s.includes("thrift savings")) return "401k";
     if (s.includes("403")) return "403b";
     if (s.includes("hsa")) return "hsa";
     if (s.includes("529") || s.includes("education")) return "529";
@@ -94,6 +94,33 @@ export function mapPlaidToHausType(type: string, subtype: string | null): HausTy
 
   if (t === "other") return "other_asset";
   return "other_asset";
+}
+
+/**
+ * Balance shown for a Plaid account. Credit and loan accounts never fall back to
+ * `available`, which is remaining credit rather than the amount owed.
+ */
+export function plaidCurrentBalance(
+  type: string,
+  b: { current?: number | null; available?: number | null },
+): number | null {
+  if (b.current != null) return b.current;
+  const t = (type || "").toLowerCase();
+  if (t === "credit" || t === "loan") return null;
+  return b.available ?? null;
+}
+
+/**
+ * Keep the type Aurin chose by hand. If the stored type still equals what Plaid's old
+ * type/subtype mapped to, follow Plaid's new mapping; otherwise it was edited, so keep it.
+ */
+export function retainedHausType(
+  existing: { hausType: string; type?: string | null; subtype?: string | null } | null,
+  mapped: HausType,
+): string {
+  if (!existing) return mapped;
+  const before = mapPlaidToHausType(existing.type ?? "", existing.subtype ?? null);
+  return existing.hausType === before ? mapped : existing.hausType;
 }
 
 export function isRetirementType(h: string): boolean {
@@ -157,4 +184,35 @@ export function allocationBucket(
   if (h === "vehicle") return "vehicles";
   if (isChildAccountType(h)) return "child_accounts";
   return "other";
+}
+
+/** How an investment account is taxed, for the Connections choice and the Insights mix. */
+export const TAX_TREATMENTS = [
+  { value: "brokerage", label: "Taxable", group: "taxable" },
+  { value: "ira", label: "Traditional IRA", group: "deferred" },
+  { value: "401k", label: "401(k)", group: "deferred" },
+  { value: "403b", label: "403(b)", group: "deferred" },
+  { value: "roth", label: "Roth IRA", group: "roth" },
+  { value: "hsa", label: "HSA", group: "hsa" },
+  { value: "529", label: "529 college", group: "college" },
+  { value: "custodial", label: "Custodial", group: "taxable" },
+  { value: "trump", label: "Trump Account", group: "deferred" },
+] as const;
+
+export type TaxGroup = (typeof TAX_TREATMENTS)[number]["group"];
+
+/** Accounts that hold investments get a tax treatment; cash, cards, and loans do not. */
+export function hasTaxTreatment(hausType: string) {
+  return isInvestmentType(hausType) || hausType === "hsa" || isChildAccountType(hausType);
+}
+
+export function taxTreatmentOf(a: { hausType: string; retirementKind?: string | null }): string {
+  const kind = a.retirementKind || a.hausType;
+  if (kind === "robo") return "brokerage";
+  return TAX_TREATMENTS.some((t) => t.value === kind) ? kind : "brokerage";
+}
+
+export function taxGroupOf(a: { hausType: string; retirementKind?: string | null }): TaxGroup {
+  const value = taxTreatmentOf(a);
+  return TAX_TREATMENTS.find((t) => t.value === value)?.group ?? "taxable";
 }

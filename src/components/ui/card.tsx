@@ -1,12 +1,13 @@
 import * as React from "react";
 import { cn } from "@/lib/utils";
 import { kickerClass } from "@/components/type";
+import { CardIcon } from "@/components/card-icon";
 
 function Card({ className, ...props }: React.ComponentProps<"div">) {
   return (
     <div
       className={cn(
-        "rounded-[var(--radius-card)] border border-border bg-card text-foreground shadow-[inset_0_1px_0_rgba(232,220,198,0.07),0_18px_40px_-28px_rgba(0,0,0,0.85)] [background-image:linear-gradient(180deg,rgba(232,220,198,0.045),transparent_42%)]",
+        "surface rounded-[var(--radius-card)] text-foreground",
         className,
       )}
       {...props}
@@ -29,7 +30,13 @@ function CardHeader({ className, row, ...props }: React.ComponentProps<"div"> & 
 }
 
 function CardTitle({ className, ...props }: React.ComponentProps<"h3">) {
-  return <h3 className={cn(kickerClass, className)} {...props} />;
+  const { children, ...rest } = props;
+  return (
+    <h3 className={cn(kickerClass, "card-title", className)} {...rest}>
+      <CardIcon title={children} />
+      {children}
+    </h3>
+  );
 }
 
 function CardContent({ className, ...props }: React.ComponentProps<"div">) {

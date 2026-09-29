@@ -137,6 +137,8 @@ const CHAIN_LOGO: Record<string, { symbol?: string; src?: string; name: string }
   bitcoin: { symbol: "btc", name: "Bitcoin" },
   xpub: { symbol: "btc", name: "Bitcoin" },
   tron: { symbol: "trx", name: "TRON" },
+  litecoin: { symbol: "ltc", name: "Litecoin" },
+  dogecoin: { symbol: "doge", name: "Dogecoin" },
   cosmos: { symbol: "atom", name: "Cosmos" },
   osmosis: { symbol: "osmo", name: "Osmosis" },
   kujira: { symbol: "kuji", name: "Kujira" },

@@ -3,6 +3,7 @@ import { storedYm, ymKey } from "./range";
 import { aggregateFlows, applyMerchantRefunds, merchantKey, type FlowRow } from "./spend-net";
 import type { BudgetRow } from "./budget-window";
 import { HIGH_UTILIZATION, INSURANCE_RENEWAL_DAYS, STALE_CONNECTION_HOURS } from "./constants";
+import { policyTypeLabel } from "./insurance";
 
 export type AttentionItem =
   | { kind: "relink"; key: string; name: string; message: string | null }
@@ -46,6 +47,62 @@ function dayStart(date: string | Date) {
 }
 
 /** Categories whose spend this calendar month is already past their monthly budget. */
+/** Every budget with what this month has spent against it, refunds netted the same way as Spending. */
+export function budgetMonth(flows: FlowRow[], budgets: BudgetRow[], now = new Date()) {
+  const month = ymKey(now);
+  const netted = applyMerchantRefunds(flows.filter((f) => storedYm(f.date) === month));
+  const spent = new Map(aggregateFlows(netted).spendRows.map((r) => [r.label, r.value]));
+  return budgets
+    .filter((b) => b.monthly > 0)
+    .map((b) => ({ category: b.category, spent: spent.get(b.category) ?? 0, budget: b.monthly }));
+}
+
+/** A single charge this big (share of the category's monthly budget) is a one-off and is not repeated in the estimate. */
+const ONE_OFF_SHARE = 0.5;
+
+export type BudgetOutlookRow = {
+  category: string;
+  spent: number;
+  budget: number;
+  /** Estimated spend by month end. */
+  projected: number;
+};
+
+/**
+ * Each budget with its month-end estimate: spent so far, plus the daily rate for the days left.
+ * Single charges over half the budget count once and are left out of the daily rate.
+ */
+export function budgetOutlook(flows: FlowRow[], budgets: BudgetRow[], now = new Date()): BudgetOutlookRow[] {
+  const month = ymKey(now);
+  const netted = applyMerchantRefunds(flows.filter((f) => storedYm(f.date) === month));
+  const last = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
+  const day = now.getDate();
+  const daysLeft = last - day;
+  return budgetMonth(flows, budgets, now).map((r) => {
+    const oneOff = netted
+      .filter((f) => f.kind === "spend" && f.category === r.category && f.amount >= r.budget * ONE_OFF_SHARE)
+      .reduce((s, f) => s + f.amount, 0);
+    const rate = Math.max(0, r.spent - oneOff) / day;
+    return { ...r, projected: r.spent + rate * daysLeft };
+  });
+}
+
+export type BudgetSummary = {
+  status: "on-track" | "over-pace" | "over";
+  spent: number;
+  budget: number;
+  projected: number;
+};
+
+/** The month at a glance across the rows shown. Over once spend passes budget, over pace once the estimate does. */
+export function summarizeBudget(rows: BudgetOutlookRow[]): BudgetSummary {
+  const spent = rows.reduce((s, r) => s + r.spent, 0);
+  const budget = rows.reduce((s, r) => s + r.budget, 0);
+  const projected = rows.reduce((s, r) => s + r.projected, 0);
+  const status = spent > budget + 0.005 ? "over" : projected > budget + 0.005 ? "over-pace" : "on-track";
+  return { status, spent, budget, projected };
+}
+
 export function overBudget(flows: FlowRow[], budgets: BudgetRow[], now = new Date()) {
   const month = ymKey(now);
   const netted = applyMerchantRefunds(flows.filter((f) => storedYm(f.date) === month));
@@ -109,17 +166,6 @@ export function upcomingRenewals(
     .sort((a, b) => a.days - b.days);
 }
 
-const POLICY_LABEL: Record<string, string> = {
-  health: "Medical",
-  vision: "Vision",
-  dental: "Dental",
-  vehicle: "Vehicle",
-  auto: "Auto",
-  home: "Home",
-  life: "Life",
-  umbrella: "Umbrella",
-};
-
 export function buildAttention(input: {
   items: { id: string; institutionName: string | null; status: string; errorMessage: string | null; lastSyncedAt?: Date | null }[];
   cards?: { id: string; name: string; balance: number | null; limit: number | null }[];
@@ -165,7 +211,7 @@ export function buildAttention(input: {
     });
   }
   for (const p of upcomingRenewals(input.policies, now)) {
-    const kind = POLICY_LABEL[p.type] ?? p.type.charAt(0).toUpperCase() + p.type.slice(1);
+    const kind = policyTypeLabel(p.type);
     const carrier = p.carrier && p.carrier !== "ID card" ? ` (${p.carrier})` : "";
     out.push({ kind: "renewal", key: `renewal:${p.id}`, label: `${kind} insurance${carrier}`, date: p.date, days: p.days });
   }

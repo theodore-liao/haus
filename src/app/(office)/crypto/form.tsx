@@ -31,8 +31,9 @@ export function AddWallet({
             <DialogTitle>Add wallet</DialogTitle>
           </DialogHeader>
           <p className="text-sm text-muted-foreground">
-            Paste a Bitcoin address or xpub/zpub, a Cosmos (cosmos1…) address, a Sui or EVM 0x address, Solana, or
-            TRON. Haus reads wallet balances and DeFi positions from public explorers, then prices them on CoinGecko.
+            Paste a Bitcoin, Litecoin or Dogecoin address (or a BTC xpub/zpub), an EVM 0x address or ENS name (Ethereum, Base,
+            Arbitrum, Optimism, Polygon, BNB Chain, Avalanche and more), Solana, TRON, Sui, or Cosmos (cosmos1…). Haus reads
+            balances and DeFi positions from public explorers and RPCs, then prices them on CoinGecko.
           </p>
           <form
             className="grid gap-3"
@@ -67,7 +68,7 @@ export function AddWallet({
               <Input
                 className="mt-1 font-mono"
                 name="address"
-                placeholder="cosmos1… / xpub… / 0x… / bc1…"
+                placeholder="0x… / bc1… / ltc1… / xpub…"
                 required
               />
             </div>

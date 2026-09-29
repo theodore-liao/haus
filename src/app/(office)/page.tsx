@@ -7,7 +7,10 @@ import { ChartCard } from "@/components/chart-card";
 import { AllocationChart, NetWorthChart } from "@/components/charts";
 import { CashFlowBlock } from "@/components/cash-flow-block";
 import { getAttention, getOverview, getReports, getTransactions, hasAnyLedger } from "@/lib/queries";
-import { AttentionCard } from "@/components/attention-card";
+import { BudgetCard } from "@/components/attention-card";
+import { budgetOutlook } from "@/lib/attention";
+import { listBudgets } from "@/lib/budgets";
+import { readBudgetDismissed } from "@/lib/budget-dismissed";
 import { overviewPillFigures } from "@/lib/overview-pills";
 import { getOwnerFilter } from "@/lib/request";
 
@@ -21,6 +24,7 @@ export default async function OverviewPage() {
       <>
         <PageHeader title="Overview" />
         <EmptyLedger
+          page="/"
           title="No institutions connected"
           body="Connect banks, brokerages, and retirement accounts to populate the household ledger. Balances, holdings, and history arrive from live links — nothing is invented."
         />
@@ -33,7 +37,25 @@ export default async function OverviewPage() {
     getReports(owner),
     getTransactions(owner),
   ]);
-  const attention = await getAttention(reports.flows);
+  const [attention, budgets, dismissed] = await Promise.all([
+    getAttention(reports.flows),
+    listBudgets(),
+    readBudgetDismissed(),
+  ]);
+  // Only a login the household can fix stays; sync trouble on our side is not theirs to act on.
+  const notices = attention.flatMap((i) => (i.kind === "relink" ? [{ key: i.key, name: i.name }] : []));
+  const now = new Date();
+  const lastDay = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
+  const budget = (
+    <BudgetCard
+      key="budget"
+      rows={budgetOutlook(reports.flows, budgets, now)}
+      dismissed={dismissed}
+      daysLeft={lastDay - now.getDate()}
+      elapsed={now.getDate() / lastDay}
+      notices={notices}
+    />
+  );
   const pills = overviewPillFigures({
     investments: data.tiles.investments,
     cash: data.tiles.cash,
@@ -46,6 +68,16 @@ export default async function OverviewPage() {
     value,
     items: data.allocationItems?.[key] ?? [],
   }));
+  const netWorthRow = (
+    <div key="net-worth" className="grid items-stretch gap-4 lg:grid-cols-2">
+      <ChartCard kicker="Net worth">
+        <NetWorthChart data={data.path} />
+      </ChartCard>
+      <ChartCard kicker="Allocation">
+        <AllocationChart data={alloc} />
+      </ChartCard>
+    </div>
+  );
   return (
     <>
       <PageHeader title="Overview" />
@@ -83,19 +115,21 @@ export default async function OverviewPage() {
         <Money value={data.netWorth} />
       </HeroCard>
 
-      <AttentionCard items={attention} />
-
-      <div className="grid items-stretch gap-4 lg:grid-cols-2">
-        <ChartCard kicker="Net worth">
-          <NetWorthChart data={data.path} />
-        </ChartCard>
-        <ChartCard kicker="Allocation">
-          <AllocationChart data={alloc} />
-        </ChartCard>
-      </div>
       {reports.flows.length > 0 ? (
-        <CashFlowBlock flows={reports.flows} txns={txns} archiveCoversFrom={reports.archiveCoversFrom} />
-      ) : null}
+        <CashFlowBlock
+          flows={reports.flows}
+          txns={txns}
+          archiveCoversFrom={reports.archiveCoversFrom}
+          between={netWorthRow}
+          budget={budget}
+        />
+      ) : (
+        <>
+          {netWorthRow}
+          <div className="relative min-h-[16rem]">{budget}</div>
+        </>
+      )}
+
     </>
   );
 }

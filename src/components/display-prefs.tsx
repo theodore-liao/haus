@@ -4,9 +4,9 @@ import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { Switch } from "./ui/switch";
 import { Button } from "./ui/button";
-import { ChartRange } from "./chart-range";
+import { Segmented } from "./number-field";
 import { UiScaleSlider } from "./ui-scale";
-import { DEFAULT_RANGE, type RangeKey } from "@/lib/range";
+import { DEFAULT_RANGE, RANGE_KEYS, type RangeKey } from "@/lib/range";
 import {
   DEFAULT_MOVERS_WINDOW,
   setDefaultRange,
@@ -41,8 +41,10 @@ export function DisplayPrefs() {
       <UiScaleSlider />
 
       <PrefRow label="Default chart window" hint="Net worth and spending charts open on this range.">
-        <ChartRange
+        <Segmented
+          label="Default chart window"
           value={range}
+          options={RANGE_KEYS.map((k) => ({ value: k, label: k === "all" ? "All" : k.toUpperCase() }))}
           onChange={(k) => {
             setRange(k);
             setDefaultRange(k === DEFAULT_RANGE ? null : k);
@@ -51,34 +53,22 @@ export function DisplayPrefs() {
       </PrefRow>
 
       <PrefRow label="Default movers window" hint="Stocks and crypto largest moves open on this window.">
-        <div className="flex rounded-md border border-border p-0.5">
-          {(
-            [
-              ["day", "1D"],
-              ["week", "1w"],
-              ["month", "1m"],
-            ] as const
-          ).map(([key, label]) => (
-            <button
-              key={key}
-              type="button"
-              onClick={() => {
-                setMovers(key);
-                setMoversWindow(key === DEFAULT_MOVERS_WINDOW ? null : key);
-              }}
-              className={
-                movers === key
-                  ? "cursor-pointer rounded bg-secondary px-2 py-0.5 text-[11px] font-medium uppercase tracking-[0.1em] text-primary"
-                  : "cursor-pointer rounded px-2 py-0.5 text-[11px] font-medium uppercase tracking-[0.1em] text-muted-foreground hover:text-foreground"
-              }
-            >
-              {label}
-            </button>
-          ))}
-        </div>
+        <Segmented
+          label="Default movers window"
+          value={movers}
+          options={[
+            { value: "day", label: "1D" },
+            { value: "week", label: "1W" },
+            { value: "month", label: "1M" },
+          ]}
+          onChange={(key) => {
+            setMovers(key);
+            setMoversWindow(key === DEFAULT_MOVERS_WINDOW ? null : key);
+          }}
+        />
       </PrefRow>
 
-      <PrefRow label="Blur balances" hint="Dollar amounts blur until hovered. Handy on a shared screen.">
+      <PrefRow label="Blur balances" hint="Dollar amounts blur until hovered. Handy on a shared screen." inline>
         <Switch
           checked={privacy}
           onCheckedChange={(v) => {
@@ -110,9 +100,20 @@ export function DisplayPrefs() {
   );
 }
 
-function PrefRow({ label, hint, children }: { label: string; hint: string; children: React.ReactNode }) {
+function PrefRow({
+  label,
+  hint,
+  children,
+  inline,
+}: {
+  label: string;
+  hint: string;
+  children: React.ReactNode;
+  /** A small control (a switch) stays on the right of its text instead of wrapping under it. */
+  inline?: boolean;
+}) {
   return (
-    <div className="flex flex-wrap items-center justify-between gap-3">
+    <div className={`flex items-center justify-between gap-3 ${inline ? "" : "flex-wrap"}`}>
       <div className="min-w-0">
         <div className="text-sm">{label}</div>
         <div className="footnote">{hint}</div>

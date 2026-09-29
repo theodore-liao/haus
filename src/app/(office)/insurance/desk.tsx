@@ -8,6 +8,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { ConfirmButton } from "@/components/confirm-button";
 import { parseJson } from "@/lib/utils";
+import { PremiumControl } from "./premium";
 
 type Doc = { id: string; filename: string; mimeType: string };
 type Policy = {
@@ -18,6 +19,8 @@ type Policy = {
   owner: string;
   coveredMembers: string;
   vehicleId: string | null;
+  premium: number | null;
+  billingFrequency: string | null;
   documents: Doc[];
 };
 
@@ -243,7 +246,7 @@ function CardSlot({
           </a>
         ) : (
           <div className="flex aspect-[1.6/1] items-center justify-center rounded-md bg-secondary text-xs text-muted-foreground">
-            No card
+            {policy ? "No image yet" : "No card"}
           </div>
         )}
         <input
@@ -259,7 +262,7 @@ function CardSlot({
         />
         <div className="flex flex-wrap items-center gap-1">
           <Button variant="outline" size="sm" disabled={busy} onClick={() => inputRef.current?.click()}>
-            {busy ? "Saving…" : policy ? "Reupload" : "Upload"}
+            {busy ? "Saving…" : doc ? "Reupload" : "Upload"}
           </Button>
           {policy ? (
             <ConfirmButton
@@ -282,6 +285,7 @@ function CardSlot({
               Remove
             </ConfirmButton>
           ) : null}
+          {policy ? <PremiumControl policyId={policy.id} premium={policy.premium} billingFrequency={policy.billingFrequency} /> : null}
         </div>
       </CardContent>
     </Card>

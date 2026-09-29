@@ -70,3 +70,20 @@ export async function DELETE(req: Request) {
   await snapshotNetWorth();
   return NextResponse.json({ ok: true });
 }
+
+const patchSchema = z.object({
+  id: z.string().min(1),
+  extraPrincipal: z.number().finite().min(0).max(1_000_000).nullable(),
+});
+
+/** The extra-payment what-if on Property saves on its own, without resending the whole home. */
+export async function PATCH(req: Request) {
+  await requireSession();
+  const parsed = patchSchema.safeParse(await req.json().catch(() => null));
+  if (!parsed.success) return NextResponse.json({ error: "Invalid payload." }, { status: 400 });
+  const row = await prisma.property.update({
+    where: { id: parsed.data.id },
+    data: { extraPrincipal: parsed.data.extraPrincipal },
+  });
+  return NextResponse.json({ ok: true, row });
+}

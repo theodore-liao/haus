@@ -12,7 +12,10 @@ import { InvestmentsBoard, type HoldingRow } from "@/components/holdings-table";
 import { LargestMoves } from "@/components/largest-moves";
 import { AddWallet, SyncAllWallets } from "./form";
 import { WalletGrid } from "./wallet-grid";
-import { cachedCryptoDayMoves } from "@/lib/quotes";
+import { cachedCryptoDayMoves, loadPriceMap, priceOnOrBefore } from "@/lib/quotes";
+import { fillMoverWindows } from "@/lib/period-moves";
+import { holdingsPath, lastDays } from "@/lib/sparkline";
+import { SparklineAside } from "@/components/sparkline-aside";
 import { CryptoQuoteRefresher } from "./quote-refresher";
 import { getCryptoLogoMap } from "@/lib/crypto-logos";
 import { COINGECKO_IDS } from "@/lib/crypto-assets";
@@ -21,6 +24,9 @@ import { CryptoCostEditor, type CostCoin } from "./cost-editor";
 import { SectionLabel } from "@/components/type";
 
 export const dynamic = "force-dynamic";
+
+/** Days of stored closes the page reads: a month of moves plus slack for a missing bar. */
+const HISTORY_DAYS = 45;
 
 export default async function CryptoPage() {
   const owner = await getOwnerFilter();
@@ -194,6 +200,38 @@ export default async function CryptoPage() {
   const costCoins = [...coinMap.values()].sort((a, b) => b.value - a.value);
   const anyCost = rows.some((r) => r.costBasis != null);
 
+  // The last 30 days at today's quantities and stored daily closes. The page never waits on the price feed;
+  // the refresher below backfills closes for the largest coins, so the line fills in after a visit.
+  const now = new Date();
+  const closes = await loadPriceMap(
+    [...new Set(rows.map((r) => r.symbol?.toUpperCase()).filter((s): s is string => Boolean(s)))],
+    new Date(now.getTime() - HISTORY_DAYS * 86_400_000),
+    now,
+  );
+  // 1D, 1W and 1M are today's holding against past prices, so no window is left empty.
+  const lastBySymbol = new Map<string, number>();
+  for (const r of rows) if (r.symbol && r.last != null && r.last > 0) lastBySymbol.set(r.symbol.toUpperCase(), r.last);
+  // With no stored closes at all, a flat line would read as "no change"; show that the line is still coming instead.
+  const spark = closes.size
+    ? lastDays(
+        holdingsPath(
+          rows.map((r) => ({ symbol: r.symbol, qty: r.qty, value: r.value })),
+          (symbol, day) => priceOnOrBefore(closes, symbol, day, 4),
+          30,
+          now,
+        ),
+        30,
+        now,
+      )
+    : { points: [], change: null, pct: null };
+  // Every held coin with a price gets its closes stored, largest first, so no window has to fall back to flat.
+  const history = [...new Map(
+    [...rows]
+      .sort((x, y) => y.value - x.value)
+      .filter((r) => r.symbol && r.last != null && r.last > 0)
+      .map((r) => [r.symbol!.toUpperCase(), { symbol: r.symbol!.toUpperCase(), coingeckoId: geckoId(r.symbol!), spot: r.last }] as const),
+  ).values()].slice(0, 40);
+
   return (
     <>
       <PageHeader
@@ -205,12 +243,13 @@ export default async function CryptoPage() {
           </>
         }
       />
-      <CryptoQuoteRefresher missing={[...missing]} />
+      <CryptoQuoteRefresher missing={[...missing]} history={history} />
       {wallets.length === 0 && manuals.length === 0 && brokerage.length === 0 ? (
         <EmptyLedger
+          page="/crypto"
           showConnect={false}
           title="No wallets yet"
-          body="Add a wallet address. Haus scans Bitcoin, Ethereum and other EVM chains, Solana, and TRON."
+          body="Add a wallet address. Haus scans Bitcoin, Litecoin, Dogecoin, Ethereum and other EVM chains, Solana, and TRON."
         />
       ) : rows.length === 0 ? (
         <HeroCard kicker="Crypto value">
@@ -219,15 +258,18 @@ export default async function CryptoPage() {
       ) : null}
       {rows.length > 0 ? (
           <InvestmentsBoard
+            symbolFrom="crypto"
             rows={rows}
             heroSummary
             heroKicker="Crypto value"
+            heroAside={<SparklineAside points={spark.points} change={spark.change} pct={spark.pct} />}
             hideTable
             minValue={10}
             classMode="asset"
             accountSlot={
               <LargestMoves
-                movers={overview.movers
+                movers={fillMoverWindows(
+                  overview.movers
                   .filter((m) => m.kind === "crypto")
                   .map((m) => {
                     if (!m.symbol || (m.day.delta != null && m.day.delta !== 0)) return m;
@@ -239,7 +281,11 @@ export default async function CryptoPage() {
                       manuals.find((c) => c.id === m.id)?.quantity;
                     if (qty == null) return m;
                     return { ...m, day: { delta: q.change * qty, pct: q.changePct } };
-                  })}
+                  }),
+                  lastBySymbol,
+                  closes,
+                  now,
+                )}
               />
             }
           />
@@ -317,6 +363,7 @@ export default async function CryptoPage() {
       />
       {rows.length > 0 ? (
         <InvestmentsBoard
+          symbolFrom="crypto"
           rows={rows}
           hideHero
           hideDonuts

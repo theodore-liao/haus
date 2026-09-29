@@ -4,16 +4,19 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, use
 import Link from "next/link";
 import { toast } from "sonner";
 import { Area, CartesianGrid, ComposedChart, Line, ReferenceDot, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
-import { CircleAlert, CircleCheck, CircleHelp, Info, Plus, X } from "lucide-react";
+import { CircleAlert, CircleCheck, CircleHelp, Plus, X } from "lucide-react";
 import { Money } from "@/components/money";
 import { NumberField, Segmented } from "@/components/number-field";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { InfoTip } from "@/components/info-tip";
+import { Callout } from "@/components/callout";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { formatApprox, formatPct, formatWhole, roundApprox } from "@/lib/format";
 import type { PlanChildPref, ProjectionPrefs } from "@/lib/projection-prefs";
+import { PLAN_DEFAULTS, mergeChildren } from "@/lib/retirement-snapshot";
+import type { EquityEvent, EquityYear } from "@/lib/equity-comp";
 import {
   affordableSpend,
   balancePath,
@@ -46,6 +49,10 @@ export type SaveNow = {
   factor: number;
   contributions: number;
   contributionsYtd: number;
+  /** RSU vests over the last 12 months, null when there are none. */
+  vests: (EquityYear & { items: EquityEvent[] }) | null;
+  /** ESPP purchases over the last 12 months, null when there are none. */
+  espp: EquityYear | null;
   /** Share of the year gone, which scales this year's contributions to a full year. */
   yearFraction: number;
   basis: string;
@@ -62,14 +69,14 @@ const YOUR_LINE = "#7EABD4";
 const MARKET_SWING = 0.02;
 const AXIS = { fontSize: 11, fill: "#8fa0b8", fontFamily: "var(--font-geist-sans)" };
 const GRID = "rgba(148,163,184,0.12)";
-const RETIRE_MIN = 35;
-const RETIRE_MAX = 65;
+const RETIRE_MIN = PLAN_DEFAULTS.retireMin;
+const RETIRE_MAX = PLAN_DEFAULTS.retireMax;
 /** When the money lasts for good, the chart stops here so the years that matter fill it. */
 const FOREVER_CHART_END = 80;
 /** Room right of the plot for the number and market-band labels, so no label sits on a line. */
 const CHART_LABEL_MARGIN = 84;
 /** Without birthdates the planner assumes this age today, and the slider moves only the retirement year. */
-const ASSUMED_AGE = 40;
+const ASSUMED_AGE = PLAN_DEFAULTS.assumedAge;
 /** The most children the planner holds, matching what the household settings accept. */
 const MAX_CHILDREN = 12;
 /** Planned children can be born up to this many years ahead. */
@@ -138,16 +145,6 @@ function saveFailed() {
     id: SAVE_TOAST,
     duration: 10_000,
   });
-}
-
-function mergeChildren(saved: PlanChildPref[] | undefined, household: { id: string; name: string }[]): PlanChildPref[] {
-  const stored = saved ?? [];
-  const known = household.map((child) => {
-    const prev = stored.find((row) => row.id === child.id);
-    return { id: child.id, name: child.name, birthYear: prev?.birthYear ?? null, planned: false };
-  });
-  const planned = stored.filter((row) => row.planned && !household.some((child) => child.id === row.id));
-  return [...known, ...planned];
 }
 
 /** True on phone-width screens, where the chart has no room for labels beside the plot. */
@@ -222,10 +219,10 @@ export function RetirementPlan({
   const [holderKey, setHolderKey] = useState<"A" | "B">(
     saved.holderKey && withDob.some((holder) => holder.key === saved.holderKey) ? saved.holderKey : (withDob[0]?.key ?? "A"),
   );
-  const [rate, setRate] = useState(saved.rate ?? 7);
-  const [retireAgeSaved, setRetireAge] = useState(saved.retireAge ?? 60);
-  const [yearsFallback, setYearsFallback] = useState(saved.yearsFallback ?? 25);
-  const [inflation, setInflation] = useState(saved.inflation ?? 3);
+  const [rate, setRate] = useState<number>(saved.rate ?? PLAN_DEFAULTS.rate);
+  const [retireAgeSaved, setRetireAge] = useState<number>(saved.retireAge ?? PLAN_DEFAULTS.retireAge);
+  const [yearsFallback, setYearsFallback] = useState<number>(saved.yearsFallback ?? PLAN_DEFAULTS.yearsFallback);
+  const [inflation, setInflation] = useState<number>(saved.inflation ?? PLAN_DEFAULTS.inflation);
   // Invested is a planning figure, rounded to the nearest $10,000 like the rest of the planner.
   const investedRounded = roundInvested(investedDefault);
   // Without a figure of its own, Invested follows the accounts, so a price refresh updates it too.
@@ -236,21 +233,21 @@ export function RetirementPlan({
     persist({ invested: v });
   };
   const [annualSpend, setAnnualSpend] = useState(saved.annualSpend ?? spendNow ?? 0);
-  const [liveTo, setLiveTo] = useState(saved.liveTo ?? 95);
+  const [liveTo, setLiveTo] = useState<number>(saved.liveTo ?? PLAN_DEFAULTS.liveTo);
   const [mode, setMode] = useState<"forever" | "down">(saved.spendMode ?? "forever");
-  const [childAnnual, setChildAnnual] = useState(saved.childAnnual ?? 25_000);
-  const [collegeAnnual, setCollegeAnnual] = useState(saved.collegeAnnual ?? 70_000);
+  const [childAnnual, setChildAnnual] = useState<number>(saved.childAnnual ?? PLAN_DEFAULTS.childAnnual);
+  const [collegeAnnual, setCollegeAnnual] = useState<number>(saved.collegeAnnual ?? PLAN_DEFAULTS.collegeAnnual);
   const [kids, setKids] = useState<PlanChildPref[]>(() => mergeChildren(saved.planChildren, householdChildren));
   const [housePrice, setHousePrice] = useState<number | null>(saved.housePrice ?? null);
   const [houseAgeSaved, setHouseAge] = useState<number | null>(saved.houseAge ?? null);
   const [houseAtRetire, setHouseAtRetire] = useState(saved.houseAtRetire !== false);
   const [otherIncome, setOtherIncome] = useState(saved.otherIncome ?? 0);
-  const [otherIncomeAge, setOtherIncomeAge] = useState(saved.otherIncomeAge ?? 67);
-  const [taxPct, setTaxPct] = useState(saved.taxPct ?? 15);
+  const [otherIncomeAge, setOtherIncomeAge] = useState<number>(saved.otherIncomeAge ?? PLAN_DEFAULTS.otherIncomeAge);
+  const [taxPct, setTaxPct] = useState<number>(saved.taxPct ?? PLAN_DEFAULTS.taxPct);
   const [returnAfter, setReturnAfter] = useState<number | null>(saved.returnAfter ?? null);
   const [todayMoney, setTodayMoney] = useState(saved.todayMoney !== false);
   const [saveOverride, setSaveOverride] = useState<number | null>(saved.saveOverride ?? null);
-  const [healthcareAnnual, setHealthcareAnnual] = useState(saved.healthcareAnnual ?? 20_000);
+  const [healthcareAnnual, setHealthcareAnnual] = useState<number>(saved.healthcareAnnual ?? PLAN_DEFAULTS.healthcareAnnual);
 
   /** One setter per saved value: update the page now, save shortly after. */
   function bind<K extends keyof ProjectionPrefs>(key: K, set: (v: NonNullable<ProjectionPrefs[K]>) => void) {
@@ -699,6 +696,7 @@ export function RetirementPlan({
                       setReturnAfter(v);
                       persist({ returnAfter: v });
                     }}
+                    help={returnAfter == null ? "Growth minus 2 points." : "Your own figure."}
                     info="Yearly return once you retire, usually lower because the money is invested more safely. Blank uses growth minus 2 points."
                   />
                   <NumberField
@@ -723,7 +721,7 @@ export function RetirementPlan({
                     help="Social Security or a pension."
                     info={
                       <>
-                        What you'll receive each year from Social Security, a pension, or rent, in today&apos;s prices. See your Social Security estimate at{" "}
+                        What you&apos;ll receive each year from Social Security, a pension, or rent, in today&apos;s prices. See your Social Security estimate at{" "}
                         <a href="https://www.ssa.gov/myaccount/" target="_blank" rel="noreferrer" className="underline">
                           ssa.gov
                         </a>
@@ -739,6 +737,7 @@ export function RetirementPlan({
                     min={18}
                     max={120}
                     onValue={(v) => bind("otherIncomeAge", setOtherIncomeAge)(v ?? otherIncomeAge)}
+                    help={`From ${currentYear + Math.max(0, otherIncomeAge - Math.floor(planAge))}.`}
                   />
                 </div>
               </section>
@@ -800,15 +799,6 @@ function houseHelp(price: number | null, age: number | null, retireAge: number, 
   );
 }
 
-function Callout({ tone, children }: { tone: "good" | "warn" | "bad" | "info"; children: ReactNode }) {
-  const Icon = tone === "good" ? CircleCheck : tone === "info" ? Info : CircleAlert;
-  return (
-    <div className="callout" data-tone={tone === "good" || tone === "bad" ? tone : undefined}>
-      <Icon aria-hidden />
-      <div className="min-w-0">{children}</div>
-    </div>
-  );
-}
 
 function RetireSlider({
   value,
@@ -922,6 +912,31 @@ function SaveBreakdown({ saveNow }: { saveNow: SaveNow }) {
             </ul>
             <p className="footnote mt-1">Paychecks more than 20% off the usual amount, like bonuses, are left out.</p>
           </div>
+          {saveNow.vests ? (
+            <div>
+              <div className="flex justify-between gap-3 font-medium">
+                <dt>+ RSU vests</dt>
+                <dd>
+                  <Money value={saveNow.vests.annual} />
+                </dd>
+              </div>
+              <ul className="mt-1 space-y-0.5 text-muted-foreground">
+                {saveNow.vests.items.map((item) => (
+                  <li key={item.id} className="flex items-start justify-between gap-3">
+                    <span className="min-w-0 truncate">
+                      {new Date(`${item.date}T00:00:00`).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })} · {item.security}
+                    </span>
+                    <Money value={item.amount} />
+                  </li>
+                ))}
+              </ul>
+              <p className="footnote mt-1">
+                {saveNow.vests.count} {saveNow.vests.count === 1 ? "vest" : "vests"} in the last {saveNow.vests.months} {saveNow.vests.months === 1 ? "month" : "months"} add up to{" "}
+                <Money value={saveNow.vests.total} />
+                {saveNow.vests.months < 12 ? <>, scaled to 12 months</> : null}. Averaged this way so one vest does not swing the result. Amounts are the shares you kept, after tax withholding.
+              </p>
+            </div>
+          ) : null}
           <div>
             <div className="flex justify-between gap-3 font-medium">
               <dt>− Spending</dt>
@@ -957,6 +972,21 @@ function SaveBreakdown({ saveNow }: { saveNow: SaveNow }) {
               )}
             </p>
           </div>
+          {saveNow.espp ? (
+            <div>
+              <div className="flex justify-between gap-3 font-medium">
+                <dt>+ Stock purchase plan (ESPP)</dt>
+                <dd>
+                  <Money value={saveNow.espp.annual} />
+                </dd>
+              </div>
+              <p className="text-muted-foreground">
+                {saveNow.espp.count} {saveNow.espp.count === 1 ? "purchase" : "purchases"} totalling <Money value={saveNow.espp.total} /> in the last {saveNow.espp.months}{" "}
+                {saveNow.espp.months === 1 ? "month" : "months"}
+                {saveNow.espp.months < 12 ? ", scaled to 12" : ""}. Plan contributions come out of pay before take-home, so they are added back.
+              </p>
+            </div>
+          ) : null}
           <div className="flex justify-between gap-3 border-t border-border pt-2 font-medium">
             <dt>= You save now</dt>
             <dd>
@@ -1239,11 +1269,11 @@ function PlannerAnswer({
           )}
           <NumberField
             className="mt-4 max-w-sm"
-            label="Your own yearly saving"
+            label="Your own yearly saving (optional)"
             prefix="$"
             money
             allowBlank
-            placeholder="e.g. 25,000"
+            placeholder={saveNow != null ? "Optional: add your own" : "e.g. 25,000"}
             value={saveOverride}
             min={0}
             max={1e9}
@@ -1261,7 +1291,7 @@ function PlannerAnswer({
                   "Using your figure."
                 )
               ) : saveNow != null ? (
-                "Blank uses the estimate from your pay and spending (see ?)."
+                "Leave blank to use the estimate from your pay and spending."
               ) : (
                 "Haus can't see regular paychecks yet. Enter what you save in a year."
               )
@@ -1771,6 +1801,21 @@ function ChartTip({
   );
 }
 
+/** A key dollar figure inside a sentence, so it stands out from the words around it. */
+function Figure({ value }: { value: number }) {
+  return (
+    <strong className="font-semibold text-primary">
+      <Money value={value} approx />
+    </strong>
+  );
+}
+
+/** " (2031–2035)", or " (2031)" for one year; empty without a start. */
+function span(from: number | null, to: number | null) {
+  if (from == null) return "";
+  return ` (${from}${to != null && to !== from ? `–${to}` : ""})`;
+}
+
 function KidsSection({
   kids,
   currentYear,
@@ -1834,55 +1879,42 @@ function KidsSection({
           min={0}
           max={1e8}
           onValue={(v) => onCollegeAnnual(v ?? 0)}
-          help={
-            <>
-              A year each, in today&apos;s prices
-              {collegeLater ? (
-                <>
-                  : about <Money value={collegeLater.amount} approx /> a year by {collegeLater.year}, for {collegeLater.name}, the first to start
-                </>
-              ) : null}
-              .{childBalances > 0 ? (
-                <>
-                  {" "}
-                  Child accounts cover <Money value={childBalances} approx />.
-                </>
-              ) : null}
-            </>
-          }
+          help="A year each, in today's prices."
         />
       </div>
       {counted && added != null ? (
-        <div className="prose-num mt-3 space-y-1 text-sm">
-          <p>
-            <span className="font-medium">Before you retire: </span>
-            {beforeRetiring.cut > 0.5 ? (
-              <>
-                new kid and college costs take about <Money value={beforeRetiring.cut} approx /> out of what you save
-                {beforeRetiring.from != null ? ` (${beforeRetiring.from}${beforeRetiring.to !== beforeRetiring.from ? `–${beforeRetiring.to}` : ""})` : ""}, in today&apos;s
-                dollars. Needed a year already allows for it.
-              </>
-            ) : beforeRetiring.freed > 0.5 ? (
-              <>
-                kids leaving home free up about <Money value={beforeRetiring.freed} approx /> of saving, in today&apos;s dollars.
-              </>
-            ) : (
-              <>no change from what they cost today, which your current spending already covers.</>
-            )}
-          </p>
-          <p>
-            <span className="font-medium">After you retire: </span>
+        <ul className="kid-facts prose-num mt-3 space-y-1 text-sm">
+          {beforeRetiring.cut > 0.5 ? (
+            <li>
+              <span className="font-medium">Before retiring:</span> <Figure value={beforeRetiring.cut} /> less saved
+              {span(beforeRetiring.from, beforeRetiring.to)}, today&apos;s dollars.
+            </li>
+          ) : beforeRetiring.freed > 0.5 ? (
+            <li>
+              <span className="font-medium">Before retiring:</span> kids leaving home free up <Figure value={beforeRetiring.freed} /> of saving.
+            </li>
+          ) : null}
+          <li>
+            <span className="font-medium">After retiring:</span>{" "}
             {added > 0.005 ? (
               <>
-                their costs still running then
-                {addedYears ? ` (${addedYears.from}${addedYears.to !== addedYears.from ? `–${addedYears.to}` : ""})` : ""} are paid from your savings, so your
-                retirement number sets aside <Money value={added} approx /> for them, in {dollars}.
+                <Figure value={added} /> set aside for their costs{addedYears ? span(addedYears.from, addedYears.to) : ""}, {dollars}.
               </>
             ) : (
-              <>nothing: their costs end in {lastKidYear}, before you retire in {retireYear}.</>
+              <>nothing; their costs end in {lastKidYear}, before {retireYear}.</>
             )}
-          </p>
-        </div>
+          </li>
+          {collegeLater ? (
+            <li>
+              <span className="font-medium">College:</span> about <Figure value={collegeLater.amount} /> a year by {collegeLater.year}, for {collegeLater.name}.
+            </li>
+          ) : null}
+          {childBalances > 0 ? (
+            <li>
+              <span className="font-medium">Child accounts:</span> <Figure value={childBalances} /> saved so far.
+            </li>
+          ) : null}
+        </ul>
       ) : null}
       </div>
 

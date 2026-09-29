@@ -3,6 +3,8 @@ import { EmptyLedger } from "@/components/states";
 import { getInvestments, getOverview } from "@/lib/queries";
 import { reconstructStocksPath } from "@/lib/history";
 import { getOwnerFilter } from "@/lib/request";
+import { loadPriceMap } from "@/lib/quotes";
+import { fillMoverWindows } from "@/lib/period-moves";
 import { TradesCard } from "@/components/trades-table";
 import { InvestmentsDesk } from "./desk";
 import { ManualEntryControls, type ManualStock } from "@/components/manual-stocks";
@@ -15,6 +17,14 @@ export default async function InvestmentsPage() {
   // Overview fills in recent daily closes. The chart reads those, so it runs after.
   const path = await reconstructStocksPath(owner).catch(() => []);
   const manuals = data.manuals as ManualStock[];
+  // 1D, 1W and 1M are today's holding against past closes, so no window is left empty.
+  const now = new Date();
+  const lastBySymbol = new Map<string, number>();
+  for (const r of data.rows) if (r.symbol && r.last != null && r.last > 0) lastBySymbol.set(r.symbol.toUpperCase(), r.last);
+  const closes = lastBySymbol.size
+    ? await loadPriceMap([...lastBySymbol.keys()], new Date(now.getTime() - 45 * 86_400_000), now).catch(() => new Map<string, number>())
+    : new Map<string, number>();
+  const movers = fillMoverWindows(overview.movers, lastBySymbol, closes, now);
   return (
     <>
       <PageHeader title="Stocks" />
@@ -24,6 +34,7 @@ export default async function InvestmentsPage() {
             <ManualEntryControls names={data.names} rows={[]} />
           </div>
           <EmptyLedger
+          page="/investments"
             title="No brokerage holdings"
             body="Link a brokerage to pull stock and ETF positions. Retirement accounts are under Retirement; crypto wallets are under Crypto."
           />
@@ -33,7 +44,7 @@ export default async function InvestmentsPage() {
           names={data.names}
           manuals={manuals}
           rows={data.rows}
-          movers={overview.movers}
+          movers={movers}
           path={path}
         />
       )}

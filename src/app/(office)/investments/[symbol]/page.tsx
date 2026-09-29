@@ -11,12 +11,20 @@ import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
 import { getSymbolDetail } from "@/lib/queries";
 import { getOwnerFilter } from "@/lib/request";
+import { isDust } from "@/lib/dust";
 import { formatDate, formatPct } from "@/lib/format";
 
 export const dynamic = "force-dynamic";
 
-export default async function SymbolPage({ params }: { params: Promise<{ symbol: string }> }) {
+export default async function SymbolPage({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ symbol: string }>;
+  searchParams: Promise<{ from?: string }>;
+}) {
   const { symbol } = await params;
+  const back = (await searchParams).from === "crypto" ? { href: "/crypto", label: "Crypto" } : { href: "/investments", label: "Stocks" };
   const owner = await getOwnerFilter();
   const data = await getSymbolDetail(decodeURIComponent(symbol), owner);
   if (data.lots.length === 0 && data.trades.length === 0) notFound();
@@ -43,9 +51,9 @@ export default async function SymbolPage({ params }: { params: Promise<{ symbol:
         title={data.symbol}
         actions={
           <Button asChild variant="outline" size="sm">
-            <Link href="/investments">
+            <Link href={back.href}>
               <ArrowLeft />
-              Stocks
+              {back.label}
             </Link>
           </Button>
         }
@@ -103,6 +111,8 @@ export default async function SymbolPage({ params }: { params: Promise<{ symbol:
               {data.lots.map((h) => {
                 const last = h.quotePrice ?? h.institutionPrice;
                 const val = last != null ? last * h.quantity : h.institutionValue;
+                // Near-zero lots are clutter; they still count in the totals above.
+                if (isDust(val)) return null;
                 return (
                   <TableRow key={h.id}>
                     <TableCell>

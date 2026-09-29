@@ -160,7 +160,14 @@ async function seedFull({ single }) {
       budgetsSeeded: true,
     },
   });
-  if (!single) await prisma.child.create({ data: { name: "Riley Rivera" } });
+  if (!single) {
+    const riley = await prisma.child.create({ data: { name: "Riley Rivera" } });
+    // The planner keeps birth years; Settings edits them alongside the names.
+    await prisma.household.update({
+      where: { id: "haus" },
+      data: { projectionPrefs: JSON.stringify({ planChildren: [{ id: riley.id, name: riley.name, birthYear: 2019, planned: false }] }) },
+    });
+  }
 
   const bank = await linkedAccounts("a", [
     { key: "checking", institution: "Harbor Credit Union", name: "Everyday Checking", mask: "1111", type: "depository", subtype: "checking", hausType: "checking", balance: 6420.18, owner: single ? "a" : "joint" },
@@ -299,7 +306,28 @@ async function seedFull({ single }) {
     data: { label: "Family SUV", year: 2022, make: "Subaru", model: "Outback", estimate: 24500, asOfDate: daysAgo(20), owner: "a", loanAccountId: loans.auto.id, loanBalance: 14210.4 },
   });
   await prisma.insurancePolicy.create({
-    data: { type: "home", carrier: "Evergreen Mutual", owner: single ? "a" : "joint", premium: 1850, billingFrequency: "annual", renewalDate: daysAgo(-45), propertyId: home.id },
+    data: {
+      type: "home",
+      carrier: "Evergreen Mutual",
+      owner: single ? "a" : "joint",
+      premium: 1850,
+      billingFrequency: "annual",
+      renewalDate: daysAgo(-45),
+      propertyId: home.id,
+      coverageJson: JSON.stringify({ deductible: 2500, amount: 420000 }),
+    },
+  });
+  await prisma.insurancePolicy.create({
+    data: {
+      type: "health",
+      carrier: "Lakeside Health Plan",
+      owner: single ? "a" : "joint",
+      coveredMembers: JSON.stringify(single ? ["a"] : ["a", "b"]),
+      premium: 640,
+      billingFrequency: "monthly",
+      renewalDate: daysAgo(-95),
+      coverageJson: JSON.stringify({ deductible: 3000, amount: 9000 }),
+    },
   });
   await prisma.insurancePolicy.create({
     data: { type: "auto", carrier: "Evergreen Mutual", owner: "a", premium: 96, billingFrequency: "monthly", renewalDate: daysAgo(-120), vehicleId: car.id },
@@ -314,6 +342,9 @@ async function seedFull({ single }) {
   await prisma.manualHolding.create({
     data: { kind: "crypto", symbol: "ETH", coingeckoId: "ethereum", name: "Ethereum", quantity: 3.1, costBasis: 6200, owner: single ? "a" : "b", accountName: "Exchange wallet", editedAt: daysAgo(12) },
   });
+  // Daily closes for the manual coins, so the Crypto summary card's 30-day line has something to draw.
+  await priceHistory("BTC", 82958, -0.6);
+  await priceHistory("ETH", 2656.84, 0.2);
   await prisma.manualHolding.create({
     data: { kind: "security", assetClass: "equity", symbol: "PRIV", name: "Private Company Shares", quantity: 1, costBasis: 5000, quotePrice: 7500, owner: "a", accountName: "Employee equity", editedAt: daysAgo(30) },
   });

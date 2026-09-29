@@ -1,12 +1,12 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { X } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Money } from "@/components/money";
 import { ChartCard } from "@/components/chart-card";
 import { AllocationChart } from "@/components/charts";
-import { Chip, ChipGroup, ReportRange } from "@/components/chart-range";
+import { ReportRange } from "@/components/chart-range";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ConfirmButton } from "@/components/confirm-button";
 import { BudgetList } from "./budget-list";
@@ -16,7 +16,6 @@ import type { RecurringBill } from "@/lib/recurring";
 import { Pill } from "@/components/pills";
 import { cn } from "@/lib/utils";
 import { defaultReportWindow, inWindow, type WindowKey } from "@/lib/range";
-import { formatDate } from "@/lib/format";
 import { BrandLabel } from "@/components/brand-mark";
 import { CategoryMerchantDialog } from "@/components/category-merchants";
 import { applyMerchantRefunds, aggregateFlows, type FlowRow } from "@/lib/spend-net";
@@ -62,17 +61,17 @@ export function SpendingClient({
   const [liveTxns, setLiveTxns] = useState(txns);
   const [liveFlows, setLiveFlows] = useState(flows);
   const [dismissed, setDismissed] = useState<Set<string>>(() => new Set());
-  const [billSort, setBillSort] = useState<"amount" | "next">("amount");
-  useEffect(() => {
+  // Fresh server data replaces local edits, adjusted during render rather than in an effect.
+  const [seen, setSeen] = useState({ txns, flows });
+  if (seen.txns !== txns || seen.flows !== flows) {
+    setSeen({ txns, flows });
     setLiveTxns(txns);
     setLiveFlows(flows);
-  }, [txns, flows]);
-  const visibleRecurring = useMemo(() => {
-    const list = recurring.filter((r) => !dismissed.has(recurringMerchantKey(r.label)));
-    return billSort === "next"
-      ? [...list].sort((a, b) => a.nextDate.localeCompare(b.nextDate))
-      : [...list].sort((a, b) => b.annual - a.annual);
-  }, [recurring, dismissed, billSort]);
+  }
+  const visibleRecurring = useMemo(
+    () => recurring.filter((r) => !dismissed.has(recurringMerchantKey(r.label))).sort((a, b) => b.annual - a.annual),
+    [recurring, dismissed],
+  );
   const billTotals = useMemo(
     () => ({
       monthly: visibleRecurring.reduce((s, r) => s + r.monthly, 0),
@@ -81,7 +80,6 @@ export function SpendingClient({
     }),
     [visibleRecurring],
   );
-  const today = new Date().toISOString().slice(0, 10);
 
   function applySave(patch: TxnSave) {
     const revised = reviseMatching(liveTxns, patch);
@@ -192,18 +190,8 @@ export function SpendingClient({
 
       {tab === "recurring" ? (
         <Card>
-          <CardHeader row>
+          <CardHeader>
             <CardTitle>Recurring</CardTitle>
-            {visibleRecurring.length > 1 ? (
-              <ChipGroup>
-                <Chip active={billSort === "amount"} onClick={() => setBillSort("amount")}>
-                  Amount
-                </Chip>
-                <Chip active={billSort === "next"} onClick={() => setBillSort("next")}>
-                  Next due
-                </Chip>
-              </ChipGroup>
-            ) : null}
           </CardHeader>
           <CardContent className="space-y-3">
             {visibleRecurring.length === 0 ? (
@@ -231,7 +219,7 @@ export function SpendingClient({
                           <span className="truncate text-sm">{r.label}</span>
                         </BrandLabel>
                         <div className="text-xs text-muted-foreground">
-                          {r.cadence} · {r.nextDate.slice(0, 10) < today ? "was due" : "next"} {formatDate(r.nextDate)}
+                          <span className="capitalize">{r.cadence}</span>
                           {r.priceChange ? (
                             <span className={r.priceChange.to > r.priceChange.from ? "text-negative" : "text-positive"}>
                               {" · "}

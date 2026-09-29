@@ -10,6 +10,7 @@ import {
   Settings,
   Shield,
   ScanSearch,
+  Target,
   type LucideIcon,
 } from "lucide-react";
 
@@ -21,6 +22,7 @@ export const NAV: NavItem[] = [
   { href: "/investments", label: "Stocks", icon: LineChart },
   { href: "/crypto", label: "Crypto", icon: Coins },
   { href: "/retirement", label: "Retirement", icon: Landmark },
+  { href: "/goals", label: "Goals", icon: Target },
   { href: "/property", label: "Property", icon: Building2 },
   { href: "/insurance", label: "Insurance", icon: Shield },
   { href: "/insights", label: "Insights", icon: ScanSearch },
@@ -35,6 +37,7 @@ export const NAV_ORDER_KEY = "haus.navOrder";
 export const OPTIONAL_NAV = [
   { href: "/crypto", key: "crypto", field: "showCrypto" },
   { href: "/retirement", key: "retirement", field: "showRetirement" },
+  { href: "/goals", key: "goals", field: "showGoals" },
   { href: "/property", key: "property", field: "showProperty" },
   { href: "/insurance", key: "insurance", field: "showInsurance" },
   { href: "/insights", key: "insights", field: "showInsights" },
@@ -50,6 +53,7 @@ export const DEFAULT_TAB_VISIBILITY: TabVisibility = {
   property: true,
   insurance: false,
   insights: true,
+  goals: true,
 };
 
 export function visibleNav(items: NavItem[], tabs: TabVisibility): NavItem[] {

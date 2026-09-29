@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { buildAttention, overBudget, unusualCharges, upcomingRenewals } from "./attention";
+import { budgetOutlook, buildAttention, overBudget, summarizeBudget, unusualCharges, upcomingRenewals } from "./attention";
 import type { FlowRow } from "./spend-net";
 
 const NOW = new Date("2026-09-20T12:00:00");
@@ -121,4 +121,15 @@ test("a connection that has not synced in two days is stale; a card at 30% of it
     now: NOW,
   });
   assert.deepEqual(items.map((i) => i.key), ["stale:1", "utilization:c1"]);
+});
+
+test("month-end estimate repeats the daily rate but not a one-off large charge", () => {
+  // Sept 20 of 30: 10 days left. 20 days of $10/day plus a $300 one-off against a $500 budget.
+  const flows = [spend("2026-09-02", "Dentist", 300), spend("2026-09-05", "Cafe", 200)];
+  const [row] = budgetOutlook(flows, [{ category: "Food and drink", monthly: 500 }], NOW);
+  assert.equal(row.spent, 500);
+  assert.equal(Math.round(row.projected), 600);
+  assert.equal(summarizeBudget([row]).status, "over-pace");
+  assert.equal(summarizeBudget([{ ...row, spent: 550 }]).status, "over");
+  assert.equal(summarizeBudget([{ ...row, spent: 100, projected: 300 }]).status, "on-track");
 });

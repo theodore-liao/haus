@@ -2,10 +2,9 @@ export function plaidConfigured() {
   return Boolean(process.env.PLAID_CLIENT_ID && process.env.PLAID_SECRET);
 }
 
-export function plaidEnv() {
-  const env = (process.env.PLAID_ENV || "sandbox").toLowerCase();
-  if (env === "production" || env === "development" || env === "sandbox") return env;
-  return "sandbox";
+/** Real banks need production. Plaid retired "development" in 2024, so it maps to production. */
+export function plaidEnv(): "production" | "sandbox" {
+  return (process.env.PLAID_ENV || "production").toLowerCase() === "sandbox" ? "sandbox" : "production";
 }
 
 export function plaidProducts() {

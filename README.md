@@ -42,16 +42,16 @@ This is how to run Haus day to day: a built app opens each page quickly. When yo
 ## Plaid
 
 1. Create an account at [https://dashboard.plaid.com/signup](https://dashboard.plaid.com/signup).
-2. In the Plaid dashboard, open Keys. Copy the client ID, and copy the secret for the environment you want. Sandbox is available as soon as the account exists and uses Plaid's test institutions. Development and production each have their own secret. Production keys work after Plaid enables production on the account.
+2. In the Plaid dashboard, open Keys. Copy the client ID and the production secret. Production keys work after Plaid enables production on the account. There is also a sandbox secret, which only connects to Plaid's fake test banks.
 3. Put them in `.env`:
 
    ```
    PLAID_CLIENT_ID="your-client-id"
    PLAID_SECRET="your-secret"
-   PLAID_ENV="sandbox"
+   PLAID_ENV="production"
    ```
 
-   `PLAID_ENV` is `sandbox`, `development`, or `production`, and it has to match the secret you pasted. A sandbox secret and a production secret are different values.
+   `PLAID_ENV` is `production` for real banks, which is also what Haus uses when it is not set. Use `sandbox` only to try fake test banks. It has to match the secret you pasted, because a sandbox secret and a production secret are different values.
 
 4. Leave `PLAID_PRODUCTS` as `transactions,investments,liabilities` unless you want a shorter list. The app always requests transactions. Investments and liabilities attach when the selected accounts support them.
 
@@ -63,11 +63,11 @@ This is how to run Haus day to day: a built app opens each page quickly. When yo
 
    Keep the same value. A new key cannot read tokens saved with the old one.
 
-6. Save `.env` and restart the app.
+6. Save `.env`, then stop the app and run `npm run build` and `npm start` again.
 
 7. Sign in, open Connections, and choose Add institution. One session covers banks, cards, and brokerages. Some institutions start with no accounts selected, so check every account you want included.
 
-   In sandbox, sign in at a test institution with the login `user_good` and the password `pass_good`. Those connections are saved in this app and use Plaid's test data.
+   In sandbox only, sign in at a test institution with the login `user_good` and the password `pass_good`. Those connections are saved in this app and use Plaid's test data.
 
 One `PLAID_CLIENT_ID` covers the household. On a Production Trial, that client holds 10 institution logins, shared.
 
@@ -79,6 +79,6 @@ One `PLAID_CLIENT_ID` covers the household. On a Production Trial, that client h
 - `HAUS_TOKEN_KEY` — encrypts saved Plaid connection tokens. Generate it once and keep it. A production build requires it.
 - `PLAID_CLIENT_ID` — client ID from the Plaid Keys page. Required to connect institutions.
 - `PLAID_SECRET` — secret for the same Plaid environment. Required to connect institutions.
-- `PLAID_ENV` — `sandbox`, `development`, or `production`. Defaults to `sandbox`. Match it to the secret.
+- `PLAID_ENV` — `production` (default) for real banks, or `sandbox` for fake test banks. Match it to the secret.
 - `PLAID_PRODUCTS` — comma-separated products. Defaults to `transactions,investments,liabilities`.
 - `FINNHUB_API_KEY` — optional live stock quotes. Holdings still show quantity, value, and cost basis from the connected accounts.

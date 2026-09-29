@@ -86,6 +86,22 @@ export async function POST(req: Request) {
   return NextResponse.json({ ok: true, policy });
 }
 
+const premiumSchema = z.object({
+  id: z.string().min(1),
+  premium: z.number().finite().min(0).max(10_000_000).nullable(),
+  billingFrequency: z.enum(["monthly", "annual"]),
+});
+
+/** A card's premium is optional and saves on its own, without resending the card. */
+export async function PATCH(req: Request) {
+  await requireSession();
+  const parsed = premiumSchema.safeParse(await req.json().catch(() => null));
+  if (!parsed.success) return NextResponse.json({ error: "Invalid payload." }, { status: 400 });
+  const { id, premium, billingFrequency } = parsed.data;
+  const policy = await prisma.insurancePolicy.update({ where: { id }, data: { premium, billingFrequency } });
+  return NextResponse.json({ ok: true, policy });
+}
+
 export async function DELETE(req: Request) {
   await requireSession();
   const { id } = (await req.json()) as { id?: string };

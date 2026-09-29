@@ -12,6 +12,7 @@ import {
   readTransactionsStoredSince,
 } from "@/lib/saved-txns";
 import { readProjectionPrefs, writeProjectionPrefs } from "@/lib/projection-prefs";
+import { writeShowGoals } from "@/lib/goals";
 
 export const dynamic = "force-dynamic";
 
@@ -95,6 +96,7 @@ const patchSchema = z.object({
   showProperty: z.boolean().optional(),
   showInsurance: z.boolean().optional(),
   showInsights: z.boolean().optional(),
+  showGoals: z.boolean().optional(),
   keepTransactions: z.boolean().optional(),
   projectionPrefs: projectionPrefsSchema.optional(),
 });
@@ -109,7 +111,9 @@ export async function PATCH(req: Request) {
   const parsed = patchSchema.safeParse(await req.json());
   if (!parsed.success) return NextResponse.json({ error: "Invalid payload." }, { status: 400 });
   const previous = await ensureHousehold();
-  const { birthdateA, birthdateB, projectionPrefs: projectionPatch, ...rest } = parsed.data;
+  // Goals keeps its switch in the settings table, so it needs no new column.
+  const { birthdateA, birthdateB, projectionPrefs: projectionPatch, showGoals, ...rest } = parsed.data;
+  if (showGoals !== undefined) await writeShowGoals(showGoals);
   if (parsed.data.pairCardPayments !== undefined) clearCardPaymentCache();
   const hasHouseholdFields =
     Object.keys(rest).length > 0 || birthdateA !== undefined || birthdateB !== undefined;

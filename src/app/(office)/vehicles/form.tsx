@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
+import { ConfirmButton } from "@/components/confirm-button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -72,20 +73,24 @@ export function VehicleForm({
           {existing ? "Edit" : "Add vehicle"}
         </Button>
         {existing && (
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={async () => {
-              await fetch("/api/vehicles", {
+          <ConfirmButton
+            title={`Remove ${existing.label}?`}
+            description="The vehicle and its value leave Haus."
+            onConfirm={async () => {
+              const res = await fetch("/api/vehicles", {
                 method: "DELETE",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({ id: existing.id }),
               });
+              if (!res.ok) {
+                toast.error("Could not remove this vehicle.");
+                return;
+              }
               router.refresh();
             }}
           >
             Remove
-          </Button>
+          </ConfirmButton>
         )}
       </div>
       <Dialog open={open} onOpenChange={setOpen}>

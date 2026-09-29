@@ -31,3 +31,9 @@ export function accountLabel(name: string, institution: string | null | undefine
   if (!rest || fold(rest) === instFold) return inst;
   return `${inst}: ${rest}`;
 }
+
+/** An account shown under its institution's heading doesn't repeat the institution. */
+export function withoutInstitution(label: string, institution: string | null | undefined) {
+  const prefix = institution ? `${institution}: ` : "";
+  return prefix && label.startsWith(prefix) ? label.slice(prefix.length) : label;
+}

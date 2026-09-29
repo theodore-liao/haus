@@ -1,15 +1,16 @@
 import { prisma } from "./db";
-import { dropFakeStables, scanAddress, shortAddress, type OnchainAsset } from "./onchain";
+import { CHAIN_META, dropFakeStables, scanAddress, shortAddress, type OnchainAsset } from "./onchain";
 import { enrichCryptoQuotes } from "./quotes";
 import { snapshotNetWorth } from "./plaid-sync";
 import { significantOnly } from "./token-prices";
 import { assetIdsToDrop } from "./wallet-assets";
 
 export async function syncWalletById(id: string, opts?: { snapshot?: boolean }) {
-  const wallet = await prisma.cryptoWallet.findUnique({ where: { id } });
+  const wallet = await prisma.cryptoWallet.findUnique({ where: { id }, include: { assets: true } });
   if (!wallet) throw new Error("Wallet not found.");
   try {
-    const scanned = await scanAddress(wallet.address);
+    // Tokens already on file can be re-read from a chain's RPC when its explorer refuses to answer.
+    const scanned = await scanAddress(wallet.address, wallet.assets.filter((a) => !a.tokenKey.startsWith("defi:")));
     await persistAssets(wallet.id, scanned.assets, scanned.confirmedChains, scanned.keepTokens);
     const updated = await prisma.cryptoWallet.update({
       where: { id: wallet.id },
@@ -17,7 +18,7 @@ export async function syncWalletById(id: string, opts?: { snapshot?: boolean }) 
         address: scanned.address,
         addressType: scanned.type,
         lastSyncedAt: new Date(),
-        lastError: walletError(scanned),
+        lastError: walletError(scanned, wallet.assets),
       },
       include: { assets: true },
     });
@@ -65,7 +66,17 @@ export async function syncAllWallets() {
   await snapshotNetWorth().catch(() => null);
 }
 
-function walletError(scanned: { assets: unknown[]; confirmedChains: string[] }) {
+function walletError(
+  scanned: { assets: { chain: string }[]; confirmedChains: string[] },
+  stored: { chain: string }[] = [],
+) {
+  // Chains that hold balances on file but didn't answer this time: their balances stay, and the message says so.
+  const unreached = [...new Set(stored.map((a) => a.chain))].filter(
+    (c) => !scanned.confirmedChains.includes(c) && !scanned.assets.some((a) => a.chain === c),
+  );
+  if (unreached.length) {
+    return `Couldn't reach ${unreached.map((c) => CHAIN_META[c]?.label ?? c).join(", ")}. Showing the last balances found.`;
+  }
   if (scanned.assets.length) return null;
   if (scanned.confirmedChains.length === 0) return "Could not refresh this wallet.";
   return "No balances found on supported chains.";

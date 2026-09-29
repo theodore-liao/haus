@@ -14,8 +14,10 @@ export default async function InsightsPage() {
       <>
         <PageHeader title="Insights" />
         <EmptyLedger
-          title="No signals yet"
-          body="Emergency-fund months appear after the first live sync, once cash and essential spending are in the ledger."
+          page="/insights"
+          title="No checkup yet"
+          body="Link your bank and card accounts. After the first sync, Insights checks your cash, saving, debt, and investments against your targets."
+          plaidReady={Boolean(process.env.PLAID_CLIENT_ID && process.env.PLAID_SECRET)}
         />
       </>
     );
@@ -24,7 +26,7 @@ export default async function InsightsPage() {
   return (
     <>
       <PageHeader title="Insights" />
-      <InsightsClient cards={data.cards} />
+      <InsightsClient {...data} />
     </>
   );
 }

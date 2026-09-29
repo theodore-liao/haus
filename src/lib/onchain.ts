@@ -27,7 +27,7 @@ function scanPart(assets: OnchainAsset[], confirmedChains: string[], keepTokens:
   return { assets, confirmedChains, keepTokens };
 }
 
-export type AddressType = "evm" | "bitcoin" | "xpub" | "solana" | "tron" | "sui" | "cosmos";
+export type AddressType = "evm" | "bitcoin" | "xpub" | "solana" | "tron" | "sui" | "cosmos" | "litecoin" | "dogecoin";
 
 type CosmosNet = {
   chain: string;
@@ -280,6 +280,8 @@ export const CHAIN_META: Record<
   kujira: { label: "Kujira", explorer: (a) => `https://finder.kujira.network/kaiyo-1/address/${a}`, nativeGecko: "kujira" },
   injective: { label: "Injective", explorer: (a) => `https://www.mintscan.io/injective/address/${a}`, nativeGecko: "injective-protocol" },
   celestia: { label: "Celestia", explorer: (a) => `https://www.mintscan.io/celestia/address/${a}`, nativeGecko: "celestia" },
+  litecoin: { label: "Litecoin", explorer: (a) => `https://litecoinspace.org/address/${a}`, nativeGecko: "litecoin" },
+  dogecoin: { label: "Dogecoin", explorer: (a) => `https://blockchair.com/dogecoin/address/${a}`, nativeGecko: "dogecoin" },
   xpub: { label: "Bitcoin", explorer: (a) => `https://www.blockchain.com/explorer/assets/btc/xpub/${a}`, nativeGecko: "bitcoin" },
   defi: { label: "DeFi", explorer: (a) => `https://debank.com/profile/${a}`, nativeGecko: "ethereum" },
   bsc: { label: "BNB Chain", explorer: (a) => `https://bscscan.com/address/${a}`, nativeGecko: "binancecoin" },
@@ -321,10 +323,30 @@ export function classifyAddress(raw: string): { type: AddressType; address: stri
   if (/^(bc1|tb1)[a-zA-HJ-NP-Z0-9]{25,87}$/i.test(addr)) return { type: "bitcoin", address: addr };
   if (/^[13][a-km-zA-HJ-NP-Z1-9]{25,34}$/.test(addr)) return { type: "bitcoin", address: addr };
   if (/^T[1-9A-HJ-NP-Za-km-z]{33}$/.test(addr)) return { type: "tron", address: addr };
+  if (/^ltc1[a-z0-9]{20,87}$/i.test(addr)) return { type: "litecoin", address: addr.toLowerCase() };
+  // Legacy Litecoin and Dogecoin addresses look like Solana keys; the checksum and version byte tell them apart.
+  const legacy = legacyCoinType(addr);
+  if (legacy) return { type: legacy, address: addr };
   const bech = addr.toLowerCase().match(/^([a-z]{2,16})1[qpzry9x8gf2tvdw0s3jn54khce6mua7l]{20,}$/);
   if (bech && COSMOS_HRP[bech[1]]) return { type: "cosmos", address: addr.toLowerCase() };
   if (/^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(addr)) return { type: "solana", address: addr };
   return null;
+}
+
+/** Version bytes of base58check Litecoin (L, M) and Dogecoin (D, 9, A) addresses. */
+const LEGACY_VERSIONS: Record<number, "litecoin" | "dogecoin"> = { 0x30: "litecoin", 0x32: "litecoin", 0x1e: "dogecoin", 0x16: "dogecoin" };
+
+export function legacyCoinType(addr: string): "litecoin" | "dogecoin" | null {
+  if (!/^[LMD9A][1-9A-HJ-NP-Za-km-z]{25,34}$/.test(addr)) return null;
+  try {
+    const bytes = b58decode(addr);
+    if (bytes.length !== 25) return null;
+    const check = createHash("sha256").update(createHash("sha256").update(bytes.subarray(0, 21)).digest()).digest();
+    for (let i = 0; i < 4; i++) if (check[i] !== bytes[21 + i]) return null;
+    return LEGACY_VERSIONS[bytes[0]] ?? null;
+  } catch {
+    return null;
+  }
 }
 
 function geckoForSymbol(symbol: string) {
@@ -385,11 +407,17 @@ async function resolveEns(name: string): Promise<string | null> {
   return null;
 }
 
+type EsploraAddress = {
+  chain_stats?: { funded_txo_sum?: number; spent_txo_sum?: number };
+  mempool_stats?: { funded_txo_sum?: number; spent_txo_sum?: number };
+};
+
 async function scanBitcoin(address: string): Promise<ScanPart> {
-  const data = (await getJson(`https://blockstream.info/api/address/${encodeURIComponent(address)}`)) as {
-    chain_stats?: { funded_txo_sum?: number; spent_txo_sum?: number };
-    mempool_stats?: { funded_txo_sum?: number; spent_txo_sum?: number };
-  } | null;
+  const a = encodeURIComponent(address);
+  // Two keyless Esplora hosts; the second answers when the first is down or rate limiting.
+  const data =
+    ((await getJson(`https://blockstream.info/api/address/${a}`)) as EsploraAddress | null) ??
+    ((await getJson(`https://mempool.space/api/address/${a}`)) as EsploraAddress | null);
   const chain = data?.chain_stats;
   if (!chain) return scanPart([], []);
   const funded = (chain.funded_txo_sum ?? 0) + (data?.mempool_stats?.funded_txo_sum ?? 0);
@@ -410,6 +438,32 @@ async function scanBitcoin(address: string): Promise<ScanPart> {
       },
     ],
     ["bitcoin"],
+  );
+}
+
+/** Litecoin and Dogecoin balances from BlockCypher's keyless API (unconfirmed included). */
+async function scanBlockcypher(chain: "litecoin" | "dogecoin", address: string): Promise<ScanPart> {
+  const path = chain === "litecoin" ? "ltc" : "doge";
+  const data = (await getJson(`https://api.blockcypher.com/v1/${path}/main/addrs/${encodeURIComponent(address)}/balance`)) as {
+    final_balance?: number;
+  } | null;
+  if (typeof data?.final_balance !== "number") return scanPart([], []);
+  const qty = data.final_balance / 1e8;
+  if (qty <= 0) return scanPart([], [chain]);
+  return scanPart(
+    [
+      {
+        chain,
+        tokenKey: "native",
+        symbol: chain === "litecoin" ? "LTC" : "DOGE",
+        name: chain === "litecoin" ? "Litecoin" : "Dogecoin",
+        contractAddress: null,
+        decimals: 8,
+        quantity: qty,
+        coingeckoId: chain,
+      },
+    ],
+    [chain],
   );
 }
 
@@ -803,7 +857,8 @@ async function scanSolana(address: string): Promise<ScanPart> {
     solRpc("getBalance", [address]),
     solTokenAccounts(address, SOL_TOKEN),
     solTokenAccounts(address, SOL_TOKEN_2022),
-    solStakedLamports(address),
+    // Stake accounts are a heavy program scan; give up after 25s and keep the stored stake rather than stall the wallet.
+    Promise.race([solStakedLamports(address), new Promise<null>((r) => setTimeout(() => r(null), 25000))]),
   ]);
   const balanceOk = bal != null;
   const lamports = typeof bal === "number" ? bal : ((bal as { value?: number } | null)?.value ?? 0);
@@ -879,6 +934,37 @@ async function scanSolana(address: string): Promise<ScanPart> {
   return scanPart(out, ["solana"], keepTokens);
 }
 
+/** Tronscan now asks for a key. TronGrid answers without one: TRX plus the two big stablecoins by contract. */
+const TRON_TOKENS: Record<string, { symbol: string; name: string; decimals: number; gecko: string }> = {
+  TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t: { symbol: "USDT", name: "Tether USD", decimals: 6, gecko: "tether" },
+  TEkxiTehnzSmSe2XqrBj4w32RUN966rdz8: { symbol: "USDC", name: "USD Coin", decimals: 6, gecko: "usd-coin" },
+};
+
+async function scanTronGrid(address: string): Promise<ScanPart> {
+  const data = (await getJson(`https://api.trongrid.io/v1/accounts/${encodeURIComponent(address)}`)) as {
+    success?: boolean;
+    data?: { balance?: number; trc20?: Record<string, string>[] }[];
+  } | null;
+  if (!data || data.success === false || !Array.isArray(data.data)) return scanPart([], []);
+  // An address that has never received anything comes back as an empty list: a real zero.
+  const acct = data.data[0];
+  const out: OnchainAsset[] = [];
+  const trx = (acct?.balance ?? 0) / 1e6;
+  if (trx > 0) {
+    out.push({ chain: "tron", tokenKey: "native", symbol: "TRX", name: "TRON", contractAddress: null, decimals: 6, quantity: trx, coingeckoId: "tron" });
+  }
+  for (const row of acct?.trc20 ?? []) {
+    for (const [contract, raw] of Object.entries(row)) {
+      const t = TRON_TOKENS[contract];
+      if (!t) continue;
+      const qty = fromBaseUnits(String(raw), t.decimals);
+      if (qty <= 0) continue;
+      out.push({ chain: "tron", tokenKey: contract.toLowerCase(), symbol: t.symbol, name: t.name, contractAddress: contract, decimals: t.decimals, quantity: qty, coingeckoId: t.gecko });
+    }
+  }
+  return scanPart(out, ["tron"]);
+}
+
 async function scanTron(address: string): Promise<ScanPart> {
   const out: OnchainAsset[] = [];
   const data = (await getJson(
@@ -901,7 +987,7 @@ async function scanTron(address: string): Promise<ScanPart> {
       tokenId?: string;
     }[];
   } | null;
-  if (!data) return scanPart([], []);
+  if (!data) return scanTronGrid(address);
   const trx = (data.balance ?? 0) / 1e6;
   if (trx > 0) {
     out.push({
@@ -1644,7 +1730,153 @@ async function scanCosmos(address: string): Promise<ScanPart> {
   return scanPart(out, confirmed, keepStake ? ["stake"] : []);
 }
 
-export async function scanAddress(raw: string): Promise<{
+/**
+ * EVM chains with a keyless public RPC. When a chain's explorer (or Rabby) doesn't answer, its native balance, the
+ * tokens already on file, and the stablecoins below are read straight from the RPC, so the wallet keeps updating.
+ * Other new tokens still need an explorer to be found. Several RPCs per chain are tried in order.
+ */
+type RpcChain = {
+  rpcs: string[];
+  symbol: string;
+  name: string;
+  gecko: string;
+  tokens: [symbol: string, name: string, contract: string, decimals: number, gecko: string][];
+};
+
+export const RPC_CHAINS: Record<string, RpcChain> = {
+  ethereum: {
+    rpcs: ["https://ethereum-rpc.publicnode.com", "https://eth.llamarpc.com", "https://cloudflare-eth.com"],
+    symbol: "ETH",
+    name: "Ether",
+    gecko: "ethereum",
+    tokens: [
+      ["USDC", "USD Coin", "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48", 6, "usd-coin"],
+      ["USDT", "Tether USD", "0xdac17f958d2ee523a2206206994597c13d831ec7", 6, "tether"],
+    ],
+  },
+  base: {
+    rpcs: ["https://base-rpc.publicnode.com", "https://mainnet.base.org"],
+    symbol: "ETH",
+    name: "Ether",
+    gecko: "ethereum",
+    tokens: [["USDC", "USD Coin", "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913", 6, "usd-coin"]],
+  },
+  arbitrum: {
+    rpcs: ["https://arbitrum-one-rpc.publicnode.com", "https://arb1.arbitrum.io/rpc"],
+    symbol: "ETH",
+    name: "Ether",
+    gecko: "ethereum",
+    tokens: [
+      ["USDC", "USD Coin", "0xaf88d065e77c8cc2239327c5edb3a432268e5831", 6, "usd-coin"],
+      ["USDT", "Tether USD", "0xfd086bc7cd5c481dcc9c85ebe478a1c0b69fcbb9", 6, "tether"],
+    ],
+  },
+  optimism: {
+    rpcs: ["https://optimism-rpc.publicnode.com", "https://mainnet.optimism.io"],
+    symbol: "ETH",
+    name: "Ether",
+    gecko: "ethereum",
+    tokens: [
+      ["USDC", "USD Coin", "0x0b2c639c533813f4aa9d7837caf62653d097ff85", 6, "usd-coin"],
+      ["USDT", "Tether USD", "0x94b008aa00579c1307b0ef2c499ad98a8ce58e58", 6, "tether"],
+    ],
+  },
+  polygon: {
+    rpcs: ["https://polygon-bor-rpc.publicnode.com", "https://polygon-rpc.com"],
+    symbol: "POL",
+    name: "Polygon",
+    gecko: "polygon-ecosystem-token",
+    tokens: [
+      ["USDC", "USD Coin", "0x3c499c542cef5e3811e1192ce70d8cc03d5c3359", 6, "usd-coin"],
+      ["USDT", "Tether USD", "0xc2132d05d31c914a87c6611c10748aeb04b58e8f", 6, "tether"],
+    ],
+  },
+  bsc: {
+    rpcs: ["https://bsc-rpc.publicnode.com", "https://bsc-dataseed.binance.org"],
+    symbol: "BNB",
+    name: "BNB",
+    gecko: "binancecoin",
+    tokens: [
+      ["USDC", "USD Coin", "0x8ac76a51cc950d9822d68b83fe1ad97b32cd580d", 18, "usd-coin"],
+      ["USDT", "Tether USD", "0x55d398326f99059ff775485246999027b3197955", 18, "tether"],
+    ],
+  },
+  avalanche: {
+    rpcs: ["https://avalanche-c-chain-rpc.publicnode.com", "https://api.avax.network/ext/bc/C/rpc"],
+    symbol: "AVAX",
+    name: "Avalanche",
+    gecko: "avalanche-2",
+    tokens: [
+      ["USDC", "USD Coin", "0xb97ef9ef8734c71904d8002f8b6bc66dd9c48a6e", 6, "usd-coin"],
+      ["USDT", "Tether USD", "0x9702230a8ea53601f5cd2dc00fdbc13d4df4a8c7", 6, "tether"],
+    ],
+  },
+  hood: { rpcs: ["https://rpc.mainnet.chain.robinhood.com"], symbol: "ETH", name: "Ether", gecko: "ethereum", tokens: [] },
+};
+
+/** Each RPC call gets this long, so one slow chain cannot hold the others up. */
+const RPC_TIMEOUT_MS = 8000;
+
+export type KnownToken = Pick<OnchainAsset, "chain" | "tokenKey" | "symbol" | "name" | "contractAddress" | "decimals" | "coingeckoId" | "quotePrice">;
+
+async function rpcCall(urls: string[], method: string, params: unknown[]): Promise<string | null> {
+  for (const url of urls) {
+    const data = (await postJson(url, { jsonrpc: "2.0", id: 1, method, params }, RPC_TIMEOUT_MS)) as {
+      result?: unknown;
+      error?: unknown;
+    } | null;
+    if (typeof data?.result === "string" && !data.error) return data.result;
+  }
+  return null;
+}
+
+function hexUnits(hex: string, decimals: number) {
+  return fromBaseUnits(BigInt(hex === "0x" ? "0x0" : hex).toString(), decimals);
+}
+
+/** Native, known-token and stablecoin balances for one chain, from its RPC. Null when any read fails, so nothing is dropped. */
+export async function readKnownFromRpc(chain: string, address: string, known: KnownToken[]): Promise<OnchainAsset[] | null> {
+  const meta = RPC_CHAINS[chain];
+  if (!meta || !/^0x[a-f0-9]{40}$/i.test(address)) return null;
+  const native = await rpcCall(meta.rpcs, "eth_getBalance", [address, "latest"]);
+  if (native == null) return null;
+  const out: OnchainAsset[] = [];
+  const nativeQty = hexUnits(native, 18);
+  const nativeKnown = known.find((k) => k.chain === chain && !k.contractAddress);
+  if (nativeQty > 0) {
+    out.push({
+      chain,
+      tokenKey: "native",
+      symbol: meta.symbol,
+      name: meta.name,
+      contractAddress: null,
+      decimals: 18,
+      quantity: nativeQty,
+      coingeckoId: meta.gecko,
+      quotePrice: nativeKnown?.quotePrice ?? null,
+    });
+  }
+  const tokens = new Map<string, KnownToken>();
+  for (const [symbol, name, contract, decimals, gecko] of meta.tokens) {
+    tokens.set(contract, { chain, tokenKey: contract, symbol, name, contractAddress: contract, decimals, coingeckoId: gecko, quotePrice: null });
+  }
+  for (const k of known) if (k.chain === chain && k.contractAddress) tokens.set(k.contractAddress.toLowerCase(), k);
+  const selector = "0x70a08231" + address.slice(2).toLowerCase().padStart(64, "0");
+  const reads = await Promise.all(
+    [...tokens.values()].map(async (k) => ({
+      k,
+      raw: await rpcCall(meta.rpcs, "eth_call", [{ to: k.contractAddress, data: selector }, "latest"]),
+    })),
+  );
+  for (const { k, raw } of reads) {
+    if (raw == null) return null;
+    const qty = hexUnits(raw, k.decimals);
+    if (qty > 0) out.push({ ...k, quantity: qty, quotePrice: k.quotePrice ?? null });
+  }
+  return out;
+}
+
+export async function scanAddress(raw: string, known: KnownToken[] = []): Promise<{
   type: AddressType;
   address: string;
   assets: OnchainAsset[];
@@ -1655,7 +1887,7 @@ export async function scanAddress(raw: string): Promise<{
 }> {
   const classified = classifyAddress(raw);
   if (!classified) {
-    throw new Error("Unrecognized wallet address. Use a BTC address or xpub, Cosmos (cosmos1…), EVM/Sui 0x, Solana, or TRON.");
+    throw new Error("Unrecognized wallet address. Use a Bitcoin, Litecoin or Dogecoin address (or a BTC xpub), an EVM 0x address or ENS name, Solana, TRON, Sui, or Cosmos (cosmos1…).");
   }
   const { type } = classified;
   let { address } = classified;
@@ -1667,10 +1899,22 @@ export async function scanAddress(raw: string): Promise<{
   let part = scanPart([], []);
   if (type === "bitcoin") part = await scanBitcoin(address);
   else if (type === "xpub") part = await scanXpub(address);
-  else if (type === "evm") part = await scanEvm(address);
+  else if (type === "evm") {
+    part = await scanEvm(address);
+    // Each EVM chain that no explorer confirmed is read from its own RPC, all at once and independently.
+    const rpcChains = Object.keys(RPC_CHAINS).filter((c) => !part.confirmedChains.includes(c));
+    const reads = await Promise.all(rpcChains.map((c) => readKnownFromRpc(c, address, known).catch(() => null)));
+    rpcChains.forEach((chain, i) => {
+      const fromRpc = reads[i];
+      if (fromRpc == null) return;
+      mergeAssets(part.assets, fromRpc);
+      part.confirmedChains.push(chain);
+    });
+  }
   else if (type === "solana") part = await scanSolana(address);
   else if (type === "tron") part = await scanTron(address);
   else if (type === "sui") part = await scanSui(address);
+  else if (type === "litecoin" || type === "dogecoin") part = await scanBlockcypher(type, address);
   else if (type === "cosmos") part = await scanCosmos(address);
 
   const assets = part.assets;

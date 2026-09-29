@@ -4,6 +4,7 @@ import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
+import { ConfirmButton } from "@/components/confirm-button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -36,6 +37,7 @@ type Existing = {
   pmiMonthly: number | null;
   piti: number | null;
   rent: number | null;
+  extraPrincipal?: number | null;
 };
 
 export function PropertyForm({
@@ -128,7 +130,7 @@ export function PropertyForm({
           termMonths: n,
           originalTermMonths,
           originationDate,
-          extraPrincipal: 0,
+          extraPrincipal: existing?.extraPrincipal ?? null,
           taxAnnual: null,
           insuranceAnnual: null,
           escrowMonthly: escrowMonthly ? Number(escrowMonthly) : null,
@@ -150,11 +152,15 @@ export function PropertyForm({
 
   async function remove() {
     if (!existing) return;
-    await fetch("/api/properties", {
+    const res = await fetch("/api/properties", {
       method: "DELETE",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ id: existing.id }),
     });
+    if (!res.ok) {
+      toast.error("Could not remove this home.");
+      return;
+    }
     router.refresh();
   }
 
@@ -165,9 +171,13 @@ export function PropertyForm({
           {existing ? "Edit" : "Add property"}
         </Button>
         {existing && (
-          <Button variant="ghost" size="sm" onClick={remove}>
+          <ConfirmButton
+            title={`Remove ${existing.label}?`}
+            description="The home, its loan details, and its value leave Haus."
+            onConfirm={remove}
+          >
             Remove
-          </Button>
+          </ConfirmButton>
         )}
       </div>
       <Dialog open={open} onOpenChange={setOpen}>

@@ -150,7 +150,6 @@ export function NumberField({
     unit: money ? "money" : suffix?.includes("%") ? "percent" : undefined,
     grouping: group,
   };
-  const pending = focused && !error && draft !== format(value);
   /** Apply the box: a usable entry goes to the page and is shown formatted; anything else stays with its message. */
   const apply = () => {
     const r = checkTyped(draft, rules);
@@ -205,14 +204,7 @@ export function NumberField({
             setFocused(false);
             afterClick(apply);
           }}
-          aria-describedby={pending ? `${id}-hint` : undefined}
         />
-        {/* Inside the box, so the help underneath stays put while typing and nothing below it moves. */}
-        {pending ? (
-          <span id={`${id}-hint`} className="field-hint">
-            <span aria-hidden>↵</span> Enter to apply
-          </span>
-        ) : null}
         {suffix ? <span className="field-affix">{suffix}</span> : null}
       </div>
       {error ? (

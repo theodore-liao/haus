@@ -6,6 +6,7 @@ import { ownerLabel, type HouseholdNames } from "./owners";
 import { getNames } from "./queries";
 import { savedOwnerNow } from "./report-archive";
 import type { TxnRow } from "./txn-row";
+import { EQUITY_ID_PREFIX, equityCategory, equityKind, VEST_LABEL } from "./equity-comp";
 
 const WRITE_CHUNK = 80;
 
@@ -132,9 +133,58 @@ export async function archiveTransactions(selector: { id?: string[]; plaidTransa
   await writeSnapshots(merged);
 }
 
+/**
+ * RSU vests and ESPP purchases live in the investment feed, which is dropped with the account.
+ * Keep a copy beside the bank rows, under an "inv:" id. Vests are stored as income (negative);
+ * ESPP purchases are stored as internal so spending ignores them. Never deletes.
+ */
+export async function archiveEquityEvents() {
+  if (!(await keeping())) return;
+  const rows = await prisma.investmentTxn.findMany({
+    where: { type: { notIn: ["sell", "cash", "fee", "cancel"] } },
+    include: { account: { include: { item: true } }, security: { select: { name: true, symbol: true } } },
+  });
+  const copies = rows.flatMap((t) => {
+    const kind = equityKind(t);
+    if (!kind) return [];
+    const security = t.security?.name || t.security?.symbol || "Company stock";
+    const value = Math.abs(t.amount);
+    return [
+      {
+        plaidTransactionId: EQUITY_ID_PREFIX + t.plaidInvestmentTxnId,
+        accountId: t.accountId,
+        date: t.date,
+        name: t.name,
+        merchant: kind === "vest" ? `${VEST_LABEL}: ${security}` : security,
+        rawMerchant: security,
+        accountName: accountLabel(t.account.name, t.account.item.institutionName),
+        accountMask: t.account.mask,
+        institutionName: t.account.item.institutionName,
+        owner: t.account.owner,
+        category: equityCategory(kind),
+        categoryDetailed: null,
+        amount: kind === "vest" ? -value : value,
+        isTransfer: false,
+        isCcPayment: false,
+        internal: kind === "espp",
+        cardMatch: null,
+        memo: null,
+      },
+    ];
+  });
+  for (let i = 0; i < copies.length; i += WRITE_CHUNK) {
+    await prisma.$transaction(
+      copies.slice(i, i + WRITE_CHUNK).map((row) =>
+        prisma.savedTxn.upsert({ where: { plaidTransactionId: row.plaidTransactionId }, create: row, update: row }),
+      ),
+    );
+  }
+}
+
 /** Upsert every posted transaction already on the ledger. Never deletes SavedTxn rows. */
 export async function backfillSavedTransactions() {
   if (!(await keeping())) return;
+  await archiveEquityEvents();
   const txns = await prisma.txn.findMany({
     where: { pending: false },
     include: { account: { include: { item: true } } },

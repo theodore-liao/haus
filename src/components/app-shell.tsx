@@ -50,10 +50,10 @@ export function AppShell({
   }
 
   return (
-    <div className="min-h-screen bg-background">
+    <div className="app-canvas min-h-screen">
       <UiScaleSync />
       <PlaidLinkHost />
-      <aside className="fixed inset-y-0 left-0 z-30 hidden w-[var(--nav-width)] border-r border-border bg-sidebar md:flex md:flex-col">
+      <aside className="nav-panel fixed inset-y-0 left-0 z-30 hidden w-[var(--nav-width)] border-r border-border md:flex md:flex-col">
         <div className="flex items-start justify-between gap-2 px-5 pb-6 pt-7">
           <div className="min-w-0">
             <div className="bg-gradient-to-r from-primary via-primary to-accent bg-clip-text text-lg font-medium tracking-[0.32em] text-transparent">

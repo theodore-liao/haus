@@ -81,7 +81,6 @@ export async function POST(req: Request) {
         update: {
           name: a.name,
           mask: a.mask ?? undefined,
-          hausType,
         },
       });
       accounts.push({

@@ -1,137 +1,147 @@
+"use client";
+
 import Link from "next/link";
-import { CircleCheck } from "lucide-react";
-import { Card, CardContent, CardHeader, CardTitle } from "./ui/card";
-import { Button } from "./ui/button";
+import { useMemo, useState } from "react";
+import { X } from "lucide-react";
+import { ChartCard } from "./chart-card";
 import { Money } from "./money";
-import { formatDate, formatDateTime } from "@/lib/format";
+import { colorFor } from "@/lib/category-colors";
+import { budgetStatus } from "@/lib/budget-window";
+import { summarizeBudget, type BudgetOutlookRow } from "@/lib/attention";
 import { cn } from "@/lib/utils";
-import type { AttentionItem } from "@/lib/attention";
 
-type Row = { tone: "negative" | "warning"; title: string; detail: React.ReactNode; href: string; action: string };
+export type RelinkNotice = { key: string; name: string };
 
-function describe(item: AttentionItem): Row {
-  switch (item.kind) {
-    case "relink":
-      return {
-        tone: "negative",
-        title: `${item.name} needs to be relinked`,
-        detail: item.message ?? "Sign in again to resume syncing.",
-        href: "/connections",
-        action: "Relink",
-      };
-    case "stale":
-      return {
-        tone: "warning",
-        title: `${item.name} has not synced lately`,
-        detail: `Last sync ${formatDateTime(item.lastSyncedAt)}.`,
-        href: "/connections",
-        action: "Check",
-      };
-    case "wallet":
-      return {
-        tone: "warning",
-        title: `${item.name} could not sync`,
-        detail: "Its balance may be out of date.",
-        href: "/crypto",
-        action: "Open",
-      };
-    case "utilization":
-      return {
-        tone: "warning",
-        title: `${item.name} is at ${Math.round(item.pct * 100)}% of its limit`,
-        detail: (
-          <>
-            <Money value={item.balance} /> of <Money value={item.limit} />. Above 30% can lower a credit score.
-          </>
-        ),
-        href: "/transactions",
-        action: "Review",
-      };
-    case "budget":
-      return {
-        tone: "negative",
-        title: `${item.category} is over budget`,
-        detail: (
-          <>
-            <Money value={item.spent} /> of <Money value={item.budget} /> this month.
-          </>
-        ),
-        href: "/spending",
-        action: "Open",
-      };
-    case "charge":
-      return {
-        tone: "warning",
-        title: item.usual == null ? `Large first charge from ${item.merchant}` : `Unusual charge from ${item.merchant}`,
-        detail:
-          item.usual == null ? (
-            <>
-              <Money value={item.amount} /> on {formatDate(item.date)}.
-            </>
-          ) : (
-            <>
-              <Money value={item.amount} /> on {formatDate(item.date)}. Usually <Money value={item.usual} />.
-            </>
-          ),
-        href: `/transactions?q=${encodeURIComponent(item.merchant)}`,
-        action: "Review",
-      };
-    case "renewal":
-      return {
-        tone: "warning",
-        title: `${item.label} renews ${item.days === 0 ? "today" : `in ${item.days} ${item.days === 1 ? "day" : "days"}`}`,
-        detail: `Renews ${formatDate(item.date)}.`,
-        href: "/insurance",
-        action: "Open",
-      };
+const CHIP = {
+  "on-track": { label: "On track", tone: "good" },
+  "over-pace": { label: "Over pace", tone: "warn" },
+  over: { label: "Over budget", tone: "bad" },
+} as const;
+
+/** Overview's budget card: is the month on track, and how each budgeted category is doing. */
+export function BudgetCard({
+  rows,
+  dismissed,
+  daysLeft,
+  elapsed,
+  notices,
+}: {
+  rows: BudgetOutlookRow[];
+  dismissed: string[];
+  daysLeft: number;
+  /** Share of the month gone, through today. */
+  elapsed: number;
+  notices: RelinkNotice[];
+}) {
+  const [hidden, setHidden] = useState(dismissed);
+  const shown = useMemo(() => rows.filter((r) => !hidden.includes(r.category)), [rows, hidden]);
+  const sum = useMemo(() => summarizeBudget(shown), [shown]);
+  const chip = CHIP[sum.status];
+
+  async function dismiss(category: string) {
+    const previous = hidden;
+    setHidden([...hidden, category]);
+    const res = await fetch("/api/budget-dismissed", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id: category }),
+    }).catch(() => null);
+    if (!res?.ok) setHidden(previous);
   }
-}
 
-/** Overview's to-do list. Says so plainly when there is nothing to do. */
-export function AttentionCard({ items }: { items: AttentionItem[] }) {
-  if (items.length === 0) {
-    return (
-      <Card>
-        <CardContent className="flex items-center gap-2 pt-[var(--space-card)] text-sm text-muted-foreground">
-          <CircleCheck className="h-4 w-4 shrink-0 text-positive" />
-          Nothing needs attention.
-        </CardContent>
-      </Card>
-    );
-  }
   return (
-    <Card>
-      <CardHeader row>
-        <div className="flex items-baseline gap-2">
-          <CardTitle>Needs attention</CardTitle>
-          <span className="footnote num">{items.length}</span>
-        </div>
-      </CardHeader>
-      <CardContent className="pt-0">
-        <ul className="divide-y divide-border">
-          {items.map((item) => {
-            const row = describe(item);
-            return (
-              <li key={item.key} className="flex min-w-0 items-center gap-3 py-2.5">
-                <span
-                  className={cn(
-                    "size-2 shrink-0 rounded-full",
-                    row.tone === "negative" ? "bg-negative" : "bg-accent",
-                  )}
-                  aria-hidden
-                />
-                <div className="min-w-0 flex-1">
-                  <div className="truncate text-sm">{row.title}</div>
-                  <div className="footnote truncate">{row.detail}</div>
-                </div>
-                <Button type="button" variant="outline" size="sm" asChild>
-                  <Link href={row.href}>{row.action}</Link>
-                </Button>
-              </li>
-            );
-          })}
-        </ul>
-      </CardContent>
-    </Card>
+    <ChartCard
+      kicker="Budget"
+      className="lg:absolute lg:inset-0 lg:h-auto max-lg:max-h-[30rem]"
+      actions={
+        rows.length > 0 ? (
+          <span className="normal-case tracking-normal text-muted-foreground">
+            {daysLeft} {daysLeft === 1 ? "day" : "days"} left
+          </span>
+        ) : null
+      }
+    >
+      {rows.length === 0 ? (
+        <p className="text-sm text-muted-foreground">
+          No budgets set yet.{" "}
+          <Link href="/spending#budget" className="text-foreground underline underline-offset-2">
+            Set a monthly budget
+          </Link>{" "}
+          to see whether the month is on track.
+        </p>
+      ) : (
+        <>
+          {shown.length > 0 ? (
+            <div className="mb-3">
+              <span className="status-chip" data-tone={chip.tone}>
+                {chip.label}
+              </span>
+              <p className="footnote mt-1.5">
+                Spent <Money value={sum.spent} /> of <Money value={sum.budget} /> · on pace for about{" "}
+                <Money value={sum.projected} /> by month end
+              </p>
+            </div>
+          ) : (
+            <p className="mb-3 text-sm text-muted-foreground">Every budget is dismissed until next month.</p>
+          )}
+          {notices.map((n) => (
+            <div key={n.key} className="footnote mb-2 flex items-center justify-between gap-2">
+              <span className="min-w-0 truncate">{n.name} needs to be relinked.</span>
+              <Link href="/connections" className="shrink-0 text-foreground underline underline-offset-2">
+                Relink
+              </Link>
+            </div>
+          ))}
+          <ul className="soft-scroll min-h-0 flex-1 space-y-3 pr-1">
+            {shown.map((r) => {
+              const status = budgetStatus(r.spent, r.budget, elapsed);
+              const over = status === "over";
+              const left = Math.abs(r.budget - r.spent);
+              const width = r.budget > 0 ? Math.min(100, (r.spent / r.budget) * 100) : r.spent > 0 ? 100 : 0;
+              const color = over ? "var(--negative)" : status === "ahead" ? "var(--accent)" : colorFor(r.category);
+              return (
+                <li key={r.category}>
+                  <div className="flex min-w-0 items-center gap-2">
+                    <span className="size-2 shrink-0 rounded-sm" style={{ background: colorFor(r.category) }} />
+                    <span className="min-w-0 flex-1 truncate text-sm">{r.category}</span>
+                    <span
+                      className={cn(
+                        "num text-xs",
+                        over ? "text-negative" : status === "ahead" ? "text-accent" : "text-muted-foreground",
+                      )}
+                    >
+                      <Money value={left} /> {over ? "over" : "left"}
+                    </span>
+                    <button
+                      type="button"
+                      className="cursor-pointer text-muted-foreground hover:text-foreground"
+                      aria-label={`Dismiss ${r.category} until next month`}
+                      title="Dismiss until next month"
+                      onClick={() => void dismiss(r.category)}
+                    >
+                      <X className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
+                  <div className="relative mt-1 ml-4 h-1 rounded-full bg-secondary">
+                    <div className="h-full overflow-hidden rounded-full">
+                      <div className="h-full rounded-full" style={{ width: `${width}%`, background: color }} />
+                    </div>
+                    <span
+                      aria-hidden
+                      className="absolute -top-0.5 h-2 w-px bg-foreground/70"
+                      style={{ left: `${Math.min(100, elapsed * 100)}%` }}
+                    />
+                  </div>
+                  <div className="footnote mt-1 pl-4">
+                    <Money value={r.spent} /> of <Money value={r.budget} />
+                    {status === "ahead" ? " · ahead of pace" : null}
+                  </div>
+                </li>
+              );
+            })}
+          </ul>
+        </>
+      )}
+    </ChartCard>
   );
 }

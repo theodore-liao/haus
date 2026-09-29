@@ -151,7 +151,7 @@ export function NavRail({
                 isSource ? "opacity-30" : "transition-colors",
                 !isSource &&
                   (active
-                    ? "bg-secondary text-foreground shadow-[inset_0_1px_0_rgba(232,220,198,0.08)]"
+                    ? "nav-item-active"
                     : "text-muted-foreground hover:bg-secondary/50 hover:text-foreground"),
               )}
             >
@@ -163,7 +163,7 @@ export function NavRail({
                   if (drag) e.preventDefault();
                 }}
               >
-                <span className={cn("h-4 w-px rounded", active ? "bg-primary" : "bg-transparent")} />
+                <span className={cn("h-4 w-0.5 rounded-full", active ? "bg-primary" : "bg-transparent")} />
                 <Icon className="h-4 w-4 shrink-0" />
                 <span className="truncate">{item.label}</span>
               </Link>

@@ -7,7 +7,8 @@ import { LargestMoves, type AssetMover } from "@/components/largest-moves";
 import { ManualStockFormDialog, type ManualStock } from "@/components/manual-stocks";
 import { FIXED_USD_ID } from "@/lib/constants";
 import type { ValuePoint } from "@/lib/history";
-import { StocksOverview } from "./overview";
+import { lastDays } from "@/lib/sparkline";
+import { SparklineAside } from "@/components/sparkline-aside";
 
 export function InvestmentsDesk({
   names,
@@ -50,6 +51,7 @@ export function InvestmentsDesk({
   };
   });
   const donutRows = [...manualRows, ...rows];
+  const spark = useMemo(() => lastDays(path, 30), [path]);
 
   return (
     <>
@@ -57,15 +59,10 @@ export function InvestmentsDesk({
         rows={donutRows}
         tableRows={donutRows}
         heroSummary
+        heroAside={<SparklineAside points={spark.points} change={spark.change} pct={spark.pct} />}
         donutsFirst
-        accountFirst
-        afterHero={
-          <StocksOverview
-            rows={donutRows}
-            path={path}
-            moves={<LargestMoves movers={movers.filter((m) => m.kind === "security" && !m.retirement)} />}
-          />
-        }
+        hideClass
+        besideAccount={<LargestMoves movers={movers.filter((m) => m.kind === "security" && !m.retirement)} />}
         onEditManual={(id) => {
           const row = byId.get(id);
           if (!row) return;

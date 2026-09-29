@@ -15,7 +15,7 @@ import { PNG } from "pngjs";
 
 const root = path.resolve(import.meta.dirname, "..");
 const outRoot = path.join(root, ".grok");
-const ALL_PAGES = ["/", "/spending", "/transactions", "/investments", "/crypto", "/retirement", "/property", "/insurance", "/insights", "/connections", "/settings"];
+const ALL_PAGES = ["/", "/spending", "/transactions", "/investments", "/crypto", "/retirement", "/goals", "/property", "/insurance", "/insights", "/connections", "/settings"];
 const SHOT_SIZES = [
   { width: 2560, height: 1440 },
   { width: 1920, height: 1080 },

@@ -18,6 +18,7 @@ import type { TxnRow } from "@/lib/txn-row";
 import Link from "next/link";
 import { TransactionsTable } from "../transactions/table";
 import { TxnExport } from "@/components/txn-export";
+import type { PlanChildPref } from "@/lib/projection-prefs";
 
 type ChildRow = { id: string; name: string };
 
@@ -33,6 +34,7 @@ export function SettingsClient({
   tabs: initialTabs,
   connectionCount,
   lastSynced,
+  planChildren,
 }: {
   nameA: string;
   nameB: string;
@@ -45,6 +47,8 @@ export function SettingsClient({
   tabs: TabVisibility;
   connectionCount: number;
   lastSynced: string | null;
+  /** The retirement planner's children, which carry birth years and planned children. */
+  planChildren: PlanChildPref[];
 }) {
   const router = useRouter();
   const [t, setT] = useState(nameA);
@@ -53,6 +57,19 @@ export function SettingsClient({
   const [dobB, setDobB] = useState(birthdateB ?? "");
   const [kids, setKids] = useState(initialChildren);
   const [newChild, setNewChild] = useState("");
+  const [births, setBirths] = useState<Record<string, string>>(() =>
+    Object.fromEntries(planChildren.filter((c) => c.birthYear != null).map((c) => [c.id, String(c.birthYear)])),
+  );
+  const thisYear = new Date().getFullYear();
+  // A bad year is pointed out once Save is pressed, not while the year is still being typed.
+  const [birthChecked, setBirthChecked] = useState(false);
+  const badBirth = kids.find((k) => {
+    const raw = births[k.id]?.trim();
+    if (!raw) return false;
+    const n = Number(raw);
+    // Same bounds as the Retirement planner, which also holds planned children.
+    return !Number.isInteger(n) || n < 1900 || n > thisYear + 40;
+  });
   const [busy, setBusy] = useState(false);
   const [pairCards, setPairCards] = useState(pairCardPayments);
   const [keepTxns, setKeepTxns] = useState(keepTransactions);
@@ -65,6 +82,8 @@ export function SettingsClient({
   const [wiping, setWiping] = useState(false);
 
   async function saveNames() {
+    setBirthChecked(true);
+    if (badBirth) return;
     setBusy(true);
     try {
       const res = await fetch("/api/household", {
@@ -90,6 +109,21 @@ export function SettingsClient({
           toast.error("Could not save a child name.");
           return;
         }
+      }
+      // Birth years live with the retirement planner, which uses them for kid and college costs.
+      const known = kids.map((k) => {
+        const raw = births[k.id]?.trim();
+        return { id: k.id, name: k.name.trim(), birthYear: raw ? Number(raw) : null, planned: false};
+      });
+      const planned = planChildren.filter((c) => c.planned && !kids.some((k) => k.id === c.id));
+      const prefs = await fetch("/api/household", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ projectionPrefs: { planChildren: [...known, ...planned].slice(0, 12) } }),
+      });
+      if (!prefs.ok) {
+        toast.error("Could not save birth years.");
+        return;
       }
       toast.success("Household saved.");
       router.refresh();
@@ -237,6 +271,7 @@ export function SettingsClient({
 
   return (
     <div className="grid min-w-0 items-start gap-4 lg:grid-cols-2 [&>*]:min-w-0">
+      <div className="grid gap-4">
       <Card>
         <CardHeader>
           <CardTitle>Household</CardTitle>
@@ -258,43 +293,63 @@ export function SettingsClient({
             <Label>{j || "Spouse"} birthdate</Label>
             <Input type="date" className="mt-1.5" value={dobB} onChange={(e) => setDobB(e.target.value)} />
           </div>
-          <p className="footnote sm:col-span-2">
-            Birthdates drive the retirement projection (years to retirement age) and never leave this machine.
-          </p>
+          <p className="footnote sm:col-span-2">Birthdates set ages in the retirement planner.</p>
           <div className="space-y-3 sm:col-span-2">
             <div>
-              <Label>Child Accounts</Label>
+              <Label>Children</Label>
               <p className="mt-1 text-xs text-muted-foreground">
-                Used to label 529s, custodial accounts, and Trump Accounts.
+                Names label child accounts. Birth years set kid and college costs in the retirement planner.
               </p>
             </div>
             {kids.length === 0 ? (
               <p className="text-sm text-muted-foreground">No children yet.</p>
             ) : (
               <ul className="space-y-2">
-                {kids.map((k) => (
-                  <li key={k.id} className="flex items-center gap-2">
-                    <Input
-                      value={k.name}
-                      onChange={(e) =>
-                        setKids((cur) => cur.map((c) => (c.id === k.id ? { ...c, name: e.target.value } : c)))
-                      }
-                    />
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant="outline"
-                      disabled={busy}
-                      onClick={() => removeChild(k.id)}
-                    >
-                      Remove
-                    </Button>
-                  </li>
-                ))}
+                <li className="child-row" aria-hidden>
+                  <span className="kicker">Name</span>
+                  <span className="kicker">Birth year</span>
+                  <span />
+                </li>
+                {kids.map((k) => {
+                  const wrong = birthChecked && badBirth?.id === k.id;
+                  return (
+                    <li key={k.id}>
+                      <div className="child-row">
+                        <Input
+                          value={k.name}
+                          aria-label="Child's name"
+                          onChange={(e) =>
+                            setKids((cur) => cur.map((c) => (c.id === k.id ? { ...c, name: e.target.value } : c)))
+                          }
+                        />
+                        <Input
+                          className="font-mono"
+                          inputMode="numeric"
+                          maxLength={4}
+                          placeholder={String(thisYear - 5)}
+                          aria-label={`${k.name || "Child"}'s birth year`}
+                          aria-invalid={wrong ? true : undefined}
+                          value={births[k.id] ?? ""}
+                          onChange={(e) => setBirths((cur) => ({ ...cur, [k.id]: e.target.value.replace(/[^\d]/g, "") }))}
+                        />
+                        <Button type="button" size="sm" variant="outline" disabled={busy} onClick={() => removeChild(k.id)}>
+                          Remove
+                        </Button>
+                      </div>
+                      {wrong ? (
+                        <p className="field-note mt-1" data-error="">
+                          Use a year from 1900 to {thisYear + 40}.
+                        </p>
+                      ) : null}
+                    </li>
+                  );
+                })}
               </ul>
             )}
-            <div className="flex items-center gap-2">
+            <div className="child-row">
               <Input
+                className="col-span-2"
+                aria-label="New child's name"
                 placeholder="Add a child"
                 value={newChild}
                 onChange={(e) => setNewChild(e.target.value)}
@@ -313,16 +368,6 @@ export function SettingsClient({
               Save household
             </Button>
           </div>
-        </CardContent>
-      </Card>
-
-      <div className="grid gap-4">
-      <Card>
-        <CardHeader>
-          <CardTitle>Display</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <DisplayPrefs />
         </CardContent>
       </Card>
 
@@ -345,6 +390,29 @@ export function SettingsClient({
               </label>
             );
           })}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Privacy &amp; session</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-3 text-sm leading-6 text-muted-foreground">
+          <p>Plaid holds your bank logins. Haus keeps its data in a database on this computer.</p>
+          <Button variant="outline" size="sm" onClick={logout}>
+            Log out
+          </Button>
+        </CardContent>
+      </Card>
+      </div>
+
+      <div className="grid gap-4">
+      <Card>
+        <CardHeader>
+          <CardTitle>Display</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <DisplayPrefs />
         </CardContent>
       </Card>
 
@@ -416,20 +484,6 @@ export function SettingsClient({
         </CardContent>
       </Card>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Privacy &amp; session</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-3 text-sm leading-6 text-muted-foreground">
-          <p>
-            Plaid access tokens never leave the server. The ledger lives in a local SQLite database. There is no
-            public site, no OAuth login, and no money movement.
-          </p>
-          <Button variant="outline" size="sm" onClick={logout}>
-            Log out
-          </Button>
-        </CardContent>
-      </Card>
       </div>
       <Dialog open={showSaved} onOpenChange={setShowSaved}>
         <DialogContent className="flex max-h-[min(90vh,820px)] max-w-[min(96vw,88rem)] flex-col overflow-hidden">

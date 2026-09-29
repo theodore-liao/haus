@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useId, useMemo, useRef, useState, type CSSProperties } from "react";
+import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import {
   Area,
   AreaChart,
@@ -177,8 +177,9 @@ export function NetWorthChart({
           <AreaChart data={rows} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
             <defs>
               <linearGradient id="nw" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0%" stopColor={ICE} stopOpacity={0.42} />
-                <stop offset="100%" stopColor={ICE} stopOpacity={0} />
+                <stop offset="0%" stopColor="#5E97D8" stopOpacity={0.5} />
+                <stop offset="75%" stopColor="#5E97D8" stopOpacity={0.08} />
+                <stop offset="100%" stopColor="#5E97D8" stopOpacity={0} />
               </linearGradient>
               <linearGradient id="nw-assets" x1="0" y1="0" x2="0" y2="1">
                 <stop offset="0%" stopColor={ASSET_FILL} stopOpacity={0.32} />
@@ -209,7 +210,7 @@ export function NetWorthChart({
                 <Area type="monotone" dataKey="netWorth" name="Net worth" stroke={ICE} fill="none" strokeWidth={2} />
               </>
             ) : (
-              <Area type="monotone" dataKey="netWorth" name={name} stroke={ICE} fill="url(#nw)" strokeWidth={2} />
+              <Area type="monotone" dataKey="netWorth" name={name} stroke="#9CC4EE" fill="url(#nw)" strokeWidth={2.25} />
             )}
           </AreaChart>
         </ResponsiveContainer>
@@ -263,6 +264,31 @@ export function SavingsRateTrend({ data }: { data: { label: string; rate: number
 }
 
 export type AllocSlice = { key: string; value: number; members?: string[]; items?: SliceItem[] };
+
+/**
+ * Shifts its content by the fraction of a pixel the layout left it on, so a ring's edges land on whole pixels and
+ * stay crisp instead of being smeared across two.
+ */
+function PixelSnap({ children }: { children: React.ReactNode }) {
+  const ref = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    const el = ref.current;
+    const parent = el?.parentElement;
+    if (!el || !parent) return;
+    const snap = () => {
+      const r = parent.getBoundingClientRect();
+      const dx = Math.round(r.left) - r.left;
+      const dy = Math.round(r.top) - r.top;
+      el.style.transform = dx || dy ? `translate(${dx.toFixed(3)}px, ${dy.toFixed(3)}px)` : "";
+    };
+    snap();
+    const ro = new ResizeObserver(snap);
+    ro.observe(parent);
+    ro.observe(document.documentElement);
+    return () => ro.disconnect();
+  }, []);
+  return <div ref={ref}>{children}</div>;
+}
 
 export function AllocationChart({
   data,
@@ -355,6 +381,7 @@ export function AllocationChart({
     <>
     <div className={cn("donut-row", size === "large" && "donut-row-large", className)}>
     <div className="donut">
+      <PixelSnap>
         <ResponsiveContainer width="100%" height="100%">
           <PieChart
             id={chartId}
@@ -370,7 +397,8 @@ export function AllocationChart({
               cy="50%"
               innerRadius="56%"
               outerRadius="96%"
-              paddingAngle={1.2}
+              paddingAngle={1.6}
+              cornerRadius={4}
               stroke="none"
               isAnimationActive={false}
               label={
@@ -417,6 +445,7 @@ export function AllocationChart({
             <Tooltip content={<DonutTip total={total} />} />
           </PieChart>
         </ResponsiveContainer>
+      </PixelSnap>
     </div>
       <ul className="legend">
         {all.map((r, i) => {
@@ -965,14 +994,23 @@ function RainbowLink({
     tgtName === TO_INVESTMENTS;
   const leaf = !isSankeyHub(tgtName) ? payload?.target : payload?.source;
   const stroke = nodeColor(leaf as { color?: string; name?: string; label?: string }) ?? colorFor(tgtName || srcName);
+  // Each flow is palest at the Income hub and full color at its own category, so the hub reads as a hand-off point.
+  const hubAtStart = leaf === payload?.target;
+  const id = `sk-${(srcName + "-" + tgtName).replace(/[^a-z0-9]+/gi, "-")}`;
   return (
+    <>
+      <defs>
+        <linearGradient id={id} gradientUnits="userSpaceOnUse" x1={sourceX} x2={targetX} y1={0} y2={0}>
+          <stop offset="0%" stopColor={stroke} stopOpacity={hubAtStart ? 0.38 : 0.85} />
+          <stop offset="100%" stopColor={stroke} stopOpacity={hubAtStart ? 0.85 : 0.38} />
+        </linearGradient>
+      </defs>
     <path
       d={d}
       fill="none"
-      stroke={stroke}
+      stroke={`url(#${id})`}
       strokeWidth={Math.max(Number(linkWidth) || 2, 2)}
-      strokeOpacity={0.72}
-      className={clickable ? "cursor-pointer" : undefined}
+      className={cn("sankey-link", clickable ? "cursor-pointer" : undefined)}
       onClick={() => {
         if (tgtName === FROM_SAVINGS) onBalanceClick?.("from-savings");
         else if (tgtName === TO_INVESTMENTS) onBalanceClick?.("to-investments");
@@ -980,6 +1018,7 @@ function RainbowLink({
         else if (onIncomeClick && incomeNames?.has(srcName)) onIncomeClick(srcName);
       }}
     />
+    </>
   );
 }
 
@@ -1067,7 +1106,8 @@ function SankeyNode({
 
 function wrapLabel(name: string, width = 13): string[] {
   if (name.length <= width) return [name];
-  const words = name.split(/\s+/);
+  // A slash is a break point too, so "savings/investments" splits after the slash, not mid-word.
+  const words = name.split(/\s+/).flatMap((w) => (w.length > width && w.includes("/") ? w.split(/(?<=\/)/) : [w]));
   const lines: string[] = [];
   let cur = "";
   for (const word of words) {

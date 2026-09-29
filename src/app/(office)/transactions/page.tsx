@@ -19,6 +19,7 @@ export default async function TransactionsPage({
       <>
         <PageHeader title="Transactions" />
         <EmptyLedger
+          page="/transactions"
           title="No transactions"
           body="Connect institutions with the Transactions product. Haus stores the full available history and never asks for a spreadsheet."
         />

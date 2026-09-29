@@ -5,11 +5,11 @@
 /* Tokens only. Type roles and shared blocks live in haus.css. Geist + Geist Mono, self-hosted. */
 
 :root {
-  --background: #0b1320;
+  --background: #0a111d;
   --foreground: #eef3f9;
-  --card: #152033;
+  --card: #142032;
   --card-elevated: #1c2a42;
-  --sidebar: #08101a;
+  --sidebar: #070e18;
   --secondary: #1e2c44;
   --muted: #8fa0b8;
   --muted-foreground: #8fa0b8;
@@ -17,7 +17,7 @@
   --primary-foreground: #071018;
   --accent: #cbb892;
   --accent-foreground: #14110c;
-  --border: rgba(196, 210, 228, 0.12);
+  --border: rgba(170, 196, 228, 0.13);
   --input: rgba(196, 210, 228, 0.2);
   --ring: #b7d0e8;
   --positive: #6fc4b0;
@@ -58,8 +58,8 @@ body {
   letter-spacing: -0.011em;
   background-color: var(--background);
   background-image:
-    radial-gradient(ellipse 80% 50% at 8% -10%, rgba(183, 208, 232, 0.16), transparent 52%),
-    radial-gradient(ellipse 55% 40% at 100% 0%, rgba(203, 184, 146, 0.1), transparent 46%),
+    radial-gradient(ellipse 70% 45% at 20% -12%, rgba(96, 146, 214, 0.2), transparent 60%),
+    radial-gradient(ellipse 55% 40% at 100% 0%, rgba(203, 184, 146, 0.09), transparent 48%),
     radial-gradient(ellipse 70% 45% at 90% 110%, rgba(111, 196, 176, 0.08), transparent 50%),
     radial-gradient(ellipse 50% 30% at 0% 100%, rgba(20, 40, 70, 0.55), transparent 55%);
   background-attachment: fixed;

@@ -1,5 +1,4 @@
-// Summary figures for a list of holdings, concentration, and dividends. Pure for tests.
-import { CONCENTRATION_FLAG } from "./constants";
+// Summary figures for a list of holdings, and dividends. Pure for tests.
 
 type Row = { symbol: string | null; name: string; value: number; costBasis: number | null; dayPl: number | null };
 
@@ -34,23 +33,6 @@ export function portfolioSummary(rows: Row[]): PortfolioSummary {
     costed: withCost.length,
     count: rows.length,
   };
-}
-
-/** Positions (grouped by symbol, or name when there is none) above the flag share of the total. */
-export function concentrated(rows: Row[], threshold = CONCENTRATION_FLAG) {
-  const total = rows.reduce((s, r) => s + Math.max(0, r.value), 0);
-  if (total <= 0) return [];
-  const byKey = new Map<string, { label: string; value: number }>();
-  for (const r of rows) {
-    const label = r.symbol?.trim().toUpperCase() || r.name;
-    const cur = byKey.get(label) ?? { label, value: 0 };
-    cur.value += Math.max(0, r.value);
-    byKey.set(label, cur);
-  }
-  return [...byKey.values()]
-    .map((p) => ({ ...p, weight: p.value / total }))
-    .filter((p) => p.weight > threshold)
-    .sort((a, b) => b.weight - a.weight);
 }
 
 export function isDividend(t: { type: string; subtype: string | null; name: string }) {

@@ -5,6 +5,7 @@ import { BrandLabel } from "@/components/brand-mark";
 import { Delta } from "@/components/money";
 import { cn } from "@/lib/utils";
 import { kickerClass } from "@/components/type";
+import { CardIcon } from "@/components/card-icon";
 import { DEFAULT_MOVERS_WINDOW, storedMoversWindow, type MoversWindow } from "@/lib/prefs";
 export type AssetMover = {
   id: string;
@@ -50,8 +51,11 @@ export function LargestMoves({ movers }: { movers: AssetMover[] }) {
 
   return (
     <section className="chart-card">
-      <div className="kicker">
-        <span>Largest moves</span>
+      <div className="kicker card-title">
+        <span className="inline-flex items-center">
+          <CardIcon title="Largest moves" />
+          Largest moves
+        </span>
         <div className="flex rounded-md border border-border p-0.5">
           {WINDOWS.map((w) => (
             <button

@@ -10,7 +10,7 @@ import {
   isRetirementAccount,
   isRetirementType,
 } from "./account-types";
-import { CONCENTRATION_FLAG, FIXED_USD_ID, HIGH_UTILIZATION, INSURANCE_RENEWAL_DAYS, IRS_LIMITS, IRS_LIMITS_YEAR, PFC_LABELS, STALE_CONNECTION_HOURS, categoryLabel, incomeSourceLabel } from "./constants";
+import { FIXED_USD_ID, IRS_LIMITS, IRS_LIMITS_YEAR, PFC_LABELS, categoryLabel, incomeSourceLabel } from "./constants";
 import { loadCardPaymentFlags } from "./card-payments";
 import { effectiveCategory, isInternalMove, isInvestFunding, isTransferCategory, recurringMerchantKey, txnMerchantKey } from "./categories";
 import { dayKey, ymKey } from "./range";
@@ -45,9 +45,9 @@ function notHidden<T extends { userMerchant?: string | null; merchantName?: stri
   return rows.filter((t) => !hidden.has(txnMerchantKey(t)));
 }
 import { parseJson } from "./utils";
-import { ellipsize, formatHoldingClass, formatMoney, startOfDay } from "./format";
+import { ellipsize, formatHoldingClass, startOfDay } from "./format";
 import { differenceInCalendarDays, subDays } from "date-fns";
-import { accountLabel } from "./account-label";
+import { accountLabel, withoutInstitution } from "./account-label";
 import { reconstructNetWorthPath, type PathPoint } from "./history";
 import { coinGeckoId, cryptoSpanMoves, ensurePriceHistory, equityDayMoves, historyAgreesWithSpot, isOptionSymbol, loadPriceMap, optionPremiumScale, priceOnOrBefore, quoteSymbol, RECENT_CLOSE_DAYS } from "./quotes";
 import { closeDaysAgo } from "./price-window";
@@ -58,9 +58,18 @@ import { buildAttention } from "./attention";
 import { inferRecurring } from "./recurring";
 export { inferRecurring };
 import { listBudgets } from "./budgets";
+import { buildInsights, rankInsights, topActions, type Debt } from "./insights";
+import { readProjectionPrefs } from "./projection-prefs";
+import { PLAN_DEFAULTS, estimateSaving, mergeChildren, retirementSnapshot } from "./retirement-snapshot";
+import { EQUITY_ID_PREFIX, VEST_LABEL, equityKind, equityKindOfCategory, trailingYear, type EquityEvent } from "./equity-comp";
+import { realReturn } from "./retirement-plan";
+import { mustPayMonthly } from "./emergency-fund";
+import { readShowGoals } from "./goals";
+import { OUTSIDE_DEPOSIT_LABEL, isBrokerageDeposit, unmatchedDeposits } from "./outside-deposits";
 import type { FlowRow } from "./spend-net";
 
 export async function getNames() {
+  const showGoals = await readShowGoals();
   const household = await ensureHousehold();
   const children = await prisma.child.findMany({ orderBy: { name: "asc" } });
   return {
@@ -76,6 +85,7 @@ export async function getNames() {
       property: household.showProperty,
       insurance: household.showInsurance,
       insights: household.showInsights,
+      goals: showGoals,
     },
     keepTransactions: household.keepTransactions,
     children,
@@ -923,22 +933,6 @@ export async function getInvestments(filter: OwnerFilter) {
     byOwner[r.ownerLabel] = (byOwner[r.ownerLabel] ?? 0) + r.value;
   }
 
-  const taxableTotal = withWeight.filter((r) => r.taxable).reduce((s, r) => s + r.value, 0);
-  const concentration = withWeight
-    .filter((r) => r.taxable && r.symbol)
-    .reduce<Record<string, number>>((acc, r) => {
-      acc[r.symbol!] = (acc[r.symbol!] ?? 0) + r.value;
-      return acc;
-    }, {});
-  const flags = Object.entries(concentration)
-    .map(([symbol, value]) => ({
-      symbol,
-      value,
-      weight: taxableTotal > 0 ? value / taxableTotal : 0,
-    }))
-    .filter((x) => x.weight > CONCENTRATION_FLAG)
-    .sort((a, b) => b.weight - a.weight);
-
   const trades = (
     await prisma.investmentTxn.findMany({
       include: { account: { include: { item: true } }, security: true },
@@ -1009,7 +1003,6 @@ export async function getInvestments(filter: OwnerFilter) {
     byClass: Object.entries(byClass).map(([k, v]) => ({ key: k, value: v })),
     byAccount: Object.entries(byAccount).map(([k, v]) => ({ key: k, value: v })),
     byOwner: Object.entries(byOwner).map(([k, v]) => ({ key: k, value: v })),
-    flags,
     trades,
     hasQuotes: scoped.some((h) => h.quotePrice != null),
   };
@@ -1352,6 +1345,51 @@ export async function getChildrenView() {
   return { names, accounts, manuals, contribs };
 }
 
+/**
+ * RSU vests and ESPP purchases in the linked brokerages. Live rows come from the investment feed;
+ * saved copies (when transaction history is kept) fill in after an account is unlinked.
+ */
+export async function getEquityComp(filter: OwnerFilter, now = new Date()) {
+  const [live, saved, accounts, firstLive] = await Promise.all([
+    prisma.investmentTxn.findMany({
+      where: { type: { notIn: ["sell", "cash", "fee", "cancel"] } },
+      include: { account: { select: { owner: true } }, security: { select: { name: true, symbol: true } } },
+    }),
+    prisma.savedTxn.findMany({ where: { plaidTransactionId: { startsWith: EQUITY_ID_PREFIX } } }),
+    prisma.account.findMany({ select: { id: true, owner: true } }),
+    prisma.investmentTxn.aggregate({ _min: { date: true } }),
+  ]);
+  const ownerByAccount = new Map(accounts.map((a) => [a.id, a.owner]));
+  const events: EquityEvent[] = [];
+  const liveIds = new Set<string>();
+  for (const t of live) {
+    liveIds.add(EQUITY_ID_PREFIX + t.plaidInvestmentTxnId);
+    const kind = equityKind(t);
+    if (!kind || !matchesOwner(t.account.owner, filter)) continue;
+    events.push({
+      id: EQUITY_ID_PREFIX + t.plaidInvestmentTxnId,
+      date: dayKey(t.date),
+      kind,
+      amount: Math.abs(t.amount),
+      security: t.security?.name || t.security?.symbol || "Company stock",
+    });
+  }
+  let dataStart = firstLive._min.date ? dayKey(firstLive._min.date) : null;
+  for (const s of saved) {
+    const day = dayKey(s.date);
+    if (!dataStart || day < dataStart) dataStart = day;
+    const kind = equityKindOfCategory(s.category);
+    if (!kind || liveIds.has(s.plaidTransactionId) || !matchesOwner(savedOwnerNow(s, ownerByAccount), filter)) continue;
+    events.push({ id: s.plaidTransactionId, date: day, kind, amount: Math.abs(s.amount), security: s.rawMerchant || "Company stock" });
+  }
+  events.sort((a, b) => b.date.localeCompare(a.date));
+  return {
+    events,
+    vests: trailingYear(events, "vest", now, dataStart),
+    espp: trailingYear(events, "espp", now, dataStart),
+  };
+}
+
 export async function getReports(filter: OwnerFilter) {
   const [visible, ignoredRecurring, hidden, ledgerIds, accountOwners] = await Promise.all([
     loadVisibleTxns(filter),
@@ -1431,6 +1469,20 @@ export async function getReports(filter: OwnerFilter) {
 
   for (const t of txns) pushLive(t);
 
+  const equity = await getEquityComp(filter);
+  for (const e of equity.events) {
+    if (e.kind !== "vest") continue;
+    flows.push({ id: e.id, date: e.date, month: e.date.slice(0, 7), kind: "income", category: VEST_LABEL, merchant: `${VEST_LABEL}: ${e.security}`, amount: e.amount });
+  }
+
+  // Cash arriving in a brokerage with nothing leaving a linked account to match it came from an account Haus
+  // can't see. It is income, and it goes straight to investments.
+  for (const d of await outsideBrokerageDeposits(filter)) {
+    const merchant = `${d.institution} deposit`;
+    flows.push({ id: `outside:${d.id}`, date: d.date, month: d.date.slice(0, 7), kind: "income", category: OUTSIDE_DEPOSIT_LABEL, merchant, amount: d.amount });
+    flows.push({ id: `outside-invest:${d.id}`, date: d.date, month: d.date.slice(0, 7), kind: "invest", category: "To investments", merchant, amount: d.amount });
+  }
+
   // Older months Plaid no longer returns stay in the month table via the saved copy.
   const archived = await prisma.savedTxn.findMany({ orderBy: { date: "desc" } });
   // A month is only complete once every saved institution reaches it. The binding date is the
@@ -1439,6 +1491,8 @@ export async function getReports(filter: OwnerFilter) {
   const earliestByInstitution = new Map<string, string>();
   let archiveCoversFrom: string | null = null;
   for (const s of archived) {
+    // Vests and ESPP purchases are read by getEquityComp above.
+    if (s.plaidTransactionId.startsWith(EQUITY_ID_PREFIX)) continue;
     const owner = savedOwnerNow(s, ownerByAccount);
     if (!matchesOwner(owner, filter)) continue;
     const date = dayKey(s.date);
@@ -1492,225 +1546,270 @@ export async function getReports(filter: OwnerFilter) {
   };
 }
 
-export type InsightCard = {
-  section: string;
-  title: string;
-  math: string;
-  value: string;
-  tone: "neutral" | "positive" | "negative";
-};
+/** Brokerage deposits in this filter that no outflow from another linked account explains. */
+async function outsideBrokerageDeposits(filter: OwnerFilter) {
+  const rows = await prisma.investmentTxn.findMany({
+    where: { amount: { lt: 0 }, type: { in: ["transfer", "cash"] } },
+    include: { account: { include: { item: true } } },
+  });
+  // Retirement and child accounts are left out: what goes into them is already counted as a contribution.
+  const deposits = rows
+    .filter(
+      (t) =>
+        matchesOwner(t.account.owner, filter) &&
+        !isRetirementAccount(t.account) &&
+        !isChildAccountType(t.account.hausType) &&
+        isBrokerageDeposit(t),
+    )
+    .map((t) => ({
+      id: t.id,
+      date: dayKey(t.date),
+      amount: Math.abs(t.amount),
+      accountId: t.accountId,
+      institution: t.account.item.institutionName ?? "Brokerage",
+    }));
+  if (!deposits.length) return [];
+  // Every account counts as a possible source, whoever owns it: a transfer between spouses is still internal.
+  const [live, saved] = await Promise.all([
+    prisma.txn.findMany({ where: { amount: { gt: 0 } }, select: { date: true, amount: true, accountId: true, account: { select: { itemId: true } } } }),
+    prisma.savedTxn.findMany({ where: { amount: { gt: 0 } }, select: { date: true, amount: true, accountId: true, institutionName: true } }),
+  ]);
+  // Only judge deposits once every linked bank's history reaches them; before that a missing match proves nothing.
+  const earliest = new Map<string, string>();
+  const note = (key: string, day: string) => {
+    const prev = earliest.get(key);
+    if (!prev || day < prev) earliest.set(key, day);
+  };
+  for (const t of live) note(t.account.itemId, dayKey(t.date));
+  for (const s of saved) if (s.institutionName) note(`saved:${s.institutionName}`, dayKey(s.date));
+  const coveredFrom = [...earliest.values()].reduce((m, d) => (d > m ? d : m), "");
+  const outflows = [
+    ...live.map((o) => ({ date: dayKey(o.date), amount: o.amount, accountId: o.accountId })),
+    ...saved.map((o) => ({ date: dayKey(o.date), amount: o.amount, accountId: o.accountId ?? "" })),
+  ];
+  const judged = deposits.filter((d) => coveredFrom && d.date >= addDaysIso(coveredFrom, 5));
+  return unmatchedDeposits(judged, outflows);
+}
 
-/** Advisor-style ratios. Each card states its own arithmetic so the number is auditable at a glance. */
+const BOND_NAME = /\b(bond|treasur|fixed income|t-bill|municipal|aggregate)/i;
+
+/** A planner's checkup of the household, each measure against a common rule of thumb. */
 export async function getInsights(filter: OwnerFilter) {
   const now = new Date();
-  const [cashflow, overview, reports, accounts] = await Promise.all([
-    getCashflow(filter, now, false),
-    getOverview(filter),
-    getReports(filter),
-    prisma.account.findMany({ include: { item: true } }),
-  ]);
+  const today = now.toISOString().slice(0, 10);
+  const [cashflow, overview, reports, equity, accounts, names, prefs, retirementData, holdings, manualStocks, snapshots, properties] =
+    await Promise.all([
+      getCashflow(filter, now, false),
+      getOverview(filter),
+      getReports(filter),
+      getEquityComp(filter, now),
+      prisma.account.findMany({ include: { item: true } }),
+      getNames(),
+      readProjectionPrefs(),
+      getRetirement(filter),
+      prisma.holding.findMany({ include: { account: true } }),
+      prisma.manualHolding.findMany({ where: { kind: "security" } }),
+      prisma.netWorthSnapshot.findMany({ where: { ownerKey: filter }, orderBy: { date: "asc" } }),
+      prisma.property.findMany(),
+    ]);
   const accs = accounts.filter((a) => matchesOwner(a.owner, filter));
-  const cards: InsightCard[] = [];
 
-  // --- Liquidity -------------------------------------------------------------
-  cards.push({
-    section: "Liquidity",
-    title: "Emergency fund",
-    math:
-      cashflow.monthlyEssential > 0
-        ? `${formatMath(cashflow.cash)} cash ÷ ${formatMath(cashflow.monthlyEssential)} essential spend / month (90-day average)`
-        : "Need 90 days of rent, medical, loan, and transport charges to compute runway.",
-    value: cashflow.runway != null ? `${cashflow.runway.toFixed(1)} mo` : "—",
-    tone: cashflow.runway == null ? "neutral" : cashflow.runway < 3 ? "negative" : cashflow.runway >= 6 ? "positive" : "neutral",
-  });
-
-  if (cashflow.monthlyEssential > 0) {
-    const target = cashflow.monthlyEssential * 6;
-    const idle = cashflow.cash - target;
-    cards.push({
-      section: "Liquidity",
-      title: idle >= 0 ? "Cash above a 6-month reserve" : "Shortfall to a 6-month reserve",
-      math: `${formatMath(cashflow.cash)} cash − ${formatMath(target)} (6 × essential spend)`,
-      value: formatMath(Math.abs(idle)),
-      tone: idle >= 0 ? "neutral" : "negative",
-    });
-  }
-
-  // --- Cash flow: last three complete months --------------------------------
+  // Trailing three complete months.
   const months: string[] = [];
   for (let i = 1; i <= 3; i++) months.push(ymKey(new Date(now.getFullYear(), now.getMonth() - i, 1)));
   const window = reports.flows.filter((f) => months.includes(f.month));
-  const income = window.filter((f) => f.kind === "income").reduce((s, f) => s + f.amount, 0);
-  const spend = window.filter((f) => f.kind === "spend").reduce((s, f) => s + f.amount, 0);
-  const invested = window.filter((f) => f.kind === "invest").reduce((s, f) => s + f.amount, 0);
-  if (income > 0) {
-    const rate = (income - spend) / income;
-    cards.push({
-      section: "Cash flow",
-      title: "Savings rate, trailing 3 months",
-      math: `(${formatMath(income)} income − ${formatMath(spend)} spending) ÷ ${formatMath(income)} income`,
-      value: formatPctValue(rate),
-      tone: rate < 0.1 ? "negative" : rate >= 0.2 ? "positive" : "neutral",
-    });
-    const housing = window
-      .filter((f) => f.kind === "spend" && (f.category === "Loan payments" || f.category === "Rent and utilities"))
-      .reduce((s, f) => s + f.amount, 0);
-    if (housing > 0) {
-      const share = housing / income;
-      cards.push({
-        section: "Cash flow",
-        title: "Housing and debt service share of income",
-        math: `${formatMath(housing)} loan, rent and utility payments ÷ ${formatMath(income)} income, trailing 3 months`,
-        value: formatPctValue(share),
-        tone: share > 0.36 ? "negative" : share <= 0.28 ? "positive" : "neutral",
-      });
-    }
-    if (invested > 0) {
-      cards.push({
-        section: "Cash flow",
-        title: "Share of income sent to investments",
-        math: `${formatMath(invested)} transferred to brokerage or retirement ÷ ${formatMath(income)} income, trailing 3 months`,
-        value: formatPctValue(invested / income),
-        tone: "neutral",
-      });
-    }
-    const monthly = months.map((m) => {
-      const rows = reports.flows.filter((f) => f.month === m && f.kind === "spend");
-      return rows.reduce((s, f) => s + f.amount, 0);
-    });
-    const avg = monthly.reduce((s, v) => s + v, 0) / monthly.length;
-    const latest = monthly[0];
-    if (avg > 0 && latest > 0) {
-      const drift = (latest - avg) / avg;
-      cards.push({
-        section: "Cash flow",
-        title: "Last month's spending vs 3-month average",
-        math: `${formatMath(latest)} last month vs ${formatMath(avg)} average`,
-        value: `${drift >= 0 ? "+" : "−"}${formatPctValue(Math.abs(drift))}`,
-        tone: drift > 0.15 ? "negative" : drift < -0.05 ? "positive" : "neutral",
-      });
-    }
-  }
-
-  // --- Annual run-rate ---------------------------------------------------------
-  // Plaid hands over ~90 days of deposits, so a year of take-home is inferred from paycheck cadence,
-  // and a year of spending from the complete months on file.
+  // Vests land in lumps, so they count at their 12-month average instead of in the month they vest.
+  const vests3 = equity.vests.monthly * 3;
+  const income3 = window.filter((f) => f.kind === "income" && f.category !== VEST_LABEL).reduce((s, f) => s + f.amount, 0) + vests3;
+  const spend3 = window.filter((f) => f.kind === "spend").reduce((s, f) => s + f.amount, 0);
+  const housing3 = window.filter((f) => f.kind === "spend" && FIXED_SPEND.has(f.category)).reduce((s, f) => s + f.amount, 0);
   const pay = annualisedPaychecks(reports.flows);
-  if (pay.annual > 0) {
-    cards.push({
-      section: "Annual run-rate",
-      title: "Take-home pay, annualised",
-      math: pay.sources
-        .map((s) => `${s.label}: ${formatMath(s.amount)} ${s.cadence} × ${s.perYear}`)
-        .join(" + "),
-      value: formatMath(pay.annual),
-      tone: "neutral",
-    });
-  }
   const run = annualisedSpend(reports.flows, now);
-  if (run) {
-    cards.push({
-      section: "Annual run-rate",
-      title: "Total spending, annualised",
-      math: `${formatMath(run.total)} over ${run.basis} × ${run.factor}`,
-      value: formatMath(run.total * run.factor),
-      tone: "neutral",
-    });
-    cards.push({
-      section: "Annual run-rate",
-      title: "Discretionary spending, annualised",
-      math: `${formatMath(run.discretionary)} excluding loan payments and rent & utilities, over ${run.basis} × ${run.factor}`,
-      value: formatMath(run.discretionary * run.factor),
-      tone: "neutral",
-    });
-  }
 
-  // --- Balance sheet ----------------------------------------------------------
-  const grossAssets = overview.netWorth + overview.tiles.liabilities;
-  if (grossAssets > 0) {
-    const ratio = overview.tiles.liabilities / grossAssets;
-    cards.push({
-      section: "Balance sheet",
-      title: "Debt to assets",
-      math: `${formatMath(overview.tiles.liabilities)} liabilities ÷ ${formatMath(grossAssets)} gross assets`,
-      value: formatPctValue(ratio),
-      tone: ratio > 0.5 ? "negative" : ratio <= 0.3 ? "positive" : "neutral",
+  // Cash and what it earns.
+  const cashAccs = accs.filter((a) => isCashType(a.hausType) && !isLiabilityType(a.hausType));
+  const rated = cashAccs.filter((a) => a.interestRate != null && (a.currentBalance ?? 0) > 0);
+  const ratedTotal = rated.reduce((s, a) => s + (a.currentBalance ?? 0), 0);
+  const cashRate = ratedTotal > 0 ? rated.reduce((s, a) => s + (a.currentBalance ?? 0) * (a.interestRate ?? 0), 0) / ratedTotal : null;
+
+  // Cards and debts by rate.
+  const cardAccs = accs.filter((a) => a.hausType === "credit_card" && a.limitAmount && a.limitAmount > 0);
+  const debts: Debt[] = [];
+  for (const a of accs) {
+    if (!isLiabilityType(a.hausType) || !(Math.abs(a.currentBalance ?? 0) > 0)) continue;
+    const home = properties.find((p) => p.mortgageAccountId === a.id);
+    debts.push({
+      name: withoutInstitution(accountLabel(a.name, a.item.institutionName), a.item.institutionName),
+      balance: Math.abs(a.currentBalance ?? 0),
+      rate: a.interestRate ?? home?.rate ?? null,
+      kind: a.hausType === "credit_card" ? "card" : a.hausType === "mortgage" ? "mortgage" : "loan",
     });
   }
-  if (overview.monthChange != null && overview.netWorth > 0) {
-    const pct = overview.monthChange / (overview.netWorth - overview.monthChange);
-    cards.push({
-      section: "Balance sheet",
-      title: "Net worth change, 30 days",
-      math: `${formatMath(overview.netWorth)} today vs ${formatMath(overview.netWorth - overview.monthChange)} a month ago`,
-      value: `${overview.monthChange >= 0 ? "+" : "−"}${formatPctValue(Math.abs(pct))}`,
-      tone: overview.monthChange >= 0 ? "positive" : "negative",
-    });
+  for (const p of properties.filter((x) => matchesOwner(x.owner, filter) && !x.mortgageAccountId && (x.mortgageBalance ?? 0) > 0)) {
+    debts.push({ name: `${p.label} mortgage`, balance: p.mortgageBalance ?? 0, rate: p.rate, kind: "mortgage" });
   }
+  const since90 = subDays(now, 90).toISOString().slice(0, 10);
+  const fees90 = reports.flows
+    .filter((f) => f.kind === "spend" && f.category === PFC_LABELS.BANK_FEES && f.date >= since90)
+    .reduce((s, f) => s + f.amount, 0);
+
+  // Net worth a year ago, or the oldest on file when it is at least two months old.
+  const yearAgo = subDays(now, 365).getTime();
+  const then =
+    [...snapshots].reverse().find((s) => s.date.getTime() <= yearAgo) ??
+    (snapshots[0] && now.getTime() - snapshots[0].date.getTime() > 60 * 86_400_000 ? snapshots[0] : undefined);
+  const thenDay = then ? then.date.toISOString().slice(0, 10) : null;
+  const firstFlow = reports.flows.reduce<string | null>((m, f) => (!m || f.date < m ? f.date : m), null);
+  const savedSince =
+    thenDay && firstFlow && firstFlow <= addDaysIso(thenDay, 7)
+      ? reports.flows.filter((f) => f.date >= thenDay).reduce((s, f) => s + (f.kind === "income" ? f.amount : f.kind === "spend" ? -f.amount : 0), 0)
+      : null;
+
+  // What is invested, and the stock / bond / cash mix.
   const a = overview.allocation;
-  const investable = a.stocks + a.crypto + a.retirement;
-  if (overview.netWorth > 0 && a.retirement > 0) {
-    cards.push({
-      section: "Balance sheet",
-      title: "Retirement share of net worth",
-      math: `${formatMath(a.retirement)} in tax-advantaged accounts ÷ ${formatMath(overview.netWorth)} net worth`,
-      value: formatPctValue(a.retirement / overview.netWorth),
-      tone: "neutral",
-    });
+  const invested = a.stocks + a.crypto + a.retirement;
+  const held = holdings.filter((h) => matchesOwner(h.account.owner, filter) && (isInvestmentType(h.account.hausType) || h.account.hausType === "hsa"));
+  const mix = { stocks: 0, bonds: 0, cash: 0 };
+  const heldByAccount = new Map<string, number>();
+  for (const h of held) {
+    const value = holdingValue(h);
+    heldByAccount.set(h.accountId, (heldByAccount.get(h.accountId) ?? 0) + value);
+    if (isCryptoHoldingType(h.type)) continue;
+    const type = (h.type ?? "").toLowerCase();
+    if (type === "cash" || type.includes("money market")) mix.cash += value;
+    else if (type.includes("fixed income") || BOND_NAME.test(h.name)) mix.bonds += value;
+    else mix.stocks += value;
   }
-  if (overview.netWorth > 0 && a.real_estate > 0) {
-    cards.push({
-      section: "Balance sheet",
-      title: "Home equity share of net worth",
-      math: `${formatMath(a.real_estate)} real-estate equity ÷ ${formatMath(overview.netWorth)} net worth`,
-      value: formatPctValue(a.real_estate / overview.netWorth),
-      tone: a.real_estate / overview.netWorth > 0.5 ? "negative" : "neutral",
-    });
+  for (const acc of accs.filter((x) => isInvestmentType(x.hausType) && !isChildAccountType(x.hausType))) {
+    const left = (acc.currentBalance ?? 0) - (heldByAccount.get(acc.id) ?? 0);
+    if (left > 1) mix.cash += left;
   }
-
-  // --- Portfolio --------------------------------------------------------------
-  if (investable > 0) {
-    const top = [...overview.movers].sort((x, y) => Math.abs(y.value) - Math.abs(x.value))[0];
-    if (top) {
-      const weight = Math.abs(top.value) / investable;
-      cards.push({
-        section: "Portfolio",
-        title: `Largest position: ${top.symbol ?? top.name}`,
-        math: `${formatMath(Math.abs(top.value))} ÷ ${formatMath(investable)} invested`,
-        value: formatPctValue(weight),
-        tone: weight > 0.25 ? "negative" : "neutral",
-      });
-    }
-    if (a.crypto > 0) {
-      const share = a.crypto / investable;
-      cards.push({
-        section: "Portfolio",
-        title: "Crypto share of invested assets",
-        math: `${formatMath(a.crypto)} crypto ÷ ${formatMath(investable)} invested`,
-        value: formatPctValue(share),
-        tone: share > 0.2 ? "negative" : "neutral",
-      });
-    }
+  for (const m of manualStocks.filter((row) => matchesOwner(row.owner, filter))) {
+    const value = m.coingeckoId === FIXED_USD_ID ? (m.quotePrice ?? 0) : (m.quotePrice ?? 0) * m.quantity;
+    const cls = (m.assetClass ?? "").toLowerCase();
+    if (cls.includes("cash")) mix.cash += value;
+    else if (cls.includes("bond") || cls.includes("fixed") || BOND_NAME.test(m.name)) mix.bonds += value;
+    else mix.stocks += value;
   }
 
-  // --- Credit -----------------------------------------------------------------
-  const cards_ = accs.filter((x) => x.hausType === "credit_card" && x.limitAmount && x.limitAmount > 0);
-  if (cards_.length) {
-    const used = cards_.reduce((s, x) => s + Math.abs(x.currentBalance ?? 0), 0);
-    const limit = cards_.reduce((s, x) => s + (x.limitAmount ?? 0), 0);
-    const util = used / limit;
-    cards.push({
-      section: "Credit",
-      title: "Card utilization",
-      math: `${formatMath(used)} balances ÷ ${formatMath(limit)} combined limits across ${cards_.length} card${cards_.length === 1 ? "" : "s"}`,
-      value: formatPctValue(util),
-      tone: util > 0.3 ? "negative" : util < 0.1 ? "positive" : "neutral",
-    });
+  // Retirement: the planner's own verdict, and this year's contributions against the limits.
+  const retirementRows = retirementData.rows.filter((r) => !isChildAccountType(r.kind));
+  const childRows = retirementData.rows.filter((r) => isChildAccountType(r.kind));
+  const childBalances = childRows.reduce((s, r) => s + r.balance, 0);
+  const ytd = retirementRows.reduce((s, r) => s + r.ytd, 0);
+  const estimate = estimateSaving({
+    payAnnual: pay.annual,
+    spendAnnual: run ? run.total * run.factor : null,
+    contributionsYtd: ytd,
+    vestAnnual: equity.vests.annual,
+    esppAnnual: equity.espp.annual,
+    now,
+  });
+  const snap =
+    names.tabs.retirement
+      ? retirementSnapshot({
+          prefs,
+          holders: [
+            { key: "A", birthdate: names.birthdateA },
+            { key: "B", birthdate: names.birthdateB },
+          ],
+          today,
+          investedDefault: overview.tiles.cash + overview.tiles.investments - childBalances,
+          spendNow: run ? Math.round(run.noLoans * run.factor) : null,
+          saveNow: estimate?.amount ?? null,
+          childBalances,
+          householdChildren: names.children.map((c) => ({ id: c.id, name: c.name })),
+        })
+      : null;
+  const roomKeys = new Set<string>();
+  let room = 0;
+  for (const r of retirementRows) {
+    const group = r.kind === "401k" || r.kind === "403b" ? "work" : r.kind === "hsa" ? "hsa" : "ira";
+    const key = group === "hsa" ? "hsa" : `${group}:${r.owner}`;
+    if (roomKeys.has(key)) continue;
+    roomKeys.add(key);
+    room += group === "work" ? IRS_LIMITS.electiveDeferral : group === "hsa" ? IRS_LIMITS.hsaFamily : IRS_LIMITS.ira;
   }
 
-  cards.push(...spendingBehavior(reports.flows, now));
+  // College: each child's college years still ahead at the planner's yearly cost.
+  const kids = mergeChildren(prefs.planChildren, names.children);
+  const collegeAnnual = prefs.collegeAnnual ?? PLAN_DEFAULTS.collegeAnnual;
+  const year = now.getFullYear();
+  const collegeYears = kids.reduce((s, k) => {
+    if (k.birthYear == null) return s;
+    let n = 0;
+    for (let y = k.birthYear + 18; y <= k.birthYear + 21; y++) if (y >= year) n += 1;
+    return s + n;
+  }, 0);
+  const firstCollege = kids
+    .filter((k) => k.birthYear != null && k.birthYear + 21 >= year)
+    .reduce<number | null>((m, k) => Math.min(m ?? Infinity, Math.max(year, k.birthYear! + 18)), null);
+  // College bills start in the fall of the first college year.
+  const monthsToFirst = firstCollege != null ? Math.max(0, (firstCollege - year) * 12 + (8 - now.getMonth())) : 0;
 
-  return { cards };
+  const grossAssets = overview.netWorth + overview.tiles.liabilities;
+  const mustPay = mustPayMonthly(reports.flows, now);
+  const insights = buildInsights({
+    cash: cashflow.cash,
+    monthlyEssential: mustPay.monthly,
+    essentialParts: mustPay.parts,
+    cashRate,
+    growthRate: prefs.rate ?? PLAN_DEFAULTS.rate,
+    realGrowth: realReturn((prefs.rate ?? PLAN_DEFAULTS.rate) / 100, (prefs.inflation ?? PLAN_DEFAULTS.inflation) / 100),
+    income3,
+    vests3,
+    vestMonths: equity.vests.months,
+    spend3,
+    housing3,
+    payAnnual: pay.annual,
+    spendAnnual: run ? run.total * run.factor : null,
+    cards: {
+      used: cardAccs.reduce((s, x) => s + Math.abs(x.currentBalance ?? 0), 0),
+      limit: cardAccs.reduce((s, x) => s + (x.limitAmount ?? 0), 0),
+      count: cardAccs.length,
+    },
+    debts,
+    fees90,
+    netWorth: overview.netWorth,
+    grossAssets,
+    liabilities: overview.tiles.liabilities,
+    netWorthThen: then ? { value: then.netWorth, date: formatShortDate(then.date) } : null,
+    savedSince,
+    invested,
+    crypto: a.crypto,
+    mix: mix.stocks + mix.bonds + mix.cash > 0 ? mix : null,
+    retirement: snap,
+    contributions: retirementRows.length && estimate ? { ytd, room, yearFraction: estimate.yearFraction } : null,
+    college:
+      kids.length && collegeYears > 0 && firstCollege != null
+        ? {
+            balances: childBalances,
+            cost: collegeYears * collegeAnnual,
+            children: kids.length,
+            firstYear: firstCollege,
+            monthsToFirst,
+            planned: snap?.number != null,
+          }
+        : null,
+  });
+
+  return {
+    insights: rankInsights(insights),
+    actions: topActions(insights),
+    payAnnual: pay.annual,
+    spendAnnual: run ? run.total * run.factor : null,
+    savingsRate: income3 > 0 ? (income3 - spend3) / income3 : null,
+  };
+}
+
+function addDaysIso(day: string, n: number) {
+  const d = new Date(`${day}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + n);
+  return d.toISOString().slice(0, 10);
+}
+
+function formatShortDate(d: Date) {
+  return d.toLocaleString("en-US", { month: "short", year: "numeric", timeZone: "UTC" });
 }
 
 type Flow = { date: string; month: string; kind: "spend" | "income" | "invest"; category: string; merchant: string; amount: number };
@@ -1723,7 +1822,8 @@ function median(xs: number[]) {
 
 /** True for employment take-home (salary / contractor). Excludes interest, rentals, credits. */
 // Flows carry display labels ("Paychecks", "Salary"), so match those as well as raw "Income ..." categories.
-const TAKE_HOME_LABELS = new Set([PFC_LABELS.INCOME_WAGES, PFC_LABELS.INCOME_SALARY].map((label) => label.toLowerCase()));
+// Regular deposits from an unlinked account count too: they are pay that lands somewhere Haus can't see.
+const TAKE_HOME_LABELS = new Set([PFC_LABELS.INCOME_WAGES, PFC_LABELS.INCOME_SALARY, OUTSIDE_DEPOSIT_LABEL].map((label) => label.toLowerCase()));
 
 export function isTakeHome(category: string) {
   const c = category.toLowerCase();
@@ -1792,178 +1892,7 @@ export function annualisedPaychecks(flows: Flow[]) {
 const LOAN_PAYMENTS = "Loan payments";
 const FIXED_SPEND = new Set([LOAN_PAYMENTS, "Rent and utilities"]);
 
-function monthLabel(ym: string) {
-  const [y, m] = ym.split("-").map(Number);
-  return new Date(y, m - 1, 1).toLocaleString("en-US", { month: "short", year: "numeric" });
-}
 
-function daysInMonth(ym: string) {
-  const [y, m] = ym.split("-").map(Number);
-  return new Date(y, m, 0).getDate();
-}
-
-/**
- * Personal-finance apps (Monarch, Copilot, YNAB) flag two things people actually act on:
- * a category or merchant running well above its own recent baseline, and the direction of
- * steerable spend from one complete month to the next. Fixed housing and debt service are
- * left out of the trend cards.
- */
-function spendingBehavior(flows: Flow[], now: Date): InsightCard[] {
-  const cards: InsightCard[] = [];
-  const spend = flows.filter((f) => f.kind === "spend");
-  if (!spend.length) return cards;
-  const current = ymKey(now);
-  const catMonth = new Map<string, Map<string, number>>();
-  const merchMonth = new Map<string, Map<string, { label: string; amount: number }>>();
-  for (const f of spend) {
-    const cats = catMonth.get(f.month) ?? new Map<string, number>();
-    cats.set(f.category, (cats.get(f.category) ?? 0) + f.amount);
-    catMonth.set(f.month, cats);
-    const key = recurringMerchantKey(f.merchant) || f.merchant.toLowerCase();
-    const merchs = merchMonth.get(f.month) ?? new Map<string, { label: string; amount: number }>();
-    const prev = merchs.get(key) ?? { label: f.merchant, amount: 0 };
-    prev.amount += f.amount;
-    merchs.set(key, prev);
-    merchMonth.set(f.month, merchs);
-  }
-  const sumMonth = (m: string) => [...(catMonth.get(m)?.values() ?? [])].reduce((s, v) => s + v, 0);
-  const months = [...catMonth.keys()].sort();
-  const complete = months.filter((m) => m < current);
-  const focusPartial = now.getDate() >= 7 && sumMonth(current) > 0;
-  const focus = focusPartial ? current : complete[complete.length - 1];
-  if (!focus) return cards;
-  const baseline = complete.filter((m) => m !== focus).slice(-2);
-  const scale = focusPartial ? daysInMonth(focus) / Math.max(1, now.getDate()) : 1;
-  const lastFull = [...complete].reverse().find((m) => m !== focus) ?? complete[complete.length - 1];
-
-  if (focusPartial && lastFull && sumMonth(lastFull) > 0) {
-    const soFar = sumMonth(current);
-    const projected = soFar * scale;
-    const prior = sumMonth(lastFull);
-    const drift = (projected - prior) / prior;
-    cards.push({
-      section: "Spending anomalies",
-      title: "This month's spending pace",
-      math: `${formatMath(soFar)} in ${now.getDate()} days, on pace for ${formatMath(projected)} vs ${formatMath(prior)} in ${monthLabel(lastFull)}`,
-      value: `${drift >= 0 ? "+" : "−"}${formatPctValue(Math.abs(drift))}`,
-      tone: drift > 0.15 ? "negative" : drift < -0.1 ? "positive" : "neutral",
-    });
-  }
-
-  if (baseline.length) {
-    const focusCats = catMonth.get(focus) ?? new Map<string, number>();
-    const allCats = new Set<string>(focusCats.keys());
-    for (const m of baseline) for (const c of catMonth.get(m)?.keys() ?? []) allCats.add(c);
-    const spikes: { cat: string; raw: number; base: number }[] = [];
-    for (const cat of allCats) {
-      const raw = focusCats.get(cat) ?? 0;
-      // A partial month is not scaled up. Rent and loan payments land once, and scaling them
-      // makes a normal bill look like a spike. Flag only spend that has already beaten a full month.
-      const baseVals = baseline.map((m) => catMonth.get(m)?.get(cat) ?? 0);
-      const base = baseVals.reduce((s, v) => s + v, 0) / baseVals.length;
-      const hot = focusPartial ? raw > base * 1.15 : raw > base * 1.4;
-      if (base <= 0 || !hot) continue;
-      const monthSpend = sumMonth(focus);
-      if (monthSpend <= 0 || raw / monthSpend < 0.05) continue;
-      spikes.push({ cat, raw, base });
-    }
-    spikes.sort((a, b) => b.raw - b.base - (a.raw - a.base));
-    for (const s of spikes.slice(0, 3)) {
-      cards.push({
-        section: "Spending anomalies",
-        title: `${s.cat} is running hot`,
-        math: focusPartial
-          ? `${formatMath(s.raw)} so far this month vs ${formatMath(s.base)} in a typical recent full month`
-          : `${formatMath(s.raw)} in ${monthLabel(focus)} vs ${formatMath(s.base)} over the prior ${baseline.length} month${baseline.length === 1 ? "" : "s"}`,
-        value: `+${formatPctValue((s.raw - s.base) / s.base)}`,
-        tone: "negative",
-      });
-    }
-
-    const focusMerch = merchMonth.get(focus) ?? new Map<string, { label: string; amount: number }>();
-    const merchSpikes: { label: string; raw: number; base: number; projected: number }[] = [];
-    for (const [key, row] of focusMerch) {
-      const baseVals = baseline.map((m) => merchMonth.get(m)?.get(key)?.amount ?? 0).filter((v) => v > 0);
-      if (!baseVals.length) continue;
-      const base = baseVals.reduce((s, v) => s + v, 0) / baseVals.length;
-      const compared = row.amount;
-      const hot = focusPartial ? compared > base * 1.5 : compared > base * 2;
-      if (base <= 0 || !hot) continue;
-      merchSpikes.push({ label: row.label, raw: row.amount, base, projected: compared });
-    }
-    merchSpikes.sort((a, b) => b.projected - b.base - (a.projected - a.base));
-    for (const s of merchSpikes.slice(0, 2)) {
-      cards.push({
-        section: "Spending anomalies",
-        title: `${s.label} is above its usual`,
-        math: focusPartial
-          ? `${formatMath(s.raw)} so far vs ${formatMath(s.base)} in a typical recent month`
-          : `${formatMath(s.raw)} in ${monthLabel(focus)} vs ${formatMath(s.base)} in a typical recent month`,
-        value: `+${formatPctValue((s.projected - s.base) / s.base)}`,
-        tone: "negative",
-      });
-    }
-  }
-
-  if (complete.length >= 2) {
-    const newer = complete[complete.length - 1];
-    const older = complete[complete.length - 2];
-    const cats = new Set<string>([...(catMonth.get(newer)?.keys() ?? []), ...(catMonth.get(older)?.keys() ?? [])]);
-    const moves: { cat: string; newerAmt: number; olderAmt: number; drift: number }[] = [];
-    for (const cat of cats) {
-      if (FIXED_SPEND.has(cat)) continue;
-      const newerAmt = catMonth.get(newer)?.get(cat) ?? 0;
-      const olderAmt = catMonth.get(older)?.get(cat) ?? 0;
-      if (newerAmt <= 0 || olderAmt <= 0) continue;
-      const drift = (newerAmt - olderAmt) / olderAmt;
-      if (Math.abs(drift) < 0.2) continue;
-      moves.push({ cat, newerAmt, olderAmt, drift });
-    }
-    const rising = moves.filter((m) => m.drift > 0).sort((a, b) => b.drift - a.drift).slice(0, 2);
-    const falling = moves.filter((m) => m.drift < 0).sort((a, b) => a.drift - b.drift).slice(0, 2);
-    for (const m of rising) {
-      cards.push({
-        section: "Spending trends",
-        title: `${m.cat} is rising`,
-        math: `${formatMath(m.newerAmt)} in ${monthLabel(newer)} vs ${formatMath(m.olderAmt)} in ${monthLabel(older)}`,
-        value: `+${formatPctValue(m.drift)}`,
-        tone: "negative",
-      });
-    }
-    for (const m of falling) {
-      cards.push({
-        section: "Spending trends",
-        title: `${m.cat} is falling`,
-        math: `${formatMath(m.newerAmt)} in ${monthLabel(newer)} vs ${formatMath(m.olderAmt)} in ${monthLabel(older)}`,
-        value: `−${formatPctValue(Math.abs(m.drift))}`,
-        tone: "positive",
-      });
-    }
-    const share = (m: string) => {
-      let total = 0;
-      let discretionary = 0;
-      for (const [cat, v] of catMonth.get(m) ?? []) {
-        total += v;
-        if (!FIXED_SPEND.has(cat)) discretionary += v;
-      }
-      return total > 0 ? discretionary / total : null;
-    };
-    const dNew = share(newer);
-    const dOld = share(older);
-    if (dNew != null && dOld != null) {
-      const drift = dNew - dOld;
-      cards.push({
-        section: "Spending trends",
-        title: "Discretionary share of spending",
-        math: `${formatPctValue(dNew)} in ${monthLabel(newer)} vs ${formatPctValue(dOld)} in ${monthLabel(older)}, excluding loan payments and rent & utilities`,
-        value: `${drift >= 0 ? "+" : "−"}${formatPctValue(Math.abs(drift))}`,
-        tone: drift > 0.05 ? "negative" : drift < -0.05 ? "positive" : "neutral",
-      });
-    }
-  }
-
-  return cards;
-}
 
 /** Spend over the most recent complete months, with the factor that scales it to a year.
  *  Capped at three because Plaid's initial pull covers ~90 days; older months are usually thin. */
@@ -1997,14 +1926,7 @@ export function annualisedSpend(flows: Flow[], now: Date) {
   };
 }
 
-function formatMath(n: number) {
-  return formatMoney(n);
-}
 
-function formatPctValue(ratio: number) {
-  const pct = ratio * 100;
-  return `${pct.toFixed(Math.abs(pct) < 10 ? 1 : 0)}%`;
-}
 
 export async function getSettings() {
   const names = await getNames();

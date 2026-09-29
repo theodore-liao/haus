@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { concentrated, dividendSummary, portfolioSummary } from "./portfolio";
+import { dividendSummary, portfolioSummary } from "./portfolio";
 
 const row = (symbol: string | null, value: number, costBasis: number | null, dayPl: number | null) => ({
   symbol,
@@ -26,11 +26,6 @@ test("no cost and no day moves leave those figures empty", () => {
   assert.equal(s.day, null);
   assert.equal(s.cost, null);
   assert.equal(s.gain, null);
-});
-
-test("a position over 15% of the total is concentrated; lots of one symbol add up", () => {
-  const out = concentrated([row("AAA", 300, null, null), row("aaa", 200, null, null), row("BBB", 100, null, null), ...Array.from({ length: 8 }, (_, i) => row(`X${i}`, 50, null, null))]);
-  assert.deepEqual(out.map((p) => [p.label, Math.round(p.weight * 100)]), [["AAA", 50]]);
 });
 
 test("dividends this year and over 12 months, with yield on today's value", () => {

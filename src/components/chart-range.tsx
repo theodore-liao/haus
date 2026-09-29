@@ -21,7 +21,7 @@ export function ChipGroup({
 }: {
   children: ReactNode;
 }) {
-  return <div className="flex items-center gap-0.5 rounded-md border border-border p-0.5">{children}</div>;
+  return <div className="flex items-center gap-0.5 rounded-md border border-border bg-background/40 p-0.5">{children}</div>;
 }
 
 export function Chip({
@@ -39,7 +39,7 @@ export function Chip({
       onClick={onClick}
       className={cn(
         "cursor-pointer rounded px-2 py-0.5 text-[11px] font-medium uppercase tracking-[0.1em]",
-        active ? "bg-secondary text-primary" : "text-muted-foreground hover:text-foreground",
+        active ? "bg-primary/15 text-primary shadow-[inset_0_0_0_1px_rgba(183,208,232,0.22)]" : "text-muted-foreground hover:text-foreground",
       )}
     >
       {children}

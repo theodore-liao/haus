@@ -52,6 +52,11 @@ function LastUpdated({ iso }: { iso?: string | null }) {
   return <span className="footnote block">Last updated: {formatDateTime(iso)}</span>;
 }
 
+/** A holding's page. Opened from Crypto it says so, so its back button returns there. */
+function symbolHref(symbol: string | null, from?: "crypto") {
+  return `/investments/${encodeURIComponent(symbol ?? "")}${from ? `?from=${from}` : ""}`;
+}
+
 export function InvestmentsBoard({
   rows,
   tableRows,
@@ -66,11 +71,14 @@ export function InvestmentsBoard({
   donutsFirst,
   heroKicker = "Market value",
   heroSummary,
+  heroAside,
+  hideClass,
   accountSlot,
   headerAction,
   onEditManual,
   hideCostTotal,
   minValue = 10,
+  symbolFrom,
 }: {
   rows: HoldingRow[];
   tableRows?: HoldingRow[];
@@ -90,6 +98,10 @@ export function InvestmentsBoard({
   heroKicker?: string;
   /** Add day change, cost basis, and gain to the summary card. */
   heroSummary?: boolean;
+  /** The summary card's right side (the 30-day line on Stocks and Crypto). */
+  heroAside?: ReactNode;
+  /** Leave out the By class card; By account then sits beside `besideAccount`. */
+  hideClass?: boolean;
   /** Replaces the "By account" donut (crypto uses largest moves here). */
   accountSlot?: ReactNode;
   headerAction?: ReactNode;
@@ -97,6 +109,8 @@ export function InvestmentsBoard({
   /** Crypto holdings have no cost basis, so those two columns stay off the table. */
   hideCostTotal?: boolean;
   minValue?: number;
+  /** The page these rows sit on, when it isn't Stocks, so a holding's page leads back to it. */
+  symbolFrom?: "crypto";
 }) {
   const material = useMemo(() => rows.filter((r) => Math.abs(r.value) >= minValue), [rows, minValue]);
   const tableMaterial = useMemo(
@@ -178,7 +192,12 @@ export function InvestmentsBoard({
       <AllocationChart data={byAccount} />
     </ChartCard>
   );
-  const donutGrid = (
+  const donutGrid = hideClass ? (
+    <div className="relative z-0 grid items-stretch gap-4 lg:grid-cols-2">
+      {accountCard}
+      {besideAccount ? <div className="h-full min-w-0">{besideAccount}</div> : null}
+    </div>
+  ) : (
     <div className={cn("relative z-0 grid items-stretch gap-4 lg:grid-cols-2", besideAccount && "xl:grid-cols-3")}>
       {accountFirst ? accountCard : classCard}
       {accountFirst ? classCard : accountCard}
@@ -219,9 +238,9 @@ export function InvestmentsBoard({
   return (
     <div className="page-stack">
       {hideHero ? null : heroSummary ? (
-        <SummaryHero kicker={heroKicker} rows={material} />
+        <SummaryHero kicker={heroKicker} rows={material} aside={heroAside} />
       ) : (
-        <HeroCard kicker={heroKicker}>
+        <HeroCard kicker={heroKicker} aside={heroAside}>
           <Money value={total} />
         </HeroCard>
       )}
@@ -250,7 +269,7 @@ export function InvestmentsBoard({
         </CardHeader>
         <CardContent className="px-0 pb-0">
           {/* Phones get a compact list (asset, account, value, total P/L); the ten-column table needs a desktop. */}
-          <ul className="max-h-[calc(100dvh-16rem)] overflow-y-auto overscroll-contain md:hidden">
+          <ul className="md:hidden">
             {visible.length === 0 ? (
               <li className="py-8 text-center text-sm text-muted-foreground">No holdings match this filter.</li>
             ) : (
@@ -285,15 +304,15 @@ export function InvestmentsBoard({
                 return (
                   <li key={`m:${r.id}:${r.symbol ?? ""}:${r.account}`} className="border-b border-border last:border-0">
                     {r.manual && onEditManual ? (
-                      <div className={rowClass}>
+                      <div className={cn(rowClass, "flex-wrap gap-y-1.5")}>
                         <button
                           type="button"
-                          className="flex min-w-0 flex-1 cursor-pointer items-center gap-3 text-left"
+                          className="flex min-w-0 basis-full cursor-pointer items-center gap-3 text-left"
                           onClick={() => onEditManual(r.id)}
                         >
                           {body}
                         </button>
-                        <span className="flex shrink-0 items-center gap-1.5">
+                        <span className="flex w-full items-center justify-end gap-1.5">
                           <Button type="button" size="sm" variant="outline" className="h-7 px-2" onClick={() => onEditManual(r.id)}>
                             Edit
                           </Button>
@@ -301,7 +320,7 @@ export function InvestmentsBoard({
                         </span>
                       </div>
                     ) : r.symbol && !r.manual ? (
-                      <Link href={`/investments/${encodeURIComponent(r.symbol)}`} className={rowClass}>
+                      <Link href={symbolHref(r.symbol, symbolFrom)} className={rowClass}>
                         {body}
                       </Link>
                     ) : (
@@ -320,14 +339,14 @@ export function InvestmentsBoard({
               {/* Text columns take what the figures leave; figures never wrap. Day P/L waits for a 2xl viewport. */}
               <col className="w-[14%]" />
               <col className="w-[8%]" />
-              <col className="w-[18%]" />
+              <col className="w-[16%]" />
               <col className="w-[9%]" />
               <col className="w-[9%]" />
               <col className="w-[10%]" />
               {hideCostTotal ? null : <col className="w-[9%]" />}
               <col className={DAY_COL} />
               {hideCostTotal ? null : <col className="w-[10%]" />}
-              <col className="w-[5%]" />
+              <col className="w-[7%]" />
             </colgroup>
             <TableHeader className="sticky top-0 z-10 bg-card [&_th]:bg-card">
               <TableRow>
@@ -388,7 +407,7 @@ export function InvestmentsBoard({
                         {r.manual ? (
                           editable(r.id, asset)
                         ) : r.symbol ? (
-                          <Link href={`/investments/${encodeURIComponent(r.symbol)}`} className="block min-w-0">
+                          <Link href={symbolHref(r.symbol, symbolFrom)} className="block min-w-0">
                             {asset}
                           </Link>
                         ) : (
@@ -579,11 +598,12 @@ function rollupByAsset(rows: HoldingRow[], minItem = 10) {
 }
 
 /** Market value with its day change, cost basis, and gain. Gain covers holdings with a known cost. */
-function SummaryHero({ kicker, rows }: { kicker: string; rows: HoldingRow[] }) {
+function SummaryHero({ kicker, rows, aside }: { kicker: string; rows: HoldingRow[]; aside?: ReactNode }) {
   const s = portfolioSummary(rows);
   return (
     <HeroCard
       kicker={kicker}
+      aside={aside}
       supporting={
         s.cost != null ? (
           <>

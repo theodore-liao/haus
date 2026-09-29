@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Money } from "@/components/money";
 import { kickerClass } from "@/components/type";
@@ -37,11 +37,17 @@ export function CashFlowBlock({
   flows,
   txns,
   archiveCoversFrom = null,
+  between,
+  budget,
 }: {
   flows: FlowRow[];
   txns: TxnRow[];
   /** First day the saved archive covers every institution. Older months before this are incomplete. */
   archiveCoversFrom?: string | null;
+  /** Rendered between the cashflow card and the month-by-month row (net worth and allocation). */
+  between?: ReactNode;
+  /** Budget card, shown beside the month-by-month card. */
+  budget?: ReactNode;
 }) {
   const [range, setRange] = useState<WindowKey>(defaultReportWindow());
   const [popup, setPopup] = useState<Popup | null>(null);
@@ -140,7 +146,10 @@ export function CashFlowBlock({
             }}
           />
       </ChartCard>
-      <Card>
+      {between}
+      <div className="grid items-stretch gap-4 lg:grid-cols-2">
+      <div className="relative min-w-0">{budget}</div>
+      <Card className="flex min-w-0 flex-col">
         <CardHeader>
           <CardTitle>Month by month</CardTitle>
         </CardHeader>
@@ -151,15 +160,15 @@ export function CashFlowBlock({
           </div>
         ) : null}
         <CardContent className="px-0 pb-0">
-          <div className="max-h-[min(24rem,calc(100dvh-18rem))] overflow-y-auto overscroll-contain">
+          <div className="max-h-[min(24rem,calc(100dvh-18rem))] soft-scroll">
             <table className="data-table">
               <thead className="sticky top-0 z-10 bg-card">
                 <tr className={cn("border-b border-border", kickerClass)}>
                   <th>Month</th>
                   {/* Phones keep Month, Spend, and Saved so the table fits without scrolling sideways. */}
-                  <th className="num hidden sm:table-cell">Income</th>
+                  <th className="num hidden xl:table-cell">Income</th>
                   <th className="num">Spend</th>
-                  {showYoy ? <th className="num hidden md:table-cell">Spend vs last year</th> : null}
+                  {showYoy ? <th className="num hidden 2xl:table-cell">Spend vs last year</th> : null}
                   <th className="num">Saved</th>
                   {/* Rate is derivable from Saved/Income; phones drop it so the table fits without scrolling. */}
                   <th className="num hidden sm:table-cell">Rate</th>
@@ -181,7 +190,7 @@ export function CashFlowBlock({
                         {m.mark === "best" ? <span className="footnote text-positive"> · best</span> : null}
                         {m.mark === "worst" ? <span className="footnote text-negative"> · lowest</span> : null}
                       </td>
-                      <td className="num hidden sm:table-cell">
+                      <td className="num hidden xl:table-cell">
                         <Money value={m.income} />
                       </td>
                       <td className="num">
@@ -190,7 +199,7 @@ export function CashFlowBlock({
                       {showYoy ? (
                         <td
                           className={cn(
-                            "num hidden md:table-cell",
+                            "num hidden 2xl:table-cell",
                             m.spendVsLastYear == null
                               ? "text-muted-foreground"
                               : m.spendVsLastYear > 0
@@ -215,6 +224,7 @@ export function CashFlowBlock({
           </div>
         </CardContent>
       </Card>
+      </div>
       <CategoryMerchantDialog
         open={popup != null}
         title={popupTitle}

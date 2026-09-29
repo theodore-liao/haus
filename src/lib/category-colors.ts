@@ -30,7 +30,7 @@ const CATEGORY_COLORS: Record<string, string> = {
   Unemployment: "#7EABD4",
   "Child support": "#D4928C",
   "Rental income": "#7DB8A4",
-  "To savings": "#6FC4B0",
+  "To savings/investments":"#6FC4B0",
   "From savings": "#D48992",
   "To investments": "#8EA4DC",
   // Allocation and holding-class slices, same opening colors as the spend ring.

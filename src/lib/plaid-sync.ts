@@ -1,8 +1,10 @@
 import { prisma } from "./db";
-import { getPlaidClient, plaidErr, SOFT_PLAID_CODES } from "./plaid";
+import { getPlaidClient, plaidErr, SOFT_PLAID_CODES, walkTransactionSync, withPlaidRetry } from "./plaid";
 import {
   isRetirementType,
   mapPlaidToHausType,
+  plaidCurrentBalance,
+  retainedHausType,
   retirementKindFromHaus,
 } from "./account-types";
 import { FIXED_USD_ID, TRANSFER_CATEGORIES } from "./constants";
@@ -15,7 +17,7 @@ import type { AccountBase, InvestmentsHoldingsGetResponse, Transaction } from "p
 import { plaidAccessToken } from "./token-crypto";
 import { clearCardPaymentCache, loadCardPaymentFlags } from "./card-payments";
 import { merchantKey as normalizeMerchantKey, ruleKeyBase, ruleKeyIsMatched } from "./categories";
-import { archiveTransactions } from "./saved-txns";
+import { archiveEquityEvents, archiveTransactions } from "./saved-txns";
 import {
   deleteTxnUserEdit,
   hasTxnUserFields,
@@ -91,7 +93,7 @@ async function upsertAccounts(
     const existing = await prisma.account.findUnique({
       where: { plaidAccountId: a.account_id },
     });
-    const current = a.balances.current ?? a.balances.available ?? null;
+    const current = plaidCurrentBalance(a.type, a.balances);
     await prisma.account.upsert({
       where: { plaidAccountId: a.account_id },
       create: {
@@ -118,7 +120,8 @@ async function upsertAccounts(
         mask: a.mask ?? undefined,
         type: a.type,
         subtype: a.subtype ?? undefined,
-        hausType,
+        // A type set by hand on Connections is kept; only Plaid's own mapping is refreshed.
+        hausType: retainedHausType(existing, hausType),
         isRetirement: existing?.isRetirement || isRetirementType(hausType),
         retirementKind: existing?.retirementKind ?? retirementKindFromHaus(hausType),
         previousBalance: existing?.currentBalance ?? undefined,
@@ -233,9 +236,7 @@ export async function applyPlaidTransactionChanges(
 
 async function syncTransactions(accessToken: string, itemDbId: string, cursor: string | null) {
   const plaid = getPlaidClient();
-  let next = cursor ?? undefined;
-  let hasMore = true;
-  const posted: string[] = [];
+  const posted = new Set<string>();
   const accountMap = new Map(
     (
       await prisma.account.findMany({
@@ -248,34 +249,27 @@ async function syncTransactions(accessToken: string, itemDbId: string, cursor: s
   // Pending ids Plaid has already replaced in this sync. Their edits live on the posted row.
   const migratedPendingIds = new Set<string>();
 
-  while (hasMore) {
-    const res = await plaid.transactionsSync({
-      access_token: accessToken,
-      cursor: next,
-      count: 500,
-    });
-    const { added, modified, removed, next_cursor, has_more } = res.data;
-    const pagePosted = await applyPlaidTransactionChanges(
-      accountMap,
-      {
-        added: added.map(asSyncTxn),
-        modified: modified.map(asSyncTxn),
-        removed,
-      },
-      migratedPendingIds,
-    );
-    posted.push(...pagePosted);
-
-    next = next_cursor;
-    hasMore = has_more;
-  }
+  // Restarts from the saved cursor if Plaid says the data changed mid-walk; retries rate limits.
+  const next = await walkTransactionSync(
+    async (c) =>
+      (await plaid.transactionsSync({ access_token: accessToken, cursor: c, count: 500 })).data,
+    async ({ added, modified, removed }) => {
+      const pagePosted = await applyPlaidTransactionChanges(
+        accountMap,
+        { added: added.map(asSyncTxn), modified: modified.map(asSyncTxn), removed },
+        migratedPendingIds,
+      );
+      for (const id of pagePosted) posted.add(id);
+    },
+    cursor,
+  );
 
   await prisma.plaidItem.update({
     where: { id: itemDbId },
-    data: { transactionsCursor: next ?? null },
+    data: { transactionsCursor: next || null },
   });
   const ruled = await applyMatchedMerchantRules();
-  await archiveTransactions({ id: ruled, plaidTransactionId: posted });
+  await archiveTransactions({ id: ruled, plaidTransactionId: [...posted] });
 }
 
 /** Fill a category only when the user has not chosen one, using the matched or unmatched rule. */
@@ -354,7 +348,9 @@ async function syncInvestments(accessToken: string, itemDbId: string) {
 
   let holdingsRes: InvestmentsHoldingsGetResponse | null = null;
   try {
-    holdingsRes = (await plaid.investmentsHoldingsGet({ access_token: accessToken })).data;
+    holdingsRes = (
+      await withPlaidRetry(() => plaid.investmentsHoldingsGet({ access_token: accessToken }))
+    ).data;
   } catch (e) {
     const err = plaidErr(e);
     if (SOFT_PLAID_CODES.has(err.code)) return null;
@@ -415,12 +411,14 @@ async function syncInvestments(accessToken: string, itemDbId: string) {
   let total = Infinity;
   try {
     while (offset < total) {
-      const res = await plaid.investmentsTransactionsGet({
-        access_token: accessToken,
-        start_date: startDate,
-        end_date: endDate,
-        options: { count, offset },
-      });
+      const res = await withPlaidRetry(() =>
+        plaid.investmentsTransactionsGet({
+          access_token: accessToken,
+          start_date: startDate,
+          end_date: endDate,
+          options: { count, offset },
+        }),
+      );
       total = res.data.total_investment_transactions;
       for (const s of res.data.securities ?? []) {
         await upsertSecurity(s);
@@ -474,7 +472,7 @@ async function syncInvestments(accessToken: string, itemDbId: string) {
 async function syncLiabilities(accessToken: string, itemDbId: string) {
   const plaid = getPlaidClient();
   try {
-    const res = await plaid.liabilitiesGet({ access_token: accessToken });
+    const res = await withPlaidRetry(() => plaid.liabilitiesGet({ access_token: accessToken }));
     const liab = res.data.liabilities;
     if (!liab) return null;
     const byPlaid = new Map(
@@ -665,39 +663,51 @@ export async function syncPlaidItem(itemDbId: string) {
     else status = "error";
   }
 
-  try {
-    await syncTransactions(accessToken, item.id, item.transactionsCursor);
-  } catch (e) {
-    const err = plaidErr(e);
-    if (SOFT_PLAID_CODES.has(err.code)) {
-      /* brokerage-only items often have no transactions product */
-    } else if (err.code === "ITEM_LOGIN_REQUIRED") {
-      status = "relink";
-      errorCode = err.code;
-      errors.push(`Transactions: ${err.message}`);
-    } else {
-      errors.push(`Transactions: ${err.message}`);
-    }
-  }
-
-  try {
-    const msg = await syncInvestments(accessToken, item.id);
-    if (msg) errors.push(`Investments (partial): ${msg}`);
-  } catch (e) {
-    const err = plaidErr(e);
+  // One code per failure so Connections can say what happened; login-required wins.
+  const note = (err: { code: string }) => {
     if (err.code === "ITEM_LOGIN_REQUIRED") {
       status = "relink";
       errorCode = err.code;
+    } else if (!errorCode) errorCode = err.code;
+  };
+  // A login-required item fails every product the same way, so stop early.
+  const live = () => status !== "relink";
+
+  if (live()) {
+    try {
+      await syncTransactions(accessToken, item.id, item.transactionsCursor);
+    } catch (e) {
+      const err = plaidErr(e);
+      if (SOFT_PLAID_CODES.has(err.code)) {
+        /* brokerage-only items often have no transactions product */
+      } else {
+        note(err);
+        errors.push(`Transactions: ${err.message}`);
+      }
     }
-    errors.push(`Investments: ${err.message}`);
   }
 
-  try {
-    const msg = await syncLiabilities(accessToken, item.id);
-    if (msg) errors.push(`Liabilities (partial): ${msg}`);
-  } catch (e) {
-    const err = plaidErr(e);
-    errors.push(`Liabilities: ${err.message}`);
+  if (live()) {
+    try {
+      const msg = await syncInvestments(accessToken, item.id);
+      if (msg) errors.push(`Investments (partial): ${msg}`);
+      await archiveEquityEvents();
+    } catch (e) {
+      const err = plaidErr(e);
+      note(err);
+      errors.push(`Investments: ${err.message}`);
+    }
+  }
+
+  if (live()) {
+    try {
+      const msg = await syncLiabilities(accessToken, item.id);
+      if (msg) errors.push(`Liabilities (partial): ${msg}`);
+    } catch (e) {
+      const err = plaidErr(e);
+      note(err);
+      errors.push(`Liabilities: ${err.message}`);
+    }
   }
 
   await prisma.plaidItem.update({

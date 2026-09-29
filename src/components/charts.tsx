@@ -34,38 +34,20 @@ import { CategoryIcon, hasCategoryIcon } from "@/lib/category-icons";
 import { colorFor, donutColorMap } from "@/lib/category-colors";
 import type { CategoryChange } from "@/lib/spend-compare";
 import { FROM_SAVINGS, isOtherSlice, OTHER_CATEGORIES, TO_INVESTMENTS, TO_SAVINGS } from "@/lib/flow-labels";
+import {
+  sankeyLeafAction,
+  sankeyLinkAction,
+  sankeyShareLabel,
+  sankeyShareTotal,
+  sankeySideTotals,
+  type SankeyLeafAction,
+} from "@/lib/sankey-node";
 import { SANKEY_INCOME_LIMIT, SANKEY_SPEND_LIMIT, sankeyIncomeLabel, topSlices } from "@/lib/sankey-slices";
 
 const AXIS = { fontSize: 11, fill: "#8fa0b8", fontFamily: "var(--font-geist-sans)" };
 const MONEY_AXIS = { ...AXIS, className: "money" };
 const GRID = "rgba(148,163,184,0.12)";
 const ICE = "#A8C5E2";
-const PALETTE = [
-  "#7EABD4",
-  "#D4928C",
-  "#7DB8A4",
-  "#D4BE7A",
-  "#A898CC",
-  "#78C0C4",
-  "#D4A878",
-  "#D49AB0",
-  "#94C48C",
-  "#8EA4DC",
-  "#C4A898",
-  "#7CBCB0",
-  "#C8C47A",
-  "#86B8D4",
-  "#C49AC4",
-  "#E0A898",
-  "#88C4A8",
-  "#D4B85C",
-  "#9A9AD0",
-  "#E0B07A",
-  "#70C4BC",
-  "#B8A0D0",
-  "#D4C888",
-  "#7AB4D4",
-];
 const HUB_FILL = "#8B9BB3";
 const SAVED_FILL = "#6FC4B0";
 const DRAWN_FILL = "#D48992";
@@ -748,16 +730,25 @@ export function CashflowSankey({
     if (!(s.value >= 1) || !Number.isFinite(s.value)) continue;
     links.push({ source: idx(`in:${s.label}`, s.label), target: hub, value: s.value });
   }
-  for (const s of outflows) {
-    if (!(s.value >= 1) || !Number.isFinite(s.value)) continue;
-    links.push({ source: hub, target: idx(`out:${s.label}`, s.label), value: s.value });
-  }
-  if (invest >= 1 && Number.isFinite(invest)) {
-    links.push({ source: hub, target: idx("save:invest", TO_INVESTMENTS, INVEST_FILL), value: invest });
-  }
   const saved = inTotal - outTotal - Math.max(0, invest);
-  if (saved > 1) links.push({ source: hub, target: idx("save:to", TO_SAVINGS, SAVED_FILL), value: saved });
-  else if (saved < -1) links.push({ source: hub, target: idx("save:from", FROM_SAVINGS, DRAWN_FILL), value: -saved });
+  // The right side runs largest first, with the Other bucket kept last.
+  const right: { key: string; label: string; value: number; fill?: string }[] = outflows.map((s) => ({
+    key: `out:${s.label}`,
+    label: s.label,
+    value: s.value,
+  }));
+  const place = (row: (typeof right)[number]) => {
+    const tail = right.at(-1)?.label === OTHER_CATEGORIES ? right.length - 1 : right.length;
+    const at = right.slice(0, tail).findIndex((r) => r.value < row.value);
+    right.splice(at < 0 ? tail : at, 0, row);
+  };
+  if (invest >= 1 && Number.isFinite(invest)) place({ key: "save:invest", label: TO_INVESTMENTS, value: invest, fill: INVEST_FILL });
+  if (saved > 1) place({ key: "save:to", label: TO_SAVINGS, value: saved, fill: SAVED_FILL });
+  if (saved < -1) right.push({ key: "save:from", label: FROM_SAVINGS, value: -saved, fill: DRAWN_FILL });
+  for (const s of right) {
+    if (!(s.value >= 1) || !Number.isFinite(s.value)) continue;
+    links.push({ source: hub, target: idx(s.key, s.label, s.fill), value: s.value });
+  }
 
   if (!links.length) {
     return <p className="py-10 text-sm text-muted-foreground">No cashflow in this window.</p>;
@@ -767,8 +758,6 @@ export function CashflowSankey({
     <CashflowSankeyChart
       nodes={nodes}
       links={links}
-      outflows={outflows}
-      sources={sources}
       onSpendClick={onSpendClick}
       onIncomeClick={onIncomeClick}
       onBalanceClick={onBalanceClick}
@@ -779,16 +768,12 @@ export function CashflowSankey({
 function CashflowSankeyChart({
   nodes,
   links,
-  outflows,
-  sources,
   onSpendClick,
   onIncomeClick,
   onBalanceClick,
 }: {
   nodes: { name: string; label: string; color: string }[];
   links: { source: number; target: number; value: number }[];
-  outflows: { label: string; value: number }[];
-  sources: { label: string; value: number }[];
   onSpendClick?: (label: string) => void;
   onIncomeClick?: (label: string) => void;
   onBalanceClick?: (kind: "from-savings" | "to-savings" | "to-investments") => void;
@@ -806,8 +791,8 @@ function CashflowSankeyChart({
   }, []);
   // Phone widths cannot spare ~250px of side labels. Draw the flows edge to edge and list names below.
   const compact = width > 0 && width < 640;
-  const spendNames = new Set(outflows.map((s) => s.label));
-  const incomeNames = new Set(sources.map((s) => s.label));
+  const { inflow: inflowTotal, outflow: outflowTotal } = sankeySideTotals(nodes, links);
+  const handlers = { onSpendClick, onIncomeClick, onBalanceClick };
   const legend = nodes.filter((n) => n.name !== "hub");
 
   return (
@@ -822,7 +807,8 @@ function CashflowSankeyChart({
           nodePadding={compact ? 10 : 26}
           linkCurvature={0.5}
           iterations={16}
-          margin={compact ? { left: 8, right: 8, top: 8, bottom: 8 } : { left: 132, right: 148, top: 16, bottom: 16 }}
+          margin={compact ? { left: 8, right: 8, top: 8, bottom: 8 } : { left: 156, right: 176, top: 16, bottom: 16 }}
+          style={{ overflow: "visible" }}
           node={(props) => (
             <SankeyNode
               x={props.x}
@@ -834,8 +820,8 @@ function CashflowSankeyChart({
               onSpendClick={onSpendClick}
               onIncomeClick={onIncomeClick}
               onBalanceClick={onBalanceClick}
-              spendNames={spendNames}
-              incomeNames={incomeNames}
+              inflowTotal={inflowTotal}
+              outflowTotal={outflowTotal}
             />
           )}
           link={(props) => (
@@ -851,33 +837,9 @@ function CashflowSankeyChart({
               onSpendClick={onSpendClick}
               onIncomeClick={onIncomeClick}
               onBalanceClick={onBalanceClick}
-              spendNames={spendNames}
-              incomeNames={incomeNames}
             />
           )}
-        >
-          <Tooltip
-            content={({ payload }) => {
-              if (!payload?.length) return null;
-              const entry = payload[0];
-              const row = entry.payload as {
-                name?: string;
-                label?: string;
-                value?: number;
-                source?: unknown;
-                target?: unknown;
-              };
-              const label = sankeyHoverLabel(row, entry.name);
-              const value = typeof row.value === "number" ? row.value : Number(payload[0].value);
-              return (
-                <div className="rounded-md border border-border bg-card-elevated px-3 py-2 text-xs">
-                  <div className="mb-1 text-muted-foreground">{label}</div>
-                  <div className="num money">{formatMoney(value)}</div>
-                </div>
-              );
-            }}
-          />
-        </Sankey>
+        />
       </ResponsiveContainer>
       ) : null}
       </div>
@@ -890,7 +852,8 @@ function CashflowSankeyChart({
                 <span className="truncate">{n.label}</span>
               </>
             );
-            if (n.label === TO_SAVINGS) {
+            const action = sankeyLeafAction(n.name, n.label);
+            if (!action) {
               return (
                 <li key={n.name}>
                   <div className="flex min-w-0 max-w-full items-center gap-2 text-left text-xs">{swatch}</div>
@@ -902,12 +865,7 @@ function CashflowSankeyChart({
               <button
                 type="button"
                 className="flex min-w-0 max-w-full cursor-pointer items-center gap-2 text-left text-xs"
-                onClick={() => {
-                  if (n.label === FROM_SAVINGS) onBalanceClick?.("from-savings");
-                  else if (n.label === TO_INVESTMENTS) onBalanceClick?.("to-investments");
-                  else if (spendNames.has(n.label)) onSpendClick?.(n.label);
-                  else if (incomeNames.has(n.label)) onIncomeClick?.(n.label);
-                }}
+                onClick={() => runSankeyAction(action, handlers)}
               >
                 {swatch}
               </button>
@@ -941,23 +899,39 @@ function isSankeyHub(s: string): boolean {
   return !s || /^(hub|income)$/i.test(s);
 }
 
-function sankeyHoverLabel(row: { name?: string; label?: string; source?: unknown; target?: unknown }, entryName?: unknown): string {
-  const src = sankeyLabel(row?.source as { name?: string; label?: string } | undefined);
-  const tgt = sankeyLabel(row?.target as { name?: string; label?: string } | undefined);
-  if (src && tgt) {
-    if (!isSankeyHub(tgt)) return tgt;
-    if (!isSankeyHub(src)) return src;
-  }
-  const self = sankeyLabel(row);
-  if (self && !isSankeyHub(self)) return self;
-  return cleanSankeyText(String(entryName ?? self ?? ""));
-}
-
 function nodeColor(n: { color?: string; name?: string; label?: string } | undefined | null): string | undefined {
   if (!n || typeof n !== "object") return undefined;
   if (n.color) return n.color;
   const label = sankeyLabel(n);
   return label ? colorFor(label) : undefined;
+}
+
+function runSankeyAction(
+  action: SankeyLeafAction | null,
+  handlers: {
+    onSpendClick?: (label: string) => void;
+    onIncomeClick?: (label: string) => void;
+    onBalanceClick?: (kind: "from-savings" | "to-savings" | "to-investments") => void;
+  },
+) {
+  if (!action) return;
+  if (action.type === "income") handlers.onIncomeClick?.(action.label);
+  else if (action.type === "spend") handlers.onSpendClick?.(action.label);
+  else handlers.onBalanceClick?.(action.kind);
+}
+
+function sankeyOpens(
+  action: SankeyLeafAction | null,
+  handlers: {
+    onSpendClick?: (label: string) => void;
+    onIncomeClick?: (label: string) => void;
+    onBalanceClick?: (kind: "from-savings" | "to-savings" | "to-investments") => void;
+  },
+) {
+  if (!action) return false;
+  if (action.type === "income") return Boolean(handlers.onIncomeClick);
+  if (action.type === "spend") return Boolean(handlers.onSpendClick);
+  return Boolean(handlers.onBalanceClick);
 }
 
 function RainbowLink({
@@ -972,8 +946,6 @@ function RainbowLink({
   onSpendClick,
   onIncomeClick,
   onBalanceClick,
-  spendNames,
-  incomeNames,
 }: Pick<
   SankeyLinkProps,
   "sourceX" | "targetX" | "sourceY" | "targetY" | "sourceControlX" | "targetControlX" | "linkWidth" | "payload"
@@ -981,17 +953,15 @@ function RainbowLink({
   onSpendClick?: (label: string) => void;
   onIncomeClick?: (label: string) => void;
   onBalanceClick?: (kind: "from-savings" | "to-savings" | "to-investments") => void;
-  spendNames?: Set<string>;
-  incomeNames?: Set<string>;
 }) {
-  const srcName = sankeyLabel(payload?.source);
-  const tgtName = sankeyLabel(payload?.target);
+  const source = payload?.source as { name?: string; label?: string } | undefined;
+  const target = payload?.target as { name?: string; label?: string } | undefined;
+  const srcName = sankeyLabel(source);
+  const tgtName = sankeyLabel(target);
+  const handlers = { onSpendClick, onIncomeClick, onBalanceClick };
+  const action = sankeyLinkAction(String(source?.name ?? ""), source?.label || srcName, String(target?.name ?? ""), target?.label || tgtName);
+  const clickable = sankeyOpens(action, handlers);
   const d = `M${sourceX},${sourceY} C${sourceControlX},${sourceY} ${targetControlX},${targetY} ${targetX},${targetY}`;
-  const clickable =
-    (onSpendClick && spendNames?.has(tgtName)) ||
-    (onIncomeClick && incomeNames?.has(srcName)) ||
-    tgtName === FROM_SAVINGS ||
-    tgtName === TO_INVESTMENTS;
   const leaf = !isSankeyHub(tgtName) ? payload?.target : payload?.source;
   const stroke = nodeColor(leaf as { color?: string; name?: string; label?: string }) ?? colorFor(tgtName || srcName);
   // Each flow is palest at the Income hub and full color at its own category, so the hub reads as a hand-off point.
@@ -1011,11 +981,14 @@ function RainbowLink({
       stroke={`url(#${id})`}
       strokeWidth={Math.max(Number(linkWidth) || 2, 2)}
       className={cn("sankey-link", clickable ? "cursor-pointer" : undefined)}
-      onClick={() => {
-        if (tgtName === FROM_SAVINGS) onBalanceClick?.("from-savings");
-        else if (tgtName === TO_INVESTMENTS) onBalanceClick?.("to-investments");
-        else if (onSpendClick && spendNames?.has(tgtName)) onSpendClick(tgtName);
-        else if (onIncomeClick && incomeNames?.has(srcName)) onIncomeClick(srcName);
+      role={clickable ? "button" : undefined}
+      tabIndex={clickable ? 0 : undefined}
+      aria-label={clickable ? (tgtName && !isSankeyHub(tgtName) ? tgtName : srcName) : undefined}
+      onClick={() => runSankeyAction(action, handlers)}
+      onKeyDown={(e) => {
+        if (!clickable || (e.key !== "Enter" && e.key !== " ")) return;
+        e.preventDefault();
+        runSankeyAction(action, handlers);
       }}
     />
     </>
@@ -1032,33 +1005,43 @@ function SankeyNode({
   onSpendClick,
   onIncomeClick,
   onBalanceClick,
-  spendNames,
-  incomeNames,
+  inflowTotal,
+  outflowTotal,
 }: Pick<SankeyNodeProps, "x" | "y" | "width" | "height" | "payload"> & {
   compact?: boolean;
   onSpendClick?: (label: string) => void;
   onIncomeClick?: (label: string) => void;
   onBalanceClick?: (kind: "from-savings" | "to-savings" | "to-investments") => void;
-  spendNames?: Set<string>;
-  incomeNames?: Set<string>;
+  inflowTotal: number;
+  outflowTotal: number;
 }) {
-  const rawName = sankeyLabel(payload as { name?: string; label?: string });
-  const outgoing = ((payload as { targetNodes?: number[] })?.targetNodes ?? []).length > 0;
-  const incoming = ((payload as { sourceNodes?: number[] })?.sourceNodes ?? []).length > 0;
+  const node = payload as {
+    name?: string;
+    label?: string;
+    value?: number;
+    targetNodes?: number[];
+    sourceNodes?: number[];
+  };
+  const key = String(node?.name ?? "");
+  const outgoing = (node?.targetNodes ?? []).length > 0;
+  const incoming = (node?.sourceNodes ?? []).length > 0;
   const right = incoming && !outgoing;
-  const name = cleanSankeyText(rawName);
+  const name = cleanSankeyText(String(node?.label || key));
+  const handlers = { onSpendClick, onIncomeClick, onBalanceClick };
+  const action = sankeyLeafAction(key, name);
+  const clickable = sankeyOpens(action, handlers);
   const cx = Number(x ?? 0);
   const cy = Number(y ?? 0);
   const w = Number(width ?? 0);
   const h = Number(height ?? 0);
-  const spend = Boolean(onSpendClick && spendNames?.has(name));
-  const income = Boolean(onIncomeClick && incomeNames?.has(name));
-  const balance = name === FROM_SAVINGS || name === TO_INVESTMENTS;
-  const clickable = spend || income || balance;
-  const fontSize = 13;
-  const lineH = 16;
-  const lines = wrapLabel(name, 15);
-  const labelW = 128;
+  const value = Number(node?.value) || 0;
+  const share = sankeyShareLabel(value, sankeyShareTotal(key, inflowTotal, outflowTotal));
+  const hub = key === "hub";
+  const amount = formatMoney(value);
+  const shareX = right ? cx - 8 : cx + w + 8;
+  const lineH = 18;
+  const lines = wrapLabel(hub ? "" : name, 14);
+  const labelW = 148;
   const labelH = Math.max(h, lineH * lines.length + 4);
   const labelX = right ? cx + w + 4 : cx - 4 - labelW;
   const labelY = cy + (Math.max(h, 2) - labelH) / 2;
@@ -1067,11 +1050,14 @@ function SankeyNode({
   return (
     <g
       className={clickable ? "cursor-pointer" : undefined}
-      onClick={() => {
-        if (name === FROM_SAVINGS) onBalanceClick?.("from-savings");
-        else if (name === TO_INVESTMENTS) onBalanceClick?.("to-investments");
-        else if (spend && onSpendClick) onSpendClick(name);
-        else if (income && onIncomeClick) onIncomeClick(name);
+      role={clickable ? "button" : undefined}
+      tabIndex={clickable ? 0 : undefined}
+      aria-label={clickable ? `${name}, ${amount}${share ? ` (${share})` : ""}` : undefined}
+      onClick={() => runSankeyAction(action, handlers)}
+      onKeyDown={(e) => {
+        if (!clickable || (e.key !== "Enter" && e.key !== " ")) return;
+        e.preventDefault();
+        runSankeyAction(action, handlers);
       }}
     >
       <rect
@@ -1082,16 +1068,14 @@ function SankeyNode({
         fill={nodeColor(payload as { color?: string; name?: string; label?: string }) ?? colorFor(name)}
         rx={1}
       />
-      {compact || !clickable ? null : <rect x={labelX} y={labelY} width={labelW} height={labelH} fill="transparent" />}
-      {compact ? null : (
+      {compact || hub || !clickable ? null : <rect x={labelX} y={labelY} width={labelW} height={labelH} fill="transparent" />}
+      {compact || hub ? null : (
       <text
+        className="sankey-label"
         x={textX}
         y={textY}
         textAnchor={right ? "start" : "end"}
         dominantBaseline="middle"
-        fill="#C9D4E3"
-        fontSize={fontSize}
-        fontFamily="var(--font-geist-sans)"
       >
         {lines.map((ln, i) => (
           <tspan key={i} x={textX} dy={i === 0 ? 0 : lineH}>
@@ -1099,6 +1083,18 @@ function SankeyNode({
           </tspan>
         ))}
       </text>
+      )}
+      {hub || !(value > 0) ? null : (
+        <text
+          className="sankey-label"
+          x={shareX}
+          y={cy + Math.max(h, 2) / 2}
+          textAnchor={right ? "end" : "start"}
+          dominantBaseline="middle"
+        >
+          <tspan className="money">{amount}</tspan>
+          {share ? <tspan>{` (${share})`}</tspan> : null}
+        </text>
       )}
     </g>
   );

@@ -76,6 +76,16 @@ function genericInterest(s: string | null | undefined) {
   return !!s && /^interest(\s+paid)?$/i.test(s.trim());
 }
 
+/**
+ * A saved copy keeps the category in effect, not who chose it. Plaid never pairs an income category with another
+ * kind of detail, so that pairing on a saved row is the household's relabel and names the source the way the live row does.
+ */
+export function savedUserCategory(category: string | null | undefined, detailed: string | null | undefined): string | null {
+  const code = (category ?? "").toUpperCase();
+  const income = code === "INCOME" || code.startsWith("INCOME_");
+  return income && !(detailed ?? "").toUpperCase().startsWith("INCOME") ? code : null;
+}
+
 export function incomeSourceLabel(t: {
   categoryPrimary?: string | null;
   categoryDetailed?: string | null;

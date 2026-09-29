@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState, type ReactNode } from "react";
+import { useCallback, useDeferredValue, useEffect, useMemo, useState, type ReactNode } from "react";
 import {
   flexRender,
   getCoreRowModel,
@@ -43,7 +43,27 @@ import { CategoryIcon, CategoryName } from "@/lib/category-icons";
 import { ReportRange } from "@/components/chart-range";
 import { defaultTxnWindow, inWindow, type WindowKey } from "@/lib/range";
 import type { TxnRow } from "@/lib/txn-row";
+import { visibleSlice } from "@/lib/virtual-range";
 import { ArrowDown, ArrowUp, StickyNote } from "lucide-react";
+import type { Cadence, RecurringKind } from "@/lib/recurring";
+
+const RECURRING_CHOICES: { kind: RecurringKind; label: string }[] = [
+  { kind: "loan", label: "Loan payments" },
+  { kind: "bill", label: "Bills" },
+  { kind: "subscription", label: "Subscriptions" },
+];
+
+const CADENCE_CHOICES: { cadence: Cadence; label: string }[] = [
+  { cadence: "weekly", label: "Weekly" },
+  { cadence: "biweekly", label: "Every 2 weeks" },
+  { cadence: "monthly", label: "Monthly" },
+  { cadence: "bimonthly", label: "Every 2 months" },
+  { cadence: "quarterly", label: "Quarterly" },
+  { cadence: "semiannual", label: "Twice a year" },
+  { cadence: "annual", label: "Yearly" },
+];
+
+type RecurringChoice = { on: boolean; kind: RecurringKind; cadence: Cadence };
 
 function CardMatchNote({ match, className = "shrink-0" }: { match: TxnRow["cardMatch"]; className?: string }) {
   if (match !== "matched") return null;
@@ -59,8 +79,80 @@ function merchantGroup(r: TxnRow) {
   return r.cardMatch === "matched" ? `${r.merchant} · matches another account` : r.merchant;
 }
 
-/** Rows rendered at once. Sorting and filtering still run over the full set; only the DOM is capped. */
+/** Rows kept before Show more. Sorting and filtering still run over the full set. */
 const PAGE = 250;
+const DESK_ROW = 40;
+const PHONE_ROW = 68;
+
+function txnHay(r: TxnRow) {
+  return [
+    r.merchant,
+    r.rawMerchant,
+    r.name,
+    r.account,
+    r.accountMask,
+    r.institution,
+    r.ownerLabel,
+    r.category ? categoryLabel(r.category) : "",
+    r.categoryDetailed ? categoryLabel(r.categoryDetailed) : "",
+    r.memo,
+    r.pending ? "pending" : "",
+  ]
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase();
+}
+
+function useMeasuredRow(fallback: number) {
+  const [px, setPx] = useState(fallback);
+  const ref = useCallback((el: HTMLElement | null) => {
+    if (!el) return;
+    const next = el.getBoundingClientRect().height;
+    if (next > 1) setPx((prev) => (Math.abs(prev - next) > 0.5 ? next : prev));
+  }, []);
+  return [px, ref] as const;
+}
+
+/** Rows of `anchor` that sit inside `scroller`, or inside the window when there is no scroller. */
+function useSlice(count: number, rowPx: number, anchor: HTMLElement | null, scroller: HTMLElement | null) {
+  const [slice, setSlice] = useState({ start: 0, end: Math.min(count, 40) });
+  useEffect(() => {
+    if (!anchor) return;
+    let frame = 0;
+    const update = () => {
+      const rect = anchor.getBoundingClientRect();
+      if (rect.width === 0 && rect.height === 0) {
+        const next = { start: 0, end: Math.min(count, 24) };
+        setSlice((prev) => (prev.start === next.start && prev.end === next.end ? prev : next));
+        return;
+      }
+      const viewTop = scroller ? scroller.getBoundingClientRect().top : 0;
+      const view = scroller ? scroller.clientHeight : window.innerHeight;
+      const next = visibleSlice(viewTop - rect.top, view, count, rowPx);
+      setSlice((prev) => (prev.start === next.start && prev.end === next.end ? prev : next));
+    };
+    const onScroll = () => {
+      cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(update);
+    };
+    update();
+    const target: HTMLElement | Window = scroller ?? window;
+    target.addEventListener("scroll", onScroll, { passive: true });
+    if (!scroller) window.addEventListener("resize", onScroll);
+    const ro = new ResizeObserver(onScroll);
+    ro.observe(anchor);
+    if (scroller) ro.observe(scroller);
+    return () => {
+      cancelAnimationFrame(frame);
+      target.removeEventListener("scroll", onScroll);
+      if (!scroller) window.removeEventListener("resize", onScroll);
+      ro.disconnect();
+    };
+  }, [anchor, scroller, count, rowPx]);
+  const start = Math.min(slice.start, count);
+  const end = Math.min(count, Math.max(slice.end, start));
+  return { start, end };
+}
 
 const COL_WIDTH: Record<string, string> = {
   date: "w-[7.5rem]",
@@ -88,11 +180,21 @@ export function TransactionsTable({
   /** Preset month chips. Transactions page (All and Refunds tabs). */
   dateChips?: boolean;
   containerClassName?: string;
-  /** Opens with this search (a link from Overview). It also widens the window to the last month. */
+  /** Opens with this search (a link from Overview). A search looks through every transaction until a chip is picked. */
   initialQuery?: string;
 }) {
   const [q, setQ] = useState(initialQuery);
   const [limit, setLimit] = useState(PAGE);
+  /** A chip picked while searching narrows the search to that window. Clearing the search forgets it. */
+  const [chipDuringSearch, setChipDuringSearch] = useState(false);
+  const typed = q.trim();
+  // The list follows a deferred copy, so a keystroke updates the box before the rows are filtered.
+  const deferredQuery = useDeferredValue(typed);
+  const filtering = deferredQuery.length > 0;
+  const searchAll = filtering && !chipDuringSearch;
+  const [scroller, setScroller] = useState<HTMLDivElement | null>(null);
+  const [deskBody, setDeskBody] = useState<HTMLTableSectionElement | null>(null);
+  const [phoneList, setPhoneList] = useState<HTMLUListElement | null>(null);
   const [range, setRange] = useState<WindowKey | null>(() =>
     dateChips ? (initialQuery ? "1m" : (defaultRange ?? defaultTxnWindow())) : null,
   );
@@ -109,9 +211,14 @@ export function TransactionsTable({
     setOpen(t);
   }
 
+  const searchText = useMemo(() => {
+    const text = new Map<string, string>();
+    for (const row of rows) text.set(row.id, txnHay(row));
+    return text;
+  }, [rows]);
   const windowedRows = useMemo(
-    () => (range == null ? rows : rows.filter((r) => inWindow(r.date, range))),
-    [rows, range],
+    () => (range == null || searchAll ? rows : rows.filter((r) => inWindow(r.date, range))),
+    [rows, range, searchAll],
   );
   const merchantOpts = useMemo(() => [...new Set(windowedRows.map((r) => merchantGroup(r)))].sort(), [windowedRows]);
   const accountOpts = useMemo(() => [...new Set(windowedRows.map((r) => r.account))].sort(), [windowedRows]);
@@ -262,33 +369,16 @@ export function TransactionsTable({
   const table = useReactTable({
     data: filteredRows,
     columns,
-    state: { sorting, globalFilter: q.trim() },
+    state: { sorting, globalFilter: deferredQuery },
     onSortingChange: setSorting,
-    onGlobalFilterChange: setQ,
+    onGlobalFilterChange: updateQuery,
     getCoreRowModel: getCoreRowModel(),
     getSortedRowModel: getSortedRowModel(),
     getFilteredRowModel: getFilteredRowModel(),
     globalFilterFn: (row, _columnId, filterValue) => {
       const needle = String(filterValue ?? "").trim().toLowerCase();
       if (!needle) return true;
-      const r = row.original;
-      const hay = [
-        r.merchant,
-        r.rawMerchant,
-        r.name,
-        r.account,
-        r.accountMask,
-        r.institution,
-        r.ownerLabel,
-        r.category ? categoryLabel(r.category) : "",
-        r.categoryDetailed ? categoryLabel(r.categoryDetailed) : "",
-        r.memo,
-        r.pending ? "pending" : "",
-      ]
-        .filter(Boolean)
-        .join(" ")
-        .toLowerCase();
-      return hay.includes(needle);
+      return (searchText.get(row.original.id) ?? "").includes(needle);
     },
     enableSortingRemoval: true,
     sortDescFirst: false,
@@ -297,9 +387,25 @@ export function TransactionsTable({
   const listed = table.getRowModel().rows.length;
   const outsideChip = dateChips && range != null ? rows.length - windowedRows.length : 0;
   const columnCount = columns.length;
+  const shown = filtering ? listed : limit;
+  const matched = table.getRowModel().rows.slice(0, shown);
+  const [deskPx, deskProbe] = useMeasuredRow(DESK_ROW);
+  const [phonePx, phoneProbe] = useMeasuredRow(PHONE_ROW);
+  const desk = useSlice(matched.length, deskPx, deskBody, scroller);
+  const phone = useSlice(matched.length, phonePx, phoneList, readOnly ? scroller : null);
+  const deskRows = matched.slice(desk.start, desk.end);
+  const phoneRows = matched.slice(phone.start, phone.end);
+  useEffect(() => {
+    scroller?.scrollTo({ top: 0 });
+  }, [deferredQuery, scroller]);
+
+  function updateQuery(next: string) {
+    setQ(next);
+    if (!next.trim()) setChipDuringSearch(false);
+  }
 
   function moreButton(wide: boolean) {
-    if (listed > limit) {
+    if (listed > shown) {
       const next = Math.min(PAGE, listed - limit);
       return (
         <Button type="button" variant="outline" size="sm" onClick={() => setLimit((n) => n + PAGE)}>
@@ -310,7 +416,15 @@ export function TransactionsTable({
     }
     if (outsideChip > 0) {
       return (
-        <Button type="button" variant="outline" size="sm" onClick={() => setRange(null)}>
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          onClick={() => {
+            setRange(null);
+            setChipDuringSearch(false);
+          }}
+        >
           Show {outsideChip.toLocaleString("en-US")} more transactions
         </Button>
       );
@@ -321,14 +435,14 @@ export function TransactionsTable({
     containerClassName ?? "max-h-[calc(100dvh-17rem)] overscroll-contain md:max-h-[calc(100dvh-14.5rem)]";
 
   return (
-    <div className={readOnly ? scrollClass + " min-h-0 overflow-auto" : undefined}>
+    <div ref={readOnly ? setScroller : undefined} className={readOnly ? scrollClass + " min-h-0 overflow-auto" : undefined}>
       <div className={readOnly ? "section-head" : "section-head txn-toolbar"}>
         <div className="flex min-w-0 flex-wrap items-center gap-3">
           {lead}
           <SearchInput
             placeholder={readOnly ? "Search merchant, description, note" : "Search merchant, account, category"}
             value={q}
-            onChange={setQ}
+            onChange={updateQuery}
           />
           <span className="footnote num whitespace-nowrap">
             {listed.toLocaleString("en-US")} {listed === 1 ? "row" : "rows"}
@@ -345,7 +459,7 @@ export function TransactionsTable({
             amountRule.op !== "any"
           }
           onReset={() => {
-            setQ("");
+            updateQuery("");
             setDateSel(null);
             setMerchantSel(null);
             setAccountSel(null);
@@ -357,10 +471,11 @@ export function TransactionsTable({
         {dateChips ? (
           <div className="ml-auto">
             <ReportRange
-              value={range}
+              value={typed.length > 0 && !chipDuringSearch ? null : range}
               onChange={(key) => {
                 setRange(key);
                 setLimit(PAGE);
+                if (typed.length > 0) setChipDuringSearch(true);
               }}
             />
           </div>
@@ -374,8 +489,9 @@ export function TransactionsTable({
             {outsideChip > 0 ? <div className="mt-3">{moreButton(false)}</div> : null}
           </div>
         ) : (
-          <ul>
-            {table.getRowModel().rows.slice(0, limit).map((row) => {
+          <ul ref={setPhoneList}>
+            {phone.start > 0 ? <li aria-hidden className="border-0 p-0" style={{ height: phone.start * phonePx }} /> : null}
+            {phoneRows.map((row, i) => {
               const t = row.original;
               const body = (
                 <>
@@ -405,7 +521,7 @@ export function TransactionsTable({
                 </>
               );
               return (
-                <li key={row.id} className="border-b border-border last:border-0">
+                <li key={row.id} ref={i === 0 ? phoneProbe : undefined} className="border-b border-border last:border-0">
                   {readOnly ? (
                     <div className="flex w-full items-center gap-3 px-4 py-3 text-left">{body}</div>
                   ) : (
@@ -416,6 +532,9 @@ export function TransactionsTable({
                 </li>
               );
             })}
+            {phone.end < matched.length ? (
+              <li aria-hidden className="border-0 p-0" style={{ height: (matched.length - phone.end) * phonePx }} />
+            ) : null}
             {moreButton(false) ? <li className="py-3 text-center">{moreButton(false)}</li> : null}
           </ul>
         )}
@@ -425,6 +544,7 @@ export function TransactionsTable({
         <Table
           className="table-fixed"
           containerClassName={readOnly ? "overflow-visible" : scrollClass}
+          containerRef={readOnly ? undefined : setScroller}
         >
           <colgroup>
             {table.getVisibleLeafColumns().map((column) => (
@@ -453,7 +573,7 @@ export function TransactionsTable({
               </TableRow>
             ))}
           </TableHeader>
-          <TableBody>
+          <TableBody ref={setDeskBody}>
             {listed === 0 ? (
               <TableRow>
                 <TableCell colSpan={columnCount} className="py-10 text-center text-sm text-muted-foreground">
@@ -462,22 +582,39 @@ export function TransactionsTable({
                 </TableCell>
               </TableRow>
             ) : (
-              table.getRowModel().rows.slice(0, limit).map((row) => (
-                <TableRow
-                  key={row.id}
-                  className={readOnly ? undefined : "cursor-pointer"}
-                  onClick={readOnly ? undefined : () => edit(row.original)}
-                >
-                  {row.getVisibleCells().map((cell) => (
-                    <TableCell
-                      key={cell.id}
-                      className={cell.column.id === "amount" ? "num" : "overflow-hidden text-ellipsis whitespace-nowrap"}
-                    >
-                      {flexRender(cell.column.columnDef.cell, cell.getContext())}
-                    </TableCell>
-                  ))}
-                </TableRow>
-              ))
+              <>
+                {desk.start > 0 ? (
+                  <tr aria-hidden>
+                    <td colSpan={columnCount} style={{ padding: 0, border: 0 }}>
+                      <div style={{ height: desk.start * deskPx }} />
+                    </td>
+                  </tr>
+                ) : null}
+                {deskRows.map((row, i) => (
+                  <TableRow
+                    key={row.id}
+                    ref={i === 0 ? deskProbe : undefined}
+                    className={readOnly ? undefined : "cursor-pointer"}
+                    onClick={readOnly ? undefined : () => edit(row.original)}
+                  >
+                    {row.getVisibleCells().map((cell) => (
+                      <TableCell
+                        key={cell.id}
+                        className={cell.column.id === "amount" ? "num" : "overflow-hidden text-ellipsis whitespace-nowrap"}
+                      >
+                        {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                      </TableCell>
+                    ))}
+                  </TableRow>
+                ))}
+                {desk.end < matched.length ? (
+                  <tr aria-hidden>
+                    <td colSpan={columnCount} style={{ padding: 0, border: 0 }}>
+                      <div style={{ height: (matched.length - desk.end) * deskPx }} />
+                    </td>
+                  </tr>
+                ) : null}
+              </>
             )}
             {listed > 0 && moreButton(true) ? (
               <TableRow>
@@ -542,8 +679,36 @@ function TransactionSheetForm({
   const [merchant, setMerchant] = useState(row?.merchant ?? "");
   const [category, setCategory] = useState(row?.category ?? "");
   const [memo, setMemo] = useState(row?.memo ?? "");
-  const [applyAll, setApplyAll] = useState(false);
+  const [applyAll, setApplyAll] = useState(true);
   const [host, setHost] = useState<HTMLDivElement | null>(null);
+  // Whether this merchant is listed under Recurring, read when the sheet opens. Only charges can recur.
+  const canRecur = row != null && row.amount > 0 && !row.internal;
+  const [recurring, setRecurring] = useState<RecurringChoice & { loaded: boolean; was: RecurringChoice }>({
+    loaded: false,
+    on: false,
+    kind: "subscription",
+    cadence: "monthly",
+    was: { on: false, kind: "subscription", cadence: "monthly" },
+  });
+  useEffect(() => {
+    if (!row || !canRecur) return;
+    let live = true;
+    fetch(`/api/recurring?merchant=${encodeURIComponent(row.merchant)}`)
+      .then((res) => (res.ok ? res.json() : null))
+      .then((body: { kind: RecurringKind | null; cadence: Cadence | null } | null) => {
+        if (!live || !body) return;
+        const state: RecurringChoice = {
+          on: body.kind != null,
+          kind: body.kind ?? "subscription",
+          cadence: body.cadence ?? "monthly",
+        };
+        setRecurring({ loaded: true, ...state, was: state });
+      })
+      .catch(() => {});
+    return () => {
+      live = false;
+    };
+  }, [row, canRecur]);
   const categoryOptions =
     !category || HAUS_CATEGORIES.some((c) => c.code === category)
       ? HAUS_CATEGORIES
@@ -554,6 +719,9 @@ function TransactionSheetForm({
     const nextMerchant = merchant.trim();
     const nextMemo = memo.trim() || null;
     const nextCategory = category || null;
+    // A note-only save must not pin the current category on every transaction from the merchant.
+    const applyToMerchant =
+      applyAll && (nextCategory !== (row.category ?? null) || nextMerchant !== row.merchant);
     const res = await fetch("/api/transactions", {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
@@ -562,18 +730,30 @@ function TransactionSheetForm({
         userMerchant: nextMerchant || null,
         userCategory: nextCategory,
         memo: nextMemo,
-        applyToMerchant: applyAll,
+        applyToMerchant,
       }),
     });
+    // Recurring is set for the merchant, so it is saved only when the choice changed.
+    const recurringChanged =
+      canRecur && recurring.loaded && (recurring.on !== recurring.was.on ||
+        (recurring.on && (recurring.kind !== recurring.was.kind || recurring.cadence !== recurring.was.cadence)));
+    const recurringRes = recurringChanged
+      ? await fetch("/api/recurring", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ merchant: row.merchant, kind: recurring.on ? recurring.kind : null, cadence: recurring.on ? recurring.cadence : undefined }),
+        }).catch(() => null)
+      : null;
+    if (recurringChanged && !recurringRes?.ok) toast.error("Saved, but could not change Recurring.");
     if (!res.ok) toast.error("Could not save.");
     else {
-      toast.success("Saved.");
+      if (!recurringChanged || recurringRes?.ok) toast.success("Saved.");
       onSaved?.({
         id: row.id,
         merchant: nextMerchant,
         category: nextCategory,
         memo: nextMemo,
-        applyToMerchant: applyAll,
+        applyToMerchant,
         cardMatch: row.cardMatch,
         rawMerchant: row.rawMerchant,
         name: row.name,
@@ -632,6 +812,49 @@ function TransactionSheetForm({
                   <Switch checked={applyAll} onCheckedChange={setApplyAll} />
                   Always categorize this merchant this way
                 </label>
+                {canRecur ? (
+                  <div className="space-y-2">
+                    <label className="flex items-center gap-2 text-sm text-muted-foreground">
+                      <Switch
+                        checked={recurring.on}
+                        disabled={!recurring.loaded}
+                        onCheckedChange={(on) => setRecurring((cur) => ({ ...cur, on }))}
+                      />
+                      Recurring charge
+                    </label>
+                    {recurring.on ? (
+                      <div>
+                        <Label>Counts as</Label>
+                        <Select value={recurring.kind} onValueChange={(kind) => setRecurring((cur) => ({ ...cur, kind: kind as RecurringKind }))}>
+                          <SelectTrigger className="mt-1">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent container={host}>
+                            {RECURRING_CHOICES.map((c) => (
+                              <SelectItem key={c.kind} value={c.kind}>
+                                {c.label}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        <Label className="mt-3 block">How often</Label>
+                        <Select value={recurring.cadence} onValueChange={(cadence) => setRecurring((cur) => ({ ...cur, cadence: cadence as Cadence }))}>
+                          <SelectTrigger className="mt-1">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent container={host}>
+                            {CADENCE_CHOICES.map((c) => (
+                              <SelectItem key={c.cadence} value={c.cadence}>
+                                {c.label}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        <p className="footnote mt-1">Applies to every charge from this merchant.</p>
+                      </div>
+                    ) : null}
+                  </div>
+                ) : null}
                 <div>
                   <Label>Note</Label>
                   <textarea

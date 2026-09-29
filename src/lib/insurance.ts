@@ -59,7 +59,10 @@ export function shownPolicies<T extends SlotPolicy>(policies: T[], memberIds: st
   const add = (p?: T) => {
     if (p) shown.set(p.id, p);
   };
-  for (const m of memberIds) for (const kind of ["health", "vision", "dental"]) add(policies.find((p) => p.type === kind && policyCoversMember(p, m)));
+  for (const m of memberIds) {
+    for (const kind of ["health", "vision", "dental"]) add(policies.find((p) => p.type === kind && policyCoversMember(p, m)));
+    for (const p of policies) if (p.type === "other" && policyCoversMember(p, m)) add(p);
+  }
   for (const v of vehicleIds) add(policies.find((p) => p.type === "vehicle" && p.vehicleId === v));
   add(policies.find((p) => p.type === "home" && !p.vehicleId));
   return [...shown.values()];

@@ -18,7 +18,7 @@ export default async function InsurancePage() {
   const sectionTotal = (types: string[]) =>
     shown.filter((p) => types.includes(p.type)).reduce((sum, p) => sum + (yearlyPremium(p) ?? 0), 0);
   const sections = [
-    { kicker: "Health", accent: "#6FC4B0", value: sectionTotal(["health", "vision", "dental"]) },
+    { kicker: "Health", accent: "#6FC4B0", value: sectionTotal(["health", "vision", "dental", "other"]) },
     { kicker: "Vehicle", accent: "#7EABD4", value: sectionTotal(["vehicle", "auto"]) },
     { kicker: "Home", accent: "#D4BE7A", value: sectionTotal(["home"]) },
   ].filter((s) => s.value > 0);

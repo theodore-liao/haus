@@ -14,7 +14,9 @@ export function InfoTip({ label, children }: { label: string; children: ReactNod
           <CircleHelp className="!size-3.5" />
         </Button>
       </PopoverTrigger>
-      <PopoverContent className="prose-num leading-relaxed">{children}</PopoverContent>
+      <PopoverContent align="end" className="w-auto max-w-[min(26rem,var(--radix-popover-content-available-width))] prose-num leading-relaxed">
+        {children}
+      </PopoverContent>
     </Popover>
   );
 }

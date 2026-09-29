@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { mkdir, rename, unlink } from "fs/promises";
+import { mkdir, rename, unlink, rm } from "fs/promises";
 import path from "path";
 import { z } from "zod";
 import { requireSession } from "@/lib/auth";
@@ -29,6 +29,8 @@ const schema = z.object({
   mimeType: z.string().optional(),
   ext: z.string().optional(),
   ocrText: z.string().optional(),
+  /** Keep images already on this card. Medical, vision, and dental replace the image. */
+  append: z.boolean().optional(),
 });
 
 export async function POST(req: Request) {
@@ -67,11 +69,13 @@ export async function POST(req: Request) {
     } catch {
       return NextResponse.json({ ok: true, policy, warning: "Policy saved; source file could not be moved." });
     }
-    const old = await prisma.insuranceDocument.findMany({ where: { policyId: policy.id } });
-    for (const doc of old) {
-      await unlink(doc.path).catch(() => null);
+    if (!d.append) {
+      const old = await prisma.insuranceDocument.findMany({ where: { policyId: policy.id } });
+      for (const doc of old) {
+        await unlink(doc.path).catch(() => null);
+      }
+      await prisma.insuranceDocument.deleteMany({ where: { policyId: policy.id } });
     }
-    await prisma.insuranceDocument.deleteMany({ where: { policyId: policy.id } });
     await prisma.insuranceDocument.create({
       data: {
         policyId: policy.id,
@@ -102,10 +106,23 @@ export async function PATCH(req: Request) {
   return NextResponse.json({ ok: true, policy });
 }
 
+const deleteSchema = z.object({
+  id: z.string().min(1),
+  documentId: z.string().min(1).optional(),
+});
+
 export async function DELETE(req: Request) {
   await requireSession();
-  const { id } = (await req.json()) as { id?: string };
-  if (!id) return NextResponse.json({ error: "id required" }, { status: 400 });
+  const parsed = deleteSchema.safeParse(await req.json().catch(() => null));
+  if (!parsed.success) return NextResponse.json({ error: "id required" }, { status: 400 });
+  const { id, documentId } = parsed.data;
+  if (documentId) {
+    const doc = await prisma.insuranceDocument.findFirst({ where: { id: documentId, policyId: id } });
+    if (!doc) return NextResponse.json({ error: "Image not found." }, { status: 404 });
+    await rm(doc.path, { force: true }).catch(() => null);
+    await prisma.insuranceDocument.delete({ where: { id: doc.id } });
+    return NextResponse.json({ ok: true });
+  }
   await prisma.insurancePolicy.delete({ where: { id } });
   return NextResponse.json({ ok: true });
 }

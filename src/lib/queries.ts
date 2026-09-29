@@ -10,7 +10,16 @@ import {
   isRetirementAccount,
   isRetirementType,
 } from "./account-types";
-import { FIXED_USD_ID, IRS_LIMITS, IRS_LIMITS_YEAR, PFC_LABELS, categoryLabel, incomeSourceLabel } from "./constants";
+import {
+  FIXED_USD_ID,
+  IRS_LIMITS,
+  IRS_LIMITS_YEAR,
+  PFC_LABELS,
+  categoryLabel,
+  incomeSourceLabel,
+  savedUserCategory,
+} from "./constants";
+import { REFUNDS } from "./flow-labels";
 import { loadCardPaymentFlags } from "./card-payments";
 import { effectiveCategory, isInternalMove, isInvestFunding, isTransferCategory, recurringMerchantKey, txnMerchantKey } from "./categories";
 import { dayKey, ymKey } from "./range";
@@ -56,17 +65,29 @@ import { loadCryptoLots, lotValue } from "./crypto-lots";
 import type { BrandKind } from "./logos";
 import { buildAttention } from "./attention";
 import { inferRecurring } from "./recurring";
+import { readRecurringMarks } from "./recurring-marks";
 export { inferRecurring };
 import { listBudgets } from "./budgets";
 import { buildInsights, rankInsights, topActions, type Debt } from "./insights";
 import { readProjectionPrefs } from "./projection-prefs";
 import { PLAN_DEFAULTS, estimateSaving, mergeChildren, retirementSnapshot } from "./retirement-snapshot";
-import { EQUITY_ID_PREFIX, VEST_LABEL, equityKind, equityKindOfCategory, trailingYear, type EquityEvent } from "./equity-comp";
+import { EQUITY_ID_PREFIX, ESPP_LABEL, VEST_LABEL, dedupeEspp, equityKind, equityKindOfCategory, trailingYear, type EquityEvent } from "./equity-comp";
 import { realReturn } from "./retirement-plan";
 import { mustPayMonthly } from "./emergency-fund";
 import { readShowGoals } from "./goals";
-import { OUTSIDE_DEPOSIT_LABEL, isBrokerageDeposit, unmatchedDeposits } from "./outside-deposits";
+import {
+  OUTSIDE_DEPOSIT_LABEL,
+  RETIREMENT_CONTRIBUTION_LABEL,
+  type RetirementDeposit,
+  isBrokerageDeposit,
+  isContributionBuy,
+  retirementDepositKind,
+  unmatchedDeposits,
+} from "./outside-deposits";
 import type { FlowRow } from "./spend-net";
+
+/** One deposit into a retirement account. */
+export type ContributionRow = { id: string; date: string; amount: number; label: string; fromPay: boolean };
 
 export async function getNames() {
   const showGoals = await readShowGoals();
@@ -754,7 +775,7 @@ export async function getCashflow(filter: OwnerFilter, month: Date, includeTrans
   const end = new Date(month.getFullYear(), month.getMonth() + 1, 1);
   const lookbackStart = subDays(start, 400);
 
-  const [txns, hidden, ignoredRecurring] = await Promise.all([
+  const [txns, hidden, ignoredRecurring, marks] = await Promise.all([
     prisma.txn.findMany({
       where: { date: { gte: lookbackStart, lt: end } },
       include: { account: true },
@@ -762,6 +783,7 @@ export async function getCashflow(filter: OwnerFilter, month: Date, includeTrans
     }),
     hiddenMerchantKeys(),
     ignoredRecurringKeys(),
+    readRecurringMarks(),
   ]);
   const scoped = await withCardFlags(notHidden(txns, hidden).filter((t) => matchesOwner(t.account.owner, filter)));
   const monthTxns = scoped.filter((t) => t.date >= start);
@@ -812,7 +834,7 @@ export async function getCashflow(filter: OwnerFilter, month: Date, includeTrans
   const cash = cashAccounts.reduce((s, a) => s + (a.currentBalance ?? 0), 0);
   const runway = monthlyEssential > 0 ? cash / monthlyEssential : null;
 
-  const recurring = inferRecurring(scoped.filter((t) => t.date < end), ignoredRecurring);
+  const recurring = inferRecurring(scoped.filter((t) => t.date < end), ignoredRecurring, new Date(), marks);
 
   return {
     month: start.toISOString(),
@@ -1187,14 +1209,25 @@ export async function getRetirement(filter: OwnerFilter) {
   const rows = accounts.map((a) => {
     const kind = a.retirementKind || a.hausType;
     const inst = (a.item.institutionName || "").trim();
+    const countsAsContribution = (t: (typeof a.investmentTxns)[number]) => {
+      const sub = (t.subtype || "").toLowerCase();
+      const type = (t.type || "").toLowerCase();
+      return sub.includes("contribution") || (type === "cash" && sub.includes("deposit")) || sub.includes("transfer");
+    };
     const ytd = a.investmentTxns
       .filter((t) => t.date >= yStart && t.date < yEnd)
-      .filter((t) => {
-        const sub = (t.subtype || "").toLowerCase();
-        const type = (t.type || "").toLowerCase();
-        return sub.includes("contribution") || type === "cash" && sub.includes("deposit") || sub.includes("transfer");
-      })
+      .filter(countsAsContribution)
       .reduce((s, t) => s + Math.abs(t.amount), 0);
+    // Every deposit into the account, newest first: what the cash flow chart counts, plus what this year's total counts.
+    const planPays = a.investmentTxns.some((t) => retirementDepositKind(t) === "payroll");
+    const contributions: ContributionRow[] = a.investmentTxns
+      .flatMap((t) => {
+        const found = retirementDepositKind(t) ?? (!planPays && isContributionBuy(t) ? "payroll" : null);
+        // Whatever this year's total counts is listed too, so the list always adds up to it.
+        if (!found && !countsAsContribution(t)) return [];
+        return [{ id: t.id, date: dayKey(t.date), amount: Math.abs(t.amount), label: t.name, fromPay: found === "payroll" }];
+      })
+      .sort((x, y) => y.date.localeCompare(x.date));
     const limit: number =
       kind === "hsa" ? IRS_LIMITS.hsaFamily : kind === "401k" || kind === "403b" ? IRS_LIMITS.electiveDeferral : IRS_LIMITS.ira;
     const holdings: {
@@ -1247,6 +1280,7 @@ export async function getRetirement(filter: OwnerFilter) {
       ytd,
       limit,
       holdings,
+      contributions,
       manual: false as boolean,
       beneficiary: null as string | null,
     };
@@ -1267,6 +1301,7 @@ export async function getRetirement(filter: OwnerFilter) {
       childLabel: childLabelFor(names, { owner: m.owner, name: m.name, beneficiary: m.beneficiary }),
       kind: m.hausType,
       balance: m.balance,
+      contributions: [] as ContributionRow[],
       ytd: 0,
       limit: m.hausType === "hsa" ? IRS_LIMITS.hsaFamily : m.hausType === "trump" ? IRS_LIMITS.trumpAccount : 0,
       holdings:
@@ -1372,6 +1407,7 @@ export async function getEquityComp(filter: OwnerFilter, now = new Date()) {
       kind,
       amount: Math.abs(t.amount),
       security: t.security?.name || t.security?.symbol || "Company stock",
+      detail: t.name,
     });
   }
   let dataStart = firstLive._min.date ? dayKey(firstLive._min.date) : null;
@@ -1380,20 +1416,34 @@ export async function getEquityComp(filter: OwnerFilter, now = new Date()) {
     if (!dataStart || day < dataStart) dataStart = day;
     const kind = equityKindOfCategory(s.category);
     if (!kind || liveIds.has(s.plaidTransactionId) || !matchesOwner(savedOwnerNow(s, ownerByAccount), filter)) continue;
-    events.push({ id: s.plaidTransactionId, date: day, kind, amount: Math.abs(s.amount), security: s.rawMerchant || "Company stock" });
+    events.push({ id: s.plaidTransactionId, date: day, kind, amount: Math.abs(s.amount), security: s.rawMerchant || "Company stock", detail: s.name });
   }
-  events.sort((a, b) => b.date.localeCompare(a.date));
+  const kept = dedupeEspp(events).sort((a, b) => b.date.localeCompare(a.date));
   return {
-    events,
-    vests: trailingYear(events, "vest", now, dataStart),
-    espp: trailingYear(events, "espp", now, dataStart),
+    events: kept,
+    vests: trailingYear(kept, "vest", now, dataStart),
+    espp: trailingYear(kept, "espp", now, dataStart),
   };
 }
 
+/**
+ * What money coming in is called in the cash flow. Pay, interest and other income keep their source. Money back
+ * from a shop (a return, a credit, a waived fee) is one "Refunds" source, never an income named after the shop.
+ */
+function inflowLabel(code: string, source: string) {
+  const c = code.toUpperCase();
+  // A transfer in that no linked account sent: one plain source, not the bank's category code spelled out.
+  if (c.startsWith("TRANSFER_IN") || /^transfer in\b/i.test(source)) return "Transfers in";
+  const income = c === "INCOME" || c.startsWith("INCOME_");
+  if (income || source === "Interest" || /cash.?back|rewards|rebate/i.test(source)) return source;
+  return REFUNDS;
+}
+
 export async function getReports(filter: OwnerFilter) {
-  const [visible, ignoredRecurring, hidden, ledgerIds, accountOwners] = await Promise.all([
+  const [visible, ignoredRecurring, marks, hidden, ledgerIds, accountOwners] = await Promise.all([
     loadVisibleTxns(filter),
     ignoredRecurringKeys(),
+    readRecurringMarks(),
     hiddenMerchantKeys(),
     prisma.txn.findMany({ select: { plaidTransactionId: true } }),
     prisma.account.findMany({ select: { id: true, owner: true } }),
@@ -1404,15 +1454,7 @@ export async function getReports(filter: OwnerFilter) {
   const livePlaid = plaidIdsOnLedger(ledgerIds);
   const ownerByAccount = new Map(accountOwners.map((account) => [account.id, account.owner]));
 
-  const flows: {
-    id: string;
-    date: string;
-    month: string;
-    kind: "spend" | "income" | "invest";
-    category: string;
-    merchant: string;
-    amount: number;
-  }[] = [];
+  const flows: FlowRow[] = [];
 
   function pushLive(t: (typeof txns)[number]) {
     const date = dayKey(t.date);
@@ -1434,7 +1476,7 @@ export async function getReports(filter: OwnerFilter) {
       return;
     }
     if (cat === "INCOME" || t.amount < 0) {
-      const src = incomeSourceLabel({ ...t, accountName: t.account.name });
+      const src = inflowLabel(cat, incomeSourceLabel({ ...t, accountName: t.account.name }));
       flows.push({
         id: t.id,
         date,
@@ -1471,8 +1513,24 @@ export async function getReports(filter: OwnerFilter) {
 
   const equity = await getEquityComp(filter);
   for (const e of equity.events) {
-    if (e.kind !== "vest") continue;
-    flows.push({ id: e.id, date: e.date, month: e.date.slice(0, 7), kind: "income", category: VEST_LABEL, merchant: `${VEST_LABEL}: ${e.security}`, amount: e.amount });
+    const month = e.date.slice(0, 7);
+    if (e.kind === "vest") {
+      flows.push({ id: e.id, date: e.date, month, kind: "income", category: VEST_LABEL, merchant: `${VEST_LABEL}: ${e.security}`, detail: e.detail, amount: e.amount });
+      continue;
+    }
+    // An ESPP purchase is paid for out of pay before take-home, and lands in the brokerage as shares.
+    const merchant = `ESPP: ${e.security}`;
+    flows.push({ id: e.id, date: e.date, month, kind: "income", category: ESPP_LABEL, merchant, detail: e.detail, amount: e.amount });
+    flows.push({ id: `espp-invest:${e.id}`, date: e.date, month, kind: "invest", category: "To investments", merchant, detail: e.detail, amount: e.amount });
+  }
+
+  // 401(k), 403(b), and HSA money taken from pay, and any other retirement deposit no linked account explains.
+  // One "Retirement accounts" source; its window lists each account by the name the Retirement tab uses, with its bank's logo.
+  for (const d of await retirementContributions(filter)) {
+    const month = d.date.slice(0, 7);
+    const merchant = d.institution;
+    flows.push({ id: `retire:${d.id}`, date: d.date, month, kind: "income", category: RETIREMENT_CONTRIBUTION_LABEL, merchant, logo: d.logo, detail: d.detail, amount: d.amount });
+    flows.push({ id: `retire-invest:${d.id}`, date: d.date, month, kind: "invest", category: "To investments", merchant, logo: d.logo, detail: d.detail, amount: d.amount });
   }
 
   // Cash arriving in a brokerage with nothing leaving a linked account to match it came from an account Haus
@@ -1520,13 +1578,19 @@ export async function getReports(filter: OwnerFilter) {
     });
     const code = (s.category ?? "").toUpperCase();
     if (code === "INCOME" || code.startsWith("INCOME_") || s.amount < 0) {
-      const src = incomeSourceLabel({
-        name: s.name,
-        merchantName: s.rawMerchant,
-        userMerchant: s.merchant,
-        categoryPrimary: s.category,
-        accountName: s.accountName,
-      });
+      // The detailed category is what names a paycheck "Salary"; without it an old paycheck showed as its bank's name.
+      const src = inflowLabel(
+        code,
+        incomeSourceLabel({
+          name: s.name,
+          merchantName: s.rawMerchant,
+          userMerchant: s.merchant,
+          categoryPrimary: s.category,
+          categoryDetailed: s.categoryDetailed,
+          userCategory: savedUserCategory(s.category, s.categoryDetailed),
+          accountName: s.accountName,
+        }),
+      );
       flows.push({
         id: s.plaidTransactionId,
         date,
@@ -1554,7 +1618,15 @@ export async function getReports(filter: OwnerFilter) {
 
   return {
     flows,
-    recurring: inferRecurring([...txns, ...savedCharges], ignoredRecurring),
+    recurring: inferRecurring([...txns, ...savedCharges], ignoredRecurring, new Date(), marks),
+    // Restore removed brings back only what would be listed again: bills the app detects that were removed with the X.
+    removedRecurring: ignoredRecurring.size
+      ? new Set(
+          inferRecurring([...txns, ...savedCharges], new Set(), new Date(), marks)
+            .map((b) => recurringMerchantKey(b.label))
+            .filter((key) => ignoredRecurring.has(key)),
+        ).size
+      : 0,
     archiveCoversFrom,
   };
 }
@@ -1582,12 +1654,65 @@ async function outsideBrokerageDeposits(filter: OwnerFilter) {
       institution: t.account.item.institutionName ?? "Brokerage",
     }));
   if (!deposits.length) return [];
-  // Every account counts as a possible source, whoever owns it: a transfer between spouses is still internal.
-  const [live, saved] = await Promise.all([
+  const { outflows, coveredFrom } = await linkedOutflows();
+  const judged = deposits.filter((d) => coveredFrom && d.date >= addDaysIso(coveredFrom, 5));
+  return unmatchedDeposits(judged, outflows);
+}
+
+/**
+ * New money in retirement accounts that no linked account shows leaving. Payroll contributions (the plan's
+ * own wording) always count, since pay never passes through a bank on its way in. Plain deposits count only
+ * once every linked bank's history reaches them, like brokerage deposits.
+ */
+async function retirementContributions(filter: OwnerFilter): Promise<RetirementDeposit[]> {
+  const rows = await prisma.investmentTxn.findMany({
+    where: { type: { in: ["cash", "transfer", "buy"] } },
+    include: { account: { include: { item: true } }, security: { select: { name: true, symbol: true } } },
+  });
+  const mine = rows.filter(
+    (t) => matchesOwner(t.account.owner, filter) && isRetirementAccount(t.account) && !isChildAccountType(t.account.hausType),
+  );
+  const withCash = new Set(mine.filter((t) => retirementDepositKind(t) === "payroll").map((t) => t.accountId));
+  const payroll: RetirementDeposit[] = [];
+  const plain: RetirementDeposit[] = [];
+  for (const t of mine) {
+    const kind = retirementDepositKind(t) ?? (!withCash.has(t.accountId) && isContributionBuy(t) ? "payroll" : null);
+    if (!kind) continue;
+    const institution = accountLabel(t.account.name, t.account.item.institutionName);
+    const d = { id: t.id, date: dayKey(t.date), amount: Math.abs(t.amount), accountId: t.accountId, institution, logo: t.account.item.institutionName ?? undefined, detail: depositDetail(t) };
+    (kind === "payroll" ? payroll : plain).push(d);
+  }
+  if (!payroll.length && !plain.length) return [];
+  const { outflows, coveredFrom } = await linkedOutflows();
+  const judged = plain.filter((d) => coveredFrom && d.date >= addDaysIso(coveredFrom, 5));
+  return unmatchedDeposits([...payroll, ...judged], outflows);
+}
+
+/** The fund the contribution bought, or the plan's own wording when no fund is named. */
+function depositDetail(t: { name: string; security: { name: string | null; symbol: string | null } | null }) {
+  const security = t.security?.name || t.security?.symbol;
+  const name = t.name.replace(/\s*\(cash\)\s*$/i, "").trim();
+  if (!security) return name;
+  // Plaid splits one purchase into two records, so the security name repeats the fund the transaction already names.
+  const head = name.split(/\s[-–—]\s/)[0];
+  if (head.length > 3 && security.toLowerCase().includes(head.toLowerCase())) return name;
+  return `${security} — ${name}`;
+}
+
+/**
+ * Money leaving any linked account, whoever owns it (a transfer between spouses is still internal): bank and card
+ * debits, saved copies of them, and cash sent out of investment accounts (an IRA converted to a Roth). With it,
+ * the first day every linked bank's history covers; before that a missing match proves nothing.
+ */
+async function linkedOutflows() {
+  const [live, saved, invested] = await Promise.all([
     prisma.txn.findMany({ where: { amount: { gt: 0 } }, select: { date: true, amount: true, accountId: true, account: { select: { itemId: true } } } }),
     prisma.savedTxn.findMany({ where: { amount: { gt: 0 } }, select: { date: true, amount: true, accountId: true, institutionName: true } }),
+    prisma.investmentTxn.findMany({
+      where: { amount: { gt: 0 }, type: { in: ["cash", "transfer"] } },
+      select: { date: true, amount: true, accountId: true },
+    }),
   ]);
-  // Only judge deposits once every linked bank's history reaches them; before that a missing match proves nothing.
   const earliest = new Map<string, string>();
   const note = (key: string, day: string) => {
     const prev = earliest.get(key);
@@ -1599,9 +1724,9 @@ async function outsideBrokerageDeposits(filter: OwnerFilter) {
   const outflows = [
     ...live.map((o) => ({ date: dayKey(o.date), amount: o.amount, accountId: o.accountId })),
     ...saved.map((o) => ({ date: dayKey(o.date), amount: o.amount, accountId: o.accountId ?? "" })),
+    ...invested.map((o) => ({ date: dayKey(o.date), amount: o.amount, accountId: o.accountId })),
   ];
-  const judged = deposits.filter((d) => coveredFrom && d.date >= addDaysIso(coveredFrom, 5));
-  return unmatchedDeposits(judged, outflows);
+  return { outflows, coveredFrom };
 }
 
 const BOND_NAME = /\b(bond|treasur|fixed income|t-bill|municipal|aggregate)/i;
@@ -1631,9 +1756,14 @@ export async function getInsights(filter: OwnerFilter) {
   const months: string[] = [];
   for (let i = 1; i <= 3; i++) months.push(ymKey(new Date(now.getFullYear(), now.getMonth() - i, 1)));
   const window = reports.flows.filter((f) => months.includes(f.month));
-  // Vests land in lumps, so they count at their 12-month average instead of in the month they vest.
+  // Vests and ESPP purchases land in lumps, so they count at their 12-month average instead of in the month they land.
   const vests3 = equity.vests.monthly * 3;
-  const income3 = window.filter((f) => f.kind === "income" && f.category !== VEST_LABEL).reduce((s, f) => s + f.amount, 0) + vests3;
+  const espp3 = equity.espp.monthly * 3;
+  const income3 =
+    window.filter((f) => f.kind === "income" && f.category !== VEST_LABEL && f.category !== ESPP_LABEL).reduce((s, f) => s + f.amount, 0) +
+    vests3 +
+    espp3;
+  const payroll3 = window.filter((f) => f.kind === "income" && f.category === RETIREMENT_CONTRIBUTION_LABEL).reduce((s, f) => s + f.amount, 0);
   const spend3 = window.filter((f) => f.kind === "spend").reduce((s, f) => s + f.amount, 0);
   const housing3 = window.filter((f) => f.kind === "spend" && FIXED_SPEND.has(f.category)).reduce((s, f) => s + f.amount, 0);
   const pay = annualisedPaychecks(reports.flows);
@@ -1772,8 +1902,11 @@ export async function getInsights(filter: OwnerFilter) {
     income3,
     vests3,
     vestMonths: equity.vests.months,
+    espp3,
+    esppMonths: equity.espp.months,
     spend3,
     housing3,
+    takeHome3: income3 - payroll3 - espp3,
     payAnnual: pay.annual,
     spendAnnual: run ? run.total * run.factor : null,
     cards: {

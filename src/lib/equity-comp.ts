@@ -6,10 +6,15 @@ export const EQUITY_ESPP_CATEGORY = "EQUITY_ESPP";
 /** Saved copies and report rows use this prefix so they never collide with a bank transaction id. */
 export const EQUITY_ID_PREFIX = "inv:";
 export const VEST_LABEL = "RSU vests";
+export const ESPP_LABEL = "ESPP purchases";
 
-const VEST_NAME = /conversion shares|\brsus?\b|restricted stock|stock award|stock plan|share (?:release|delivery)|\bvest(?:ed|ing)?\b/i;
-const ESPP_NAME = /\bespp\b|employee stock purchase/i;
+// Brokers word these differently (Fidelity "conversion shares", Schwab "stock plan activity", Morgan Stanley and
+// E*Trade "release", Google "GSU"), so every common form is listed.
+const VEST_NAME =
+  /conversion shares|\b[rg]sus?\b|restricted stock|stock award|stock plan|(?:share|stock|rsu)s? (?:release|delivery)|released shares|\bvest(?:ed|ing)?\b/i;
+const ESPP_NAME = /\bespp\b|\bs?spp\b|employee stock purchase|stock purchase plan/i;
 const NOT_VEST_TYPES = new Set(["sell", "cash", "fee", "cancel"]);
+const DAY = 86_400_000;
 
 export type EquityKind = "vest" | "espp";
 
@@ -22,15 +27,38 @@ export type EquityEvent = {
   amount: number;
   /** The security's name, for display. */
   security: string;
+  /** The transaction's own wording, such as "RSU VEST". */
+  detail?: string;
 };
 
 /** RSU vest or ESPP purchase, judged from one investment transaction. Null for everything else. */
 export function equityKind(t: { type: string; name: string; quantity?: number | null; amount: number }): EquityKind | null {
   if (!(Math.abs(t.amount) > 0)) return null;
   const type = t.type.toLowerCase();
-  if (ESPP_NAME.test(t.name) && type === "buy") return "espp";
+  // A purchase is a buy at most brokers; some post it as shares transferred in from the plan.
+  if (ESPP_NAME.test(t.name)) return type === "buy" || (type === "transfer" && (t.quantity ?? 0) > 0) ? "espp" : null;
   if (VEST_NAME.test(t.name) && (t.quantity ?? 0) > 0 && !NOT_VEST_TYPES.has(type)) return "vest";
   return null;
+}
+
+/**
+ * When both the stock-plan account and the brokerage are linked, one ESPP purchase can show as the buy in the
+ * plan and again as the shares arriving in the brokerage. Keep one: the same amount (within 1%) within five days.
+ */
+export function dedupeEspp(events: EquityEvent[]): EquityEvent[] {
+  const kept: EquityEvent[] = [];
+  for (const e of [...events].sort((a, b) => a.date.localeCompare(b.date))) {
+    const twin =
+      e.kind === "espp" &&
+      kept.some(
+        (k) =>
+          k.kind === "espp" &&
+          Math.abs(k.amount - e.amount) <= k.amount * 0.01 &&
+          Math.abs(Date.parse(k.date) - Date.parse(e.date)) <= 5 * DAY,
+      );
+    if (!twin) kept.push(e);
+  }
+  return kept;
 }
 
 export function equityCategory(kind: EquityKind) {

@@ -3,6 +3,7 @@ import { RANGE_KEYS, type RangeKey } from "./range";
 
 export const PREF_DEFAULT_RANGE = "haus.defaultRange";
 export const PREF_MOVERS_WINDOW = "haus.moversWindow";
+export const PREF_MONTH_WINDOW = "haus.monthWindow";
 export const PREF_PRIVACY = "haus.privacy";
 export const PRIVACY_CLASS = "privacy";
 
@@ -43,6 +44,28 @@ export function storedMoversWindow(): MoversWindow | null {
 
 export function setMoversWindow(key: MoversWindow | null) {
   write(PREF_MOVERS_WINDOW, key);
+}
+
+export const MONTH_WINDOWS = ["current", "previous"] as const;
+export type MonthWindow = (typeof MONTH_WINDOWS)[number];
+export const DEFAULT_MONTH_WINDOW: MonthWindow = "current";
+
+export function storedMonthWindow(): MonthWindow | null {
+  const raw = read(PREF_MONTH_WINDOW);
+  return raw && (MONTH_WINDOWS as readonly string[]).includes(raw) ? (raw as MonthWindow) : null;
+}
+
+export function monthDefault(raw: string | null | undefined): MonthWindow {
+  return raw === "previous" ? "previous" : DEFAULT_MONTH_WINDOW;
+}
+
+export function setMonthWindow(key: MonthWindow | null) {
+  const value = key === "previous" ? "previous" : null;
+  write(PREF_MONTH_WINDOW, value);
+  // The server reads this on the next page so the chips render on the right month immediately.
+  document.cookie = value
+    ? `${PREF_MONTH_WINDOW}=${value}; Path=/; Max-Age=31536000; SameSite=Lax`
+    : `${PREF_MONTH_WINDOW}=; Path=/; Max-Age=0; SameSite=Lax`;
 }
 
 export function storedPrivacy(): boolean {

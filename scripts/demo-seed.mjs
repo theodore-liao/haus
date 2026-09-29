@@ -46,6 +46,24 @@ function daysAgo(n) {
 }
 
 let txnSeq = 0;
+async function investmentTxn(account, securityId, dayOffset, name, type, amount, quantity) {
+  txnSeq += 1;
+  await prisma.investmentTxn.create({
+    data: {
+      plaidInvestmentTxnId: `demo-inv-${txnSeq}`,
+      accountId: account.id,
+      securityId,
+      date: daysAgo(dayOffset),
+      name,
+      type,
+      subtype: type === "buy" ? "buy" : "contribution",
+      quantity,
+      amount: round2(amount),
+      price: quantity ? round2(amount / quantity) : null,
+      isoCurrency: "USD",
+    },
+  });
+}
 function txn(accountId, dayOffset, name, amount, primary, detailed, extra = {}) {
   txnSeq += 1;
   return {
@@ -205,6 +223,29 @@ async function seedFull({ single }) {
   await holding(brokerage.roth, "BND", "Vanguard Total Bond Market ETF", "etf", 95, 74.1, 0.08, 76.9);
   if (k401) {
     await holding(k401["401k"], "FXAIX", "Fidelity 500 Index Fund", "mutual fund", 310.2, 221.6, 0.79, 160.4);
+  }
+
+  // Stock pay and retirement deposits, so the cash-flow window can list each date.
+  const planStock = await prisma.security.create({
+    data: { plaidSecurityId: "demo-sec-plan", symbol: "NLH", name: "Northline Holdings", type: "equity", closePrice: 42, closePriceAsOf: today },
+  });
+  const stockEvents = [
+    [brokerage.brokerage, 4, "RSU vest", "transfer", 4200, 10],
+    [brokerage.brokerage, 18, "RSU vest", "transfer", 4100, 10],
+    [brokerage.brokerage, 40, "RSU vest", "transfer", 4300, 10],
+    [brokerage.brokerage, 6, "ESPP purchase", "buy", 480, 12],
+    [brokerage.brokerage, 22, "ESPP purchase", "buy", 510, 12],
+  ];
+  for (const [account, day, name, type, amount, quantity] of stockEvents) {
+    await investmentTxn(account, planStock.id, day, name, type, amount, quantity);
+  }
+  // Payroll money arrives as a negative amount, the same way the investment feed records cash in.
+  await investmentTxn(brokerage.roth, null, 3, "Payroll deferral", "cash", -250, null);
+  await investmentTxn(brokerage.roth, null, 17, "Payroll deferral", "cash", -250, null);
+  if (k401) {
+    await investmentTxn(k401["401k"], null, 2, "Employee contribution", "cash", -850, null);
+    await investmentTxn(k401["401k"], null, 16, "Employee contribution", "cash", -850, null);
+    await investmentTxn(k401["401k"], null, 33, "Employee contribution", "cash", -850, null);
   }
 
   const checking = bank.checking.id;

@@ -52,15 +52,22 @@ export function calendarMonthOptions(count = 3, now = new Date()) {
   return out;
 }
 
-/** Strict prior calendar month (August when today is in September). */
-export function defaultReportWindow(now = new Date()): CalKey {
-  const d = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+export type MonthDefault = "current" | "previous";
+
+/** The calendar month a date-chip row opens on. */
+export function monthChip(which: MonthDefault, now = new Date()): CalKey {
+  const d = new Date(now.getFullYear(), now.getMonth() - (which === "previous" ? 1 : 0), 1);
   return `cal:${ymKey(d)}`;
 }
 
-/** Current calendar month. Used by Transactions; independent of the chart default. */
+/** Date chips open on the current month unless Settings says the previous one. */
+export function defaultReportWindow(now = new Date()): CalKey {
+  return monthChip("current", now);
+}
+
+/** Current calendar month. A Budget link always lands here. */
 export function defaultTxnWindow(now = new Date()): CalKey {
-  return `cal:${ymKey(now)}`;
+  return monthChip("current", now);
 }
 
 /** A calendar month is complete once it has ended. The open month is never complete. */

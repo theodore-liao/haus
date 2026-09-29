@@ -54,8 +54,13 @@ export type InsightInput = {
   vests3?: number;
   /** Months of vest history that average covers. */
   vestMonths?: number;
+  /** Part of income3 that is ESPP purchases, counted at their 12-month average. */
+  espp3?: number;
+  esppMonths?: number;
   spend3: number;
   housing3: number;
+  /** income3 without retirement contributions and ESPP purchases, which come out of pay before take-home. */
+  takeHome3?: number;
   /** Take-home pay and spending, a year. */
   payAnnual: number;
   spendAnnual: number | null;
@@ -130,7 +135,9 @@ export function buildInsights(x: InsightInput): Insight[] {
       breakdown: [
         ...(x.essentialParts ?? []).map((p) => ({ label: p.category, value: p.monthly })),
         { label: "Must-pay a month", value: x.monthlyEssential, total: true },
+        { label: `${t.reserveMonths}-month buffer`, value: reserve, total: true },
         { label: "Cash on hand", value: x.cash, total: true },
+        { label: short > 0 ? "Short of the buffer" : "Above the buffer", value: Math.abs(short), total: true },
       ],
       href: "/spending",
       impact: short > 0 ? short * 0.1 : undefined,
@@ -157,6 +164,10 @@ export function buildInsights(x: InsightInput): Insight[] {
     (x.vests3 ?? 0) > 0
       ? ` Includes ${money(x.vests3 ?? 0)} of RSU vests: the last ${x.vestMonths ?? 12} months of vests averaged to a month, times 3, so one vest does not swing the result.`
       : "";
+  const esppNote =
+    (x.espp3 ?? 0) > 0
+      ? ` Includes ${money(x.espp3 ?? 0)} of ESPP purchases, averaged the same way over the last ${x.esppMonths ?? 12} months.`
+      : "";
   if (x.income3 > 0) {
     const rate = (x.income3 - x.spend3) / x.income3;
     const goal = t.savingsRate / 100;
@@ -172,12 +183,13 @@ export function buildInsights(x: InsightInput): Insight[] {
         rate >= goal
           ? `Above a ${t.savingsRate}% savings rate over the last three months.`
           : `Saving ${whole(shortfall / 12)} more a month would reach ${t.savingsRate}%.`,
-      math: `(${money(x.income3)} income − ${money(x.spend3)} spending) ÷ ${money(x.income3)} income, over the last three complete months.${vestNote}`,
+      math: `(${money(x.income3)} income − ${money(x.spend3)} spending) ÷ ${money(x.income3)} income, over the last three complete months.${vestNote}${esppNote}`,
       href: "/spending",
       impact: shortfall > 0 ? shortfall : undefined,
     });
     if (x.housing3 > 0) {
-      const share = x.housing3 / x.income3;
+      const takeHome = x.takeHome3 ?? x.income3;
+      const share = takeHome > 0 ? x.housing3 / takeHome : 0;
       const cap = t.housingShare / 100;
       out.push({
         id: "housing",
@@ -190,7 +202,7 @@ export function buildInsights(x: InsightInput): Insight[] {
           share <= cap
             ? `Within the usual ${t.housingShare}% of take-home pay.`
             : `Above the usual ${t.housingShare}% of take-home pay. Paying off a smaller loan frees up the most each month.`,
-        math: `${money(x.housing3)} of rent, utilities, and loan payments ÷ ${money(x.income3)} take-home pay, over the last three complete months.${vestNote}`,
+        math: `${money(x.housing3)} of rent, utilities, and loan payments ÷ ${money(takeHome)} take-home pay, over the last three complete months.${vestNote}`,
         href: "/spending",
       });
     }
@@ -272,22 +284,25 @@ export function buildInsights(x: InsightInput): Insight[] {
   }
 
   // --- Debt -------------------------------------------------------------------
-  const priced = x.debts.filter((d) => d.balance > 0 && d.rate != null).sort((a, b) => (b.rate ?? 0) - (a.rate ?? 0));
-  const top = priced[0];
-  if (top) {
-    const costly = top.rate! >= 8;
-    const cost = (top.balance * top.rate!) / 100;
+  // Cards stay out: a balance that is paid off each statement costs nothing, and the data cannot show which is which.
+  const priced = x.debts
+    .filter((d) => d.kind !== "card" && d.balance > 0 && d.rate != null)
+    .sort((a, b) => b.balance * (b.rate ?? 0) - a.balance * (a.rate ?? 0));
+  if (priced.length) {
+    const cost = priced.reduce((s, d) => s + (d.balance * d.rate!) / 100, 0);
+    const top = priced[0];
+    const costly = cost >= 1_000;
     out.push({
       id: "debt-rate",
       area: "Debt",
-      title: "Most expensive debt",
-      value: `${top.rate!.toFixed(2)}%`,
-      status: costly ? "act" : top.rate! >= 6 && top.kind !== "mortgage" ? "watch" : "good",
+      title: "Interest paid on debt each year",
+      value: `${whole(cost)} a year`,
+      status: costly ? "act" : cost >= 200 ? "watch" : "info",
       next: costly
-        ? `Pay down ${top.name} first; its ${money(top.balance)} costs about ${whole(cost)} a year in interest.`
-        : `${top.name} is your highest rate. Nothing is costly enough to rush.`,
-      math: priced.map((d) => `${d.name}: ${money(d.balance)} at ${d.rate!.toFixed(2)}%`).join(" · "),
-      href: top.kind === "card" ? "/transactions" : top.kind === "mortgage" ? "/property" : "/connections",
+        ? `${top.name} is the largest share. Extra payments there cut the interest fastest.`
+        : "Modest. Extra payments on the highest rate cut it fastest.",
+      math: `${priced.map((d) => `${d.name}: ${money(d.balance)} × ${d.rate!.toFixed(2)}% = ${whole((d.balance * d.rate!) / 100)}`).join(" · ")}. Assumes each balance stays where it is and the rate does not change, with no compounding. Credit cards are left out, since a card paid off each statement costs nothing and the data cannot show which cards are paid off.`,
+      href: top.kind === "mortgage" ? "/property" : "/connections",
       impact: costly ? cost : undefined,
     });
   }

@@ -59,24 +59,35 @@ test("savings rate against target", () => {
   assert.equal(low?.status, "act");
 });
 
-test("the most expensive debt names a card before a mortgage", () => {
+test("yearly interest sums every loan and leaves cards out", () => {
   const list = buildInsights(
     base({
       debts: [
         { name: "Mortgage", balance: 300_000, rate: 6.25, kind: "mortgage" },
+        { name: "Car", balance: 20_000, rate: 5, kind: "loan" },
         { name: "Card", balance: 4_000, rate: 22.9, kind: "card" },
       ],
     }),
   );
   const debt = find(list, "debt-rate");
+  // 300,000 × 6.25% = 18,750; 20,000 × 5% = 1,000. The card is excluded.
+  assert.equal(debt?.value, "$19,750 a year");
   assert.equal(debt?.status, "act");
-  assert.match(debt!.next, /Pay down Card first/);
+  assert.match(debt!.math, /Credit cards are left out/);
+  assert.doesNotMatch(debt!.math, /Card/);
   assert.equal(topActions(list)[0].id, "debt-rate");
 });
 
-test("a mortgage at an ordinary rate is not a problem", () => {
+test("a card alone is not a debt to price", () => {
+  const debt = find(buildInsights(base({ debts: [{ name: "Card", balance: 4_000, rate: 22.9, kind: "card" }] })), "debt-rate");
+  assert.equal(debt, undefined);
+});
+
+test("a small loan stays for reference", () => {
   const debt = find(buildInsights(base({ debts: [{ name: "Mortgage", balance: 300_000, rate: 6.25, kind: "mortgage" }] })), "debt-rate");
-  assert.equal(debt?.status, "good");
+  assert.equal(debt?.value, "$18,750 a year");
+  const small = find(buildInsights(base({ debts: [{ name: "Car", balance: 2_000, rate: 5, kind: "loan" }] })), "debt-rate");
+  assert.equal(small?.status, "info");
 });
 
 test("retirement card follows the planner's verdict", () => {

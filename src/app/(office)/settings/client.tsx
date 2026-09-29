@@ -19,6 +19,7 @@ import Link from "next/link";
 import { TransactionsTable } from "../transactions/table";
 import { TxnExport } from "@/components/txn-export";
 import type { PlanChildPref } from "@/lib/projection-prefs";
+import type { MonthWindow } from "@/lib/prefs";
 
 type ChildRow = { id: string; name: string };
 
@@ -41,6 +42,7 @@ export function SettingsClient({
   connectionCount,
   lastSynced,
   planChildren,
+  monthWindow,
 }: {
   nameA: string;
   nameB: string;
@@ -55,6 +57,7 @@ export function SettingsClient({
   lastSynced: string | null;
   /** The retirement planner's children, which carry birth years and planned children. */
   planChildren: PlanChildPref[];
+  monthWindow: MonthWindow;
 }) {
   const router = useRouter();
   const [t, setT] = useState(nameA);
@@ -406,7 +409,7 @@ export function SettingsClient({
           <CardTitle>Display</CardTitle>
         </CardHeader>
         <CardContent>
-          <DisplayPrefs />
+          <DisplayPrefs month={monthWindow} />
         </CardContent>
       </Card>
 

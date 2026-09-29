@@ -1826,6 +1826,14 @@ body *:hover,
   transition: filter 120ms ease;
 }
 
+/* Category names and the amount on each bar. White, with no outline, so a thin bar can run the text past its edge. */
+.sankey-label {
+  fill: #fff;
+  font-family: var(--font-geist-sans);
+  font-size: 15px;
+  font-weight: 400;
+}
+
 .sankey-link.cursor-pointer:hover {
   filter: brightness(1.25) saturate(1.1);
 }

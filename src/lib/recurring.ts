@@ -8,6 +8,9 @@ import { isInternalMove, recurringMerchantKey } from "./categories";
 
 export type RecurringKind = "loan" | "bill" | "subscription";
 
+/** What the household said about a merchant: list it under this kind and cadence, or keep it off the list. */
+export type RecurringMark = { kind: RecurringKind; cadence?: Cadence } | { off: true };
+
 export type Cadence = "weekly" | "biweekly" | "monthly" | "bimonthly" | "quarterly" | "semiannual" | "annual";
 
 export type RecurringBill = {
@@ -30,6 +33,8 @@ export type RecurringBill = {
   monthly: number;
   /** Set when the latest charge differs from the one before it. */
   priceChange: { from: number; to: number } | null;
+  /** The household marked this merchant as recurring, so it is listed whatever its rhythm. */
+  manual?: boolean;
 };
 
 type Rhythm = { cadence: Cadence; days: number; min: number; max: number; months: number; perYear: number };
@@ -114,6 +119,37 @@ function runsOf(sorted: Charge[], r: Rhythm): Charge[][] {
   return runs.reverse();
 }
 
+/** The rhythm closest to the usual gap between charges; monthly when there are too few to tell. */
+function nearestRhythm(sorted: Charge[]): Rhythm {
+  const monthly = RHYTHMS.find((r) => r.cadence === "monthly")!;
+  if (sorted.length < 2) return monthly;
+  const gaps: number[] = [];
+  for (let i = 1; i < sorted.length; i++) gaps.push((sorted[i].date.getTime() - sorted[i - 1].date.getTime()) / 86_400_000);
+  const typical = median(gaps);
+  return RHYTHMS.reduce((best, r) => (Math.abs(Math.log(typical / r.days)) < Math.abs(Math.log(typical / best.days)) ? r : best), monthly);
+}
+
+/** A bill the household marked by hand: listed from its charges, without the rhythm and steadiness checks. */
+function markedBill(label: string, sorted: Charge[], kind: RecurringKind, cadence?: Cadence): RecurringBill {
+  const rhythm = RHYTHMS.find((r) => r.cadence === cadence) ?? nearestRhythm(sorted);
+  const last = sorted[sorted.length - 1];
+  const prev = sorted[sorted.length - 2];
+  const diff = prev ? last.amount - prev.amount : 0;
+  const changed = prev != null && Math.abs(diff) >= PRICE_CHANGE_MIN_DOLLARS && Math.abs(diff) / prev.amount >= PRICE_CHANGE_MIN_PCT;
+  return {
+    label,
+    amount: last.amount,
+    cadence: rhythm.cadence,
+    kind,
+    lastDate: last.date.toISOString(),
+    nextDate: nextAfter(last.date, rhythm).toISOString(),
+    annual: last.amount * rhythm.perYear,
+    monthly: (last.amount * rhythm.perYear) / 12,
+    priceChange: changed ? { from: prev.amount, to: last.amount } : null,
+    manual: true,
+  };
+}
+
 export function inferRecurring(
   txns: {
     merchantName: string | null;
@@ -129,6 +165,8 @@ export function inferRecurring(
   }[],
   ignored: Set<string> = new Set(),
   now = new Date(),
+  /** Merchants the household marked as recurring, by billKey, with the kind they chose. */
+  marked: ReadonlyMap<string, RecurringMark> = new Map(),
 ): RecurringBill[] {
   const groups = new Map<string, { label: string; category: string; detailed: string; latest: Date; charges: Charge[] }>();
   for (const t of txns) {
@@ -152,11 +190,18 @@ export function inferRecurring(
   }
 
   const out: RecurringBill[] = [];
-  for (const g of groups.values()) {
-    if (g.charges.length < 2) continue;
+  for (const [key, g] of groups) {
+    const mark = marked.get(key);
+    if (mark && "off" in mark) continue;
+    if (g.charges.length < 2 && !mark) continue;
     const sorted = [...g.charges].sort((a, b) => a.date.getTime() - b.date.getTime());
     const bill = BILL_CATEGORIES.test(g.category);
     const variable = VARIABLE_CATEGORIES.test(g.category);
+    // A merchant marked by hand is listed from its charges as chosen, without the rhythm and steadiness checks.
+    if (mark) {
+      out.push(markedBill(g.label, sorted, mark.kind, mark.cadence));
+      continue;
+    }
     let found: { run: Charge[]; rhythm: Rhythm } | null = null;
     for (const r of RHYTHMS) {
       const need = bill ? 2 : r.cadence === "weekly" ? 4 : 3;

@@ -2,45 +2,42 @@
 
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
-import { Switch } from "./ui/switch";
 import { Button } from "./ui/button";
 import { Segmented } from "./number-field";
 import { UiScaleSlider } from "./ui-scale";
 import { DEFAULT_RANGE, RANGE_KEYS, type RangeKey } from "@/lib/range";
 import {
+  DEFAULT_MONTH_WINDOW,
   DEFAULT_MOVERS_WINDOW,
   setDefaultRange,
+  setMonthWindow,
   setMoversWindow,
-  onPrivacyChange,
-  setPrivacy,
   storedDefaultRange,
   storedMoversWindow,
-  storedPrivacy,
+  type MonthWindow,
   type MoversWindow,
 } from "@/lib/prefs";
 import { NAV_ORDER_KEY } from "@/lib/nav";
 
 const ORDER_KEYS = [NAV_ORDER_KEY, "haus.cryptoWalletOrder"];
 
-/** Per-browser display preferences: text size, default chart window, privacy blur, layout order. */
-export function DisplayPrefs() {
+/** Per-browser display preferences: text size, default chart window, default month, layout order. */
+export function DisplayPrefs({ month: initialMonth = DEFAULT_MONTH_WINDOW }: { month?: MonthWindow }) {
   const [range, setRange] = useState<RangeKey>(DEFAULT_RANGE);
   const [movers, setMovers] = useState<MoversWindow>(DEFAULT_MOVERS_WINDOW);
-  const [privacy, setPrivacyState] = useState(false);
+  const [month, setMonth] = useState<MonthWindow>(initialMonth);
 
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setRange(storedDefaultRange() ?? DEFAULT_RANGE);
     setMovers(storedMoversWindow() ?? DEFAULT_MOVERS_WINDOW);
-    setPrivacyState(storedPrivacy());
-    return onPrivacyChange(setPrivacyState);
   }, []);
 
   return (
     <div className="space-y-5">
       <UiScaleSlider />
 
-      <PrefRow label="Default chart window" hint="Net worth and spending charts open on this range.">
+      <PrefRow label="Default chart window" hint="The net worth chart opens on this range.">
         <Segmented
           label="Default chart window"
           value={range}
@@ -68,14 +65,18 @@ export function DisplayPrefs() {
         />
       </PrefRow>
 
-      <PrefRow label="Blur balances" hint="Dollar amounts blur until hovered. Handy on a shared screen." inline>
-        <Switch
-          checked={privacy}
-          onCheckedChange={(v) => {
-            setPrivacyState(v);
-            setPrivacy(v);
+      <PrefRow label="Default month" hint="Cashflow, spending, and transactions open on this month.">
+        <Segmented
+          label="Default month"
+          value={month}
+          options={[
+            { value: "current", label: "Current" },
+            { value: "previous", label: "Previous" },
+          ]}
+          onChange={(key) => {
+            setMonth(key);
+            setMonthWindow(key === DEFAULT_MONTH_WINDOW ? null : key);
           }}
-          aria-label="Blur balances"
         />
       </PrefRow>
 

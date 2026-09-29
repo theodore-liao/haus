@@ -9,6 +9,7 @@ export function ConfirmButton({
   title,
   description,
   confirmLabel = "Remove",
+  confirmVariant = "destructive",
   onConfirm,
   children,
   variant = "ghost",
@@ -20,6 +21,8 @@ export function ConfirmButton({
   title: string;
   description: ReactNode;
   confirmLabel?: string;
+  /** Destructive by default; use "default" when the action brings something back. */
+  confirmVariant?: ComponentProps<typeof Button>["variant"];
   onConfirm: () => Promise<void> | void;
   children: ReactNode;
   variant?: ComponentProps<typeof Button>["variant"];
@@ -65,7 +68,7 @@ export function ConfirmButton({
             <Button type="button" variant="outline" disabled={busy} onClick={() => setOpen(false)}>
               Cancel
             </Button>
-            <Button type="button" variant="destructive" disabled={busy} onClick={() => void run()}>
+            <Button type="button" variant={confirmVariant} disabled={busy} onClick={() => void run()}>
               {busy ? "Working…" : confirmLabel}
             </Button>
           </div>

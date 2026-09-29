@@ -7,13 +7,14 @@ import { kickerClass } from "@/components/type";
 import { Pill } from "@/components/pills";
 import { ChartCard } from "@/components/chart-card";
 import { CashflowSankey, SavingsRateTrend } from "@/components/charts";
-import { FROM_SAVINGS, TO_INVESTMENTS } from "@/lib/flow-labels";
+import { FROM_SAVINGS, OTHER_CATEGORIES, TO_INVESTMENTS } from "@/lib/flow-labels";
+import { sankeyOtherTitle } from "@/lib/sankey-node";
+import { otherCategoryLabels, SANKEY_INCOME_LIMIT, SANKEY_SPEND_LIMIT } from "@/lib/sankey-slices";
 import { formatPct } from "@/lib/format";
-import { ReportRange } from "@/components/chart-range";
+import { ReportRange, useReportWindow } from "@/components/chart-range";
 import {
   asLocalDate,
   cashflowTableMonths,
-  defaultReportWindow,
   inWindow,
   type WindowKey,
 } from "@/lib/range";
@@ -37,6 +38,7 @@ export function CashFlowBlock({
   flows,
   txns,
   archiveCoversFrom = null,
+  initialRange,
   between,
   budget,
 }: {
@@ -44,12 +46,14 @@ export function CashFlowBlock({
   txns: TxnRow[];
   /** First day the saved archive covers every institution. Older months before this are incomplete. */
   archiveCoversFrom?: string | null;
+  /** Month the date chips open on. */
+  initialRange: WindowKey;
   /** Rendered between the cashflow card and the month-by-month row (net worth and allocation). */
   between?: ReactNode;
   /** Budget card, shown beside the month-by-month card. */
   budget?: ReactNode;
 }) {
-  const [range, setRange] = useState<WindowKey>(defaultReportWindow());
+  const [range, setRange] = useReportWindow(initialRange);
   const [popup, setPopup] = useState<Popup | null>(null);
   const [edit, setEdit] = useState<TxnRow | null>(null);
   const [liveTxns, setLiveTxns] = useState(txns);
@@ -84,7 +88,20 @@ export function CashFlowBlock({
     return groupSpendNode(windowTxns, netted, agg.spendRows, popup.title);
   }, [popup, windowTxns, netted, agg]);
   const popupTitle =
-    popup?.kind === "from-savings" ? FROM_SAVINGS : popup?.kind === "invest" ? TO_INVESTMENTS : (popup?.title ?? "");
+    popup?.kind === "from-savings"
+      ? FROM_SAVINGS
+      : popup?.kind === "invest"
+        ? TO_INVESTMENTS
+        : popup && (popup.kind === "income" || popup.kind === "spend") && popup.title === OTHER_CATEGORIES
+          ? sankeyOtherTitle(popup.kind)
+          : (popup?.title ?? "");
+  const otherNote =
+    popup && (popup.kind === "income" || popup.kind === "spend") && popup.title === OTHER_CATEGORIES
+      ? otherCategoryLabels(
+          popup.kind === "income" ? agg.incomeRows : agg.spendRows,
+          popup.kind === "income" ? SANKEY_INCOME_LIMIT : SANKEY_SPEND_LIMIT,
+        ).join(", ")
+      : undefined;
 
   // The latest three months always show. Older months appear only when the saved archive
   // covers that month from the first day, so a fresh ~90-day pull does not pad the table.
@@ -229,7 +246,7 @@ export function CashFlowBlock({
         open={popup != null}
         title={popupTitle}
         lines={popupLines}
-        note={popup?.kind === "from-savings" ? "Spending exceeded income in this window." : undefined}
+        note={popup?.kind === "from-savings" ? "Spending exceeded income in this window." : otherNote}
         onClose={() => setPopup(null)}
         onOpenTxn={popup?.kind === "from-savings" ? undefined : setEdit}
         positiveAmounts={popup?.kind !== "from-savings"}

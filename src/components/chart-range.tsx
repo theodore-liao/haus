@@ -16,6 +16,12 @@ export function useChartRange(): [RangeKey, (key: RangeKey) => void] {
   return [range, setRange];
 }
 
+/** Date chips open on the month the server already chose from Settings. */
+export function useReportWindow(initial: WindowKey): [WindowKey, (key: WindowKey) => void] {
+  const [range, setRange] = useState<WindowKey>(initial);
+  return [range, setRange];
+}
+
 export function ChipGroup({
   children,
 }: {

@@ -67,9 +67,7 @@ This is how to run Haus day to day: a built app opens each page quickly. When yo
 
 7. Sign in, open Connections, and choose Add institution. One session covers banks, cards, and brokerages. Some institutions start with no accounts selected, so check every account you want included.
 
-   In sandbox only, sign in at a test institution with the login `user_good` and the password `pass_good`. Those connections are saved in this app and use Plaid's test data.
-
-One `PLAID_CLIENT_ID` covers the household. On a Production Trial, that client holds 10 institution logins, shared.
+One `PLAID_CLIENT_ID` covers the household. On a Production Trial, that client holds 10 institution logins maximum, shared.
 
 ## Environment
 

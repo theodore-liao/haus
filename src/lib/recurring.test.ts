@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { inferRecurring } from "./recurring";
+import { billKey, inferRecurring, type Cadence, type RecurringKind, type RecurringMark } from "./recurring";
 
 const NOW = new Date("2026-09-20T12:00:00Z");
 
@@ -141,4 +141,50 @@ test("utilities and insurance are bills; fixed-price services are subscriptions"
 test("a yearly bill in a bill category is found from two charges", () => {
   const [bill] = inferRecurring([charge("2025-01-10", 119.99, "Language App", "GENERAL_SERVICES"), charge("2026-01-11", 119.99, "Language App", "GENERAL_SERVICES")], new Set(), NOW);
   assert.equal(bill.cadence, "annual");
+});
+
+const mark = (name: string, kind: RecurringKind, cadence?: Cadence) =>
+  new Map<string, RecurringMark>([[billKey(name), { kind, cadence }]]);
+
+test("a merchant marked by hand is listed under the chosen kind even with one irregular charge", () => {
+  const [bill] = inferRecurring([charge("2026-08-03", 40, "Tutor Co")], new Set(), NOW, mark("Tutor Co", "bill"));
+  assert.equal(bill.kind, "bill");
+  assert.equal(bill.manual, true);
+  assert.equal(bill.amount, 40);
+  assert.equal(bill.cadence, "monthly");
+});
+
+test("marked charges with an odd rhythm take the nearest cadence", () => {
+  const [bill] = inferRecurring(
+    [charge("2026-01-10", 90, "Gym Club"), charge("2026-04-14", 90, "Gym Club"), charge("2026-07-30", 120, "Gym Club")],
+    new Set(),
+    NOW,
+    mark("Gym Club", "subscription"),
+  );
+  assert.equal(bill.cadence, "quarterly");
+  assert.equal(bill.manual, true);
+});
+
+test("marking a detected bill changes its kind, and an unmarked merchant is left alone", () => {
+  const rows = [charge("2026-06-05", 15.49), charge("2026-07-05", 15.49), charge("2026-08-05", 15.49)];
+  const [bill] = inferRecurring(rows, new Set(), NOW, mark("Streamflix", "bill"));
+  assert.equal(bill.kind, "bill");
+  assert.equal(inferRecurring([charge("2026-08-03", 40, "Tutor Co")], new Set(), NOW, mark("Other", "bill")).length, 0);
+});
+
+test("a removed merchant stays removed even when marked", () => {
+  const rows = [charge("2026-08-03", 40, "Tutor Co")];
+  assert.equal(inferRecurring(rows, new Set(["tutor co"]), NOW, mark("Tutor Co", "bill")).length, 0);
+});
+
+test("a chosen cadence sets the yearly amount", () => {
+  const [bill] = inferRecurring([charge("2026-08-03", 100, "Tutor Co")], new Set(), NOW, mark("Tutor Co", "bill", "quarterly"));
+  assert.equal(bill.cadence, "quarterly");
+  assert.equal(bill.annual, 400);
+});
+
+test("a merchant switched off stays off even when it repeats on a steady rhythm", () => {
+  const rows = [charge("2026-06-05", 15.49), charge("2026-07-05", 15.49), charge("2026-08-05", 15.49)];
+  const off = new Map<string, RecurringMark>([[billKey("Streamflix"), { off: true }]]);
+  assert.equal(inferRecurring(rows, new Set(), NOW, off).length, 0);
 });

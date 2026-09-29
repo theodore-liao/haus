@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { equityKind, trailingYear, type EquityEvent } from "./equity-comp";
+import { dedupeEspp, equityKind, trailingYear, type EquityEvent } from "./equity-comp";
 import { estimateSaving } from "./retirement-snapshot";
 
 describe("equityKind", () => {
@@ -17,6 +17,31 @@ describe("equityKind", () => {
     assert.equal(equityKind({ type: "cash", name: "ACME DIVIDEND RECEIVED", quantity: 0, amount: -1200 }), null);
     assert.equal(equityKind({ type: "buy", name: "FUND - REINVESTMENT", quantity: 3, amount: 3 }), null);
     assert.equal(equityKind({ type: "transfer", name: "CONVERSION SHARES WITHDRAWN", quantity: -5, amount: 500 }), null);
+  });
+  it("reads other brokers' stock-pay wording, whatever the employer", () => {
+    assert.equal(equityKind({ type: "transfer", name: "Stock Plan Activity GOOG GSU", quantity: 12, amount: 2000 }), "vest");
+    assert.equal(equityKind({ type: "transfer", name: "META Share Release", quantity: 8, amount: 5000 }), "vest");
+    assert.equal(equityKind({ type: "transfer", name: "AMZN RSU RELEASE", quantity: 3, amount: 600 }), "vest");
+    assert.equal(equityKind({ type: "buy", name: "Employee Stock Purchase Plan META", quantity: 10, amount: 4000 }), "espp");
+    assert.equal(equityKind({ type: "transfer", name: "ESPP Deposit NVDA", quantity: 20, amount: 2500 }), "espp");
+    assert.equal(equityKind({ type: "buy", name: "SPP PURCHASE AAPL", quantity: 9, amount: 1700 }), "espp");
+  });
+  it("leaves the cash credit that funds an ESPP buy, and ESPP shares leaving, alone", () => {
+    assert.equal(equityKind({ type: "cash", name: "JOURNALED SPP PURCHASE CREDIT", quantity: 0, amount: -7843 }), null);
+    assert.equal(equityKind({ type: "transfer", name: "ESPP shares transferred out", quantity: -20, amount: 2500 }), null);
+  });
+});
+
+describe("dedupeEspp", () => {
+  it("keeps one purchase when the plan and the brokerage both report it", () => {
+    const plan: EquityEvent = { id: "p", date: "2026-06-30", kind: "espp", amount: 7843.69, security: "Acme" };
+    const broker: EquityEvent = { id: "b", date: "2026-07-02", kind: "espp", amount: 7843.69, security: "Acme" };
+    const later: EquityEvent = { id: "l", date: "2026-09-30", kind: "espp", amount: 7843.69, security: "Acme" };
+    assert.deepEqual(dedupeEspp([broker, plan, later]).map((e) => e.id), ["p", "l"]);
+  });
+  it("never merges vests", () => {
+    const a: EquityEvent = { id: "a", date: "2026-08-31", kind: "vest", amount: 1000, security: "Acme" };
+    assert.equal(dedupeEspp([a, { ...a, id: "b" }]).length, 2);
   });
 });
 

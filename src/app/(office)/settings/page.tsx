@@ -2,6 +2,7 @@ import { PageHeader } from "@/components/page-header";
 import { getSettings } from "@/lib/queries";
 import { readTransactionsStoredSince } from "@/lib/saved-txns";
 import { readProjectionPrefs } from "@/lib/projection-prefs";
+import { preferredMonthDefault } from "@/lib/month-pref";
 import { SettingsClient } from "./client";
 
 export const dynamic = "force-dynamic";
@@ -27,6 +28,7 @@ export default async function SettingsPage() {
         tabs={data.names.tabs}
         planChildren={prefs.planChildren ?? []}
         connectionCount={data.items.length}
+        monthWindow={await preferredMonthDefault()}
         lastSynced={data.items.reduce<string | null>((latest, i) => {
           if (!i.lastSyncedAt) return latest;
           const iso = i.lastSyncedAt.toISOString();

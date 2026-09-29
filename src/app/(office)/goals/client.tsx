@@ -147,7 +147,7 @@ export function GoalsClient({
                         {m.partial ? ", so far" : ""}
                       </th>
                     ))}
-                    <th className="py-2 pr-3 text-right">Net</th>
+                    <th className="py-2 pr-3 text-right">Net, 3 months</th>
                     <th className="py-2 text-right">Status</th>
                   </tr>
                 </thead>
@@ -207,8 +207,8 @@ export function GoalsClient({
                     <span>
                       <Money value={r.monthly} /> / mo
                     </span>
-                    <span className="text-sm font-semibold text-foreground">
-                      <Money value={r.net} signed /> net
+                    <span className="whitespace-nowrap text-sm font-semibold text-foreground">
+                      <Money value={r.net} signed /> <span className="font-normal text-muted-foreground">net, 3 mo</span>
                     </span>
                   </div>
                   <div className="mt-2 grid grid-cols-3 gap-2 text-xs">

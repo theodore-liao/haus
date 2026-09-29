@@ -4,15 +4,18 @@ import { useEffect, useMemo, useState } from "react";
 import { Money } from "@/components/money";
 import { ChartCard } from "@/components/chart-card";
 import { AllocationChart } from "@/components/charts";
-import { ReportRange } from "@/components/chart-range";
+import { ReportRange, useReportWindow } from "@/components/chart-range";
 import { BudgetList } from "./budget-list";
 import { budgetMonths, daysLeftInMonth, monthElapsed, type BudgetRow } from "@/lib/budget-window";
 import { categoryChanges, categoryTrend } from "@/lib/spend-compare";
-import { defaultReportWindow, defaultTxnWindow, inWindow, type WindowKey } from "@/lib/range";
+import { defaultTxnWindow, inWindow, type WindowKey } from "@/lib/range";
 import { CategoryMerchantDialog } from "@/components/category-merchants";
 import { applyMerchantRefunds, aggregateFlows, type FlowRow } from "@/lib/spend-net";
 import { groupCategory } from "@/lib/category-breakdown";
 import { flowAfterRevision, reviseMatching } from "@/lib/txn-revise";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import type { RecurringBill } from "@/lib/recurring";
+import { RecurringPanel } from "../transactions/recurring";
 import { TransactionSheet, type TxnSave } from "../transactions/table";
 import type { TxnRow } from "@/lib/txn-row";
 
@@ -21,21 +24,29 @@ const FIXED_COSTS = ["Loan payments", "Rent and utilities"];
 
 export function SpendingClient({
   flows,
+  recurring,
+  removedCount,
   txns,
   budgets,
   budgetChoices,
   spendMonths,
   archiveCoversFrom,
+  initialRange,
 }: {
   flows: FlowRow[];
+  recurring: RecurringBill[];
+  /** Bills the household removed from Recurring, which Restore brings back. */
+  removedCount: number;
   txns: TxnRow[];
   budgets: BudgetRow[];
   budgetChoices: BudgetRow[];
   spendMonths: number;
   /** First day stored history covers every institution; older months are only partly on file. */
   archiveCoversFrom: string | null;
+  initialRange: WindowKey;
 }) {
-  const [range, setRange] = useState<WindowKey>(defaultReportWindow());
+  const [tab, setTab] = useState("breakdown");
+  const [range, setRange] = useReportWindow(initialRange);
   // Arriving from a Budget link (Overview, Goals): show the current month so the figures match theirs.
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
@@ -81,10 +92,18 @@ export function SpendingClient({
   return (
     <div className="page-stack">
       <div className="section-head">
-        <div className="ml-auto"><ReportRange value={range} onChange={setRange} /></div>
+        <Tabs value={tab} onValueChange={setTab}>
+          <TabsList>
+            <TabsTrigger value="breakdown">Breakdown</TabsTrigger>
+            <TabsTrigger value="recurring">Recurring</TabsTrigger>
+          </TabsList>
+        </Tabs>
+        {tab === "breakdown" ? <ReportRange value={range} onChange={setRange} /> : null}
       </div>
 
-      {(
+      {tab === "recurring" ? <RecurringPanel recurring={recurring} rows={liveTxns} removedCount={removedCount} /> : null}
+
+      {tab === "breakdown" && (
         <div className="breakdown-grid grid gap-4 lg:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
           <ChartCard kicker="Spend Category">
             <div className="spend-category-total">

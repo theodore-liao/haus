@@ -13,6 +13,7 @@ import { listBudgets } from "@/lib/budgets";
 import { readBudgetDismissed } from "@/lib/budget-dismissed";
 import { overviewPillFigures } from "@/lib/overview-pills";
 import { getOwnerFilter } from "@/lib/request";
+import { preferredMonthChip } from "@/lib/month-pref";
 
 export const dynamic = "force-dynamic";
 
@@ -120,6 +121,7 @@ export default async function OverviewPage() {
           flows={reports.flows}
           txns={txns}
           archiveCoversFrom={reports.archiveCoversFrom}
+          initialRange={await preferredMonthChip()}
           between={netWorthRow}
           budget={budget}
         />

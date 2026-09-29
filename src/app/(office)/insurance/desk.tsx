@@ -8,9 +8,10 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { ConfirmButton } from "@/components/confirm-button";
 import { policyCoversMember } from "@/lib/insurance";
+import { InfoTip } from "@/components/info-tip";
 import { PremiumControl } from "./premium";
 
-type Doc = { id: string; filename: string; mimeType: string };
+type Doc = { id: string; filename: string; mimeType: string; createdAt?: string };
 type Policy = {
   id: string;
   type: string;
@@ -114,6 +115,47 @@ export function InsuranceDesk({
     }
   }
 
+  async function addOtherImage(memberId: string, file: File) {
+    const key = `other:${memberId}`;
+    setBusyKey(key);
+    try {
+      const fd = new FormData();
+      fd.set("file", file);
+      const up = await fetch("/api/insurance/parse", { method: "POST", body: fd });
+      const data = await up.json();
+      if (!up.ok) {
+        toast.error(data.error ?? "Could not upload.");
+        return;
+      }
+      const album = policies.find((p) => p.type === "other" && policyCoversMember(p, memberId));
+      const res = await fetch("/api/insurance/policies", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          id: album?.id,
+          type: "other",
+          carrier: "ID card",
+          namedInsured: memberId,
+          owner: memberId,
+          coveredMembers: [memberId],
+          notes: "screenshot",
+          append: true,
+          tempId: data.tempId,
+          filename: data.filename,
+          mimeType: data.mimeType,
+          ext: data.ext,
+        }),
+      });
+      if (!res.ok) toast.error("Could not save image.");
+      else {
+        toast.success(album ? "Image added." : "Image saved.");
+        router.refresh();
+      }
+    } finally {
+      setBusyKey(null);
+    }
+  }
+
   return (
     <Tabs value={section} onValueChange={setSection}>
       <TabsList>
@@ -139,7 +181,7 @@ export function InsuranceDesk({
                   </TabsList>
                 </div>
                 {members.map((m) => (
-                  <TabsContent key={m.id} value={m.id}>
+                  <TabsContent key={m.id} value={m.id} className="space-y-4">
                     <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
                       {HEALTH_KINDS.map((kind) => {
                         const card = policies.find((p) => p.type === kind.id && policyCoversMember(p, m.id));
@@ -155,6 +197,12 @@ export function InsuranceDesk({
                         );
                       })}
                     </div>
+                    <OtherSlot
+                      albums={policies.filter((p) => p.type === "other" && policyCoversMember(p, m.id))}
+                      busy={busyKey === `other:${m.id}`}
+                      onFile={(f) => void addOtherImage(m.id, f)}
+                      onDeleted={() => router.refresh()}
+                    />
                   </TabsContent>
                 ))}
               </Tabs>
@@ -202,6 +250,114 @@ export function InsuranceDesk({
         );
       })}
     </Tabs>
+  );
+}
+
+function OtherSlot({
+  albums,
+  busy,
+  onFile,
+  onDeleted,
+}: {
+  albums: Policy[];
+  busy: boolean;
+  onFile: (f: File) => void;
+  onDeleted: () => void;
+}) {
+  const inputRef = useRef<HTMLInputElement>(null);
+  const policy = albums[0];
+  const docs = albums
+    .flatMap((album) => album.documents.map((doc) => ({ ...doc, policyId: album.id })))
+    .sort((a, b) => (a.createdAt ?? "").localeCompare(b.createdAt ?? ""));
+  const fileInput = (
+    <input
+      ref={inputRef}
+      type="file"
+      accept="image/jpeg,image/png,image/webp,application/pdf"
+      className="hidden"
+      onChange={(e) => {
+        const f = e.target.files?.[0];
+        e.target.value = "";
+        if (f) onFile(f);
+      }}
+    />
+  );
+  if (docs.length === 0 && !(policy?.premium && policy.premium > 0)) {
+    return (
+      <div className="flex items-center gap-1">
+        <Button variant="ghost" size="sm" disabled={busy} onClick={() => inputRef.current?.click()}>
+          {busy ? "Saving…" : "Add other image"}
+        </Button>
+        <InfoTip label="What Other is for">Images for this person that are not a medical, vision, or dental card.</InfoTip>
+        {fileInput}
+      </div>
+    );
+  }
+  return (
+    <Card className="w-full">
+      <CardContent className="space-y-3 p-4">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="flex items-center gap-1">
+            <div className="kicker">Other</div>
+            <InfoTip label="What Other is for">Images for this person that are not a medical, vision, or dental card.</InfoTip>
+          </div>
+          <div className="flex flex-wrap items-center gap-1">
+            <Button variant="outline" size="sm" disabled={busy} onClick={() => inputRef.current?.click()}>
+              {busy ? "Saving…" : docs.length ? "Add image" : "Upload"}
+            </Button>
+            {policy ? <PremiumControl policyId={policy.id} premium={policy.premium} billingFrequency={policy.billingFrequency} /> : null}
+          </div>
+        </div>
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          {docs.length === 0 ? (
+            <div className="flex aspect-[1.6/1] items-center justify-center rounded-md bg-secondary text-xs text-muted-foreground">
+              {policy ? "No image yet" : "No card"}
+            </div>
+          ) : (
+            docs.map((doc) => (
+              <div key={doc.id} className="space-y-2">
+                {doc.mimeType.startsWith("image/") ? (
+                  <a href={`/api/insurance/files/${doc.id}`} target="_blank" rel="noreferrer" className="block">
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img src={`/api/insurance/files/${doc.id}`} alt={doc.filename} className="aspect-[1.6/1] w-full rounded-md bg-secondary object-contain" />
+                  </a>
+                ) : (
+                  <a
+                    href={`/api/insurance/files/${doc.id}`}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="flex aspect-[1.6/1] items-center justify-center rounded-md bg-secondary px-3 text-center text-sm text-primary"
+                  >
+                    {doc.filename}
+                  </a>
+                )}
+                <ConfirmButton
+                  title={`Remove ${doc.filename}?`}
+                  description="It leaves Other. Upload it again to bring it back."
+                  ariaLabel={`Remove ${doc.filename}`}
+                  disabled={busy}
+                  onConfirm={async () => {
+                    const res = await fetch("/api/insurance/policies", {
+                      method: "DELETE",
+                      headers: { "Content-Type": "application/json" },
+                      body: JSON.stringify({ id: doc.policyId, documentId: doc.id }),
+                    });
+                    if (!res.ok) {
+                      toast.error("Could not remove this image.");
+                      return;
+                    }
+                    onDeleted();
+                  }}
+                >
+                  Remove
+                </ConfirmButton>
+              </div>
+            ))
+          )}
+        </div>
+        {fileInput}
+      </CardContent>
+    </Card>
   );
 }
 

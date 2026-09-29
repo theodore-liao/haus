@@ -5,7 +5,7 @@ import { Eye, EyeOff } from "lucide-react";
 import { Button } from "./ui/button";
 import { onPrivacyChange, setPrivacy, storedPrivacy } from "@/lib/prefs";
 
-/** One-click switch for the dollar blur. Mirrors the Settings switch. */
+/** One-click switch for the dollar blur. */
 export function PrivacyToggle() {
   const [on, setOn] = useState(false);
 

@@ -5,6 +5,10 @@ export type FlowRow = {
   kind: "spend" | "income" | "invest";
   category: string;
   merchant: string;
+  /** Bank whose logo goes beside the merchant, when the merchant is an account. */
+  logo?: string;
+  /** Fund bought, or the word the plan uses for the deposit, when the merchant is the account or the stock. */
+  detail?: string;
   amount: number;
 };
 

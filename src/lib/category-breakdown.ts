@@ -1,6 +1,6 @@
 import { categoryLabel } from "./constants";
 import { OTHER_CATEGORIES, TO_INVESTMENTS } from "./flow-labels";
-import type { MerchantLine } from "./merchant-lines";
+import type { FlowEvent, MerchantLine } from "./merchant-lines";
 import { otherCategoryLabels, SANKEY_INCOME_LIMIT, SANKEY_SPEND_LIMIT, sankeyIncomeLabel } from "./sankey-slices";
 import type { FlowRow } from "./spend-net";
 import type { TxnRow } from "./txn-row";
@@ -30,18 +30,23 @@ export function groupSpendLabels(txns: TxnRow[], titles: string[], dialogTitle: 
 
 function groupFlowTxns(title: string, flows: FlowRow[], txns: TxnRow[]): MerchantLine[] {
   const byId = new Map(txns.map((t) => [t.id, t]));
-  const groups = new Map<string, { amount: number; rows: TxnRow[] }>();
+  const groups = new Map<string, { amount: number; rows: TxnRow[]; events: FlowEvent[]; logo?: string }>();
   for (const f of flows) {
     const txn = f.id ? byId.get(f.id) : undefined;
     const merchant = txn?.merchant || f.merchant || "Unknown";
-    const g = groups.get(merchant) ?? { amount: 0, rows: [] };
+    const g = groups.get(merchant) ?? { amount: 0, rows: [], events: [], logo: f.logo };
+    if (!g.logo && f.logo) g.logo = f.logo;
     if (txn) {
       if (!g.rows.some((row) => row.id === txn.id)) {
         g.rows.push(txn);
         g.amount += Math.abs(txn.amount);
       }
     } else {
-      g.amount += f.amount;
+      const id = f.id ?? `${f.date}:${g.events.length}`;
+      if (!g.events.some((event) => event.id === id)) {
+        g.events.push({ id, date: f.date, amount: f.amount, ...(f.detail ? { detail: f.detail } : {}) });
+        g.amount += f.amount;
+      }
     }
     groups.set(merchant, g);
   }
@@ -50,6 +55,8 @@ function groupFlowTxns(title: string, flows: FlowRow[], txns: TxnRow[]): Merchan
     merchant,
     amount: g.amount,
     ...(g.rows.length ? { txns: g.rows } : {}),
+    ...(g.events.length ? { events: g.events } : {}),
+    ...(g.logo ? { logo: g.logo } : {}),
   }));
 }
 

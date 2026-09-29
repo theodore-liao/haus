@@ -33,39 +33,13 @@ import { SliceBreakdownDialog, type SliceItem } from "./category-merchants";
 import { CategoryIcon, hasCategoryIcon } from "@/lib/category-icons";
 import { colorFor, donutColorMap } from "@/lib/category-colors";
 import type { CategoryChange } from "@/lib/spend-compare";
-import { FROM_SAVINGS, isOtherSlice, OTHER_CATEGORIES, TO_INVESTMENTS, TO_SAVINGS } from "@/lib/flow-labels";
+import { FROM_SAVINGS, isOtherSlice, TO_INVESTMENTS, TO_SAVINGS } from "@/lib/flow-labels";
 import { SANKEY_INCOME_LIMIT, SANKEY_SPEND_LIMIT, sankeyIncomeLabel, topSlices } from "@/lib/sankey-slices";
 
 const AXIS = { fontSize: 11, fill: "#8fa0b8", fontFamily: "var(--font-geist-sans)" };
 const MONEY_AXIS = { ...AXIS, className: "money" };
 const GRID = "rgba(148,163,184,0.12)";
 const ICE = "#A8C5E2";
-const PALETTE = [
-  "#7EABD4",
-  "#D4928C",
-  "#7DB8A4",
-  "#D4BE7A",
-  "#A898CC",
-  "#78C0C4",
-  "#D4A878",
-  "#D49AB0",
-  "#94C48C",
-  "#8EA4DC",
-  "#C4A898",
-  "#7CBCB0",
-  "#C8C47A",
-  "#86B8D4",
-  "#C49AC4",
-  "#E0A898",
-  "#88C4A8",
-  "#D4B85C",
-  "#9A9AD0",
-  "#E0B07A",
-  "#70C4BC",
-  "#B8A0D0",
-  "#D4C888",
-  "#7AB4D4",
-];
 const HUB_FILL = "#8B9BB3";
 const SAVED_FILL = "#6FC4B0";
 const DRAWN_FILL = "#D48992";

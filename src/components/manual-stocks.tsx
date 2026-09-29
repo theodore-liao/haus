@@ -54,17 +54,6 @@ export function ManualStockBox({
   const [mode, setMode] = useState<"shares" | "value">("shares");
   const total = rows.reduce((s, c) => s + lotValue(c), 0);
 
-  const addBtn =
-    adding ? (
-      <Button type="button" size="sm" variant="ghost" className="cursor-pointer" onClick={() => setAdding(false)}>
-        Cancel
-      </Button>
-    ) : (
-      <Button type="button" size="sm" className="cursor-pointer" onClick={() => setAdding(true)}>
-        Add holdings
-      </Button>
-    );
-
   if (!showList) {
     return (
       <div className="flex items-center gap-2">
@@ -261,10 +250,8 @@ export function ManualStockBox({
 
 export function ManualEntryControls({
   names,
-  rows,
 }: {
   names: { nameA: string; nameB: string; children: { id: string; name: string }[] };
-  rows: ManualStock[];
 }) {
   const [open, setOpen] = useState(false);
   const [edit, setEdit] = useState<ManualStock | null>(null);

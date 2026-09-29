@@ -31,7 +31,7 @@ export default async function InvestmentsPage() {
       {data.rows.length === 0 && manuals.length === 0 ? (
         <>
           <div className="mb-4 flex justify-end">
-            <ManualEntryControls names={data.names} rows={[]} />
+            <ManualEntryControls names={data.names} />
           </div>
           <EmptyLedger
           page="/investments"

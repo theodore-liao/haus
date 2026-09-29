@@ -25,6 +25,7 @@ import {
   Users,
   Wallet,
   Waves,
+  Zap,
   type LucideIcon,
 } from "lucide-react";
 
@@ -39,6 +40,9 @@ const ICONS: Record<string, LucideIcon> = {
   "month by month": CalendarDays,
   budget: Wallet,
   recurring: Repeat,
+  "loan payments": Landmark,
+  bills: Zap,
+  subscriptions: Repeat,
   refunds: Undo2,
   transactions: ReceiptText,
   "synced transactions": ReceiptText,

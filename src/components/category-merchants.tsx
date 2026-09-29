@@ -65,7 +65,10 @@ export function CategoryMerchantDialog({
         </DialogHeader>
         <div className="mb-3 text-sm text-muted-foreground">
           {note ? <p className="mb-2">{note}</p> : null}
-          {rows.length} merchants · <Money value={positiveAmounts ? Math.abs(total) : total} signed={!positiveAmounts && total < 0} />
+          {rows.length === 1 && rows[0].txns
+            ? `${rows[0].txns.length} ${rows[0].txns.length === 1 ? "charge" : "charges"}`
+            : `${rows.length} ${rows.length === 1 ? "merchant" : "merchants"}`}{" "}
+          · <Money value={positiveAmounts ? Math.abs(total) : total} signed={!positiveAmounts && total < 0} />
         </div>
         {trend && trend.length >= 2 ? (
           <div className="mb-4">
@@ -78,7 +81,8 @@ export function CategoryMerchantDialog({
           <ul className="space-y-2 pr-1">
             {rows.map((r, i) => {
               const key = r.merchant;
-              const expanded = openMerchants.has(key);
+              // A window with one merchant (a single bill) opens with its charges showing; a click folds them.
+              const expanded = rows.length === 1 ? !openMerchants.has(key) : openMerchants.has(key);
               const txns = [...(r.txns ?? [])].sort((a, b) => b.date.localeCompare(a.date));
               return (
                 <li key={`${r.merchant}-${r.amount}-${i}`} className="text-sm">

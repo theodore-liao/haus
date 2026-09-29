@@ -116,6 +116,28 @@ test("loan payments are their own kind, and a company suffix doesn't split one b
   assert.equal(power[0].label, "Power Utility");
 });
 
+test("utilities and insurance are bills; fixed-price services are subscriptions", () => {
+  const out = inferRecurring(
+    [
+      charge("2026-06-08", 85, "Cable Co", "RENT_AND_UTILITIES"),
+      charge("2026-07-08", 125.55, "Cable Co", "RENT_AND_UTILITIES"),
+      charge("2026-08-08", 125.55, "Cable Co", "RENT_AND_UTILITIES"),
+      charge("2026-06-27", 150.94, "Auto Insurance Payment", "GENERAL_SERVICES"),
+      charge("2026-07-27", 150.94, "Auto Insurance Payment", "GENERAL_SERVICES"),
+      charge("2026-08-27", 150.94, "Auto Insurance Payment", "GENERAL_SERVICES"),
+      charge("2026-06-03", 2.2, "Cloud Storage", "GENERAL_SERVICES"),
+      charge("2026-07-03", 2.2, "Cloud Storage", "GENERAL_SERVICES"),
+      charge("2026-08-03", 2.2, "Cloud Storage", "GENERAL_SERVICES"),
+    ],
+    new Set(),
+    NOW,
+  );
+  const kind = (label: string) => out.find((b) => b.label === label)?.kind;
+  assert.equal(kind("Cable Co"), "bill");
+  assert.equal(kind("Auto Insurance Payment"), "bill");
+  assert.equal(kind("Cloud Storage"), "subscription");
+});
+
 test("a yearly bill in a bill category is found from two charges", () => {
   const [bill] = inferRecurring([charge("2025-01-10", 119.99, "Language App", "GENERAL_SERVICES"), charge("2026-01-11", 119.99, "Language App", "GENERAL_SERVICES")], new Set(), NOW);
   assert.equal(bill.cadence, "annual");

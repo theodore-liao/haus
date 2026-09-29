@@ -322,7 +322,7 @@ export function TransactionsTable({
 
   return (
     <div className={readOnly ? scrollClass + " min-h-0 overflow-auto" : undefined}>
-      <div className="section-head">
+      <div className={readOnly ? "section-head" : "section-head txn-toolbar"}>
         <div className="flex min-w-0 flex-wrap items-center gap-3">
           {lead}
           <SearchInput

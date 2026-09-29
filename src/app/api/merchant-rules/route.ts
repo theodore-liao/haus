@@ -13,6 +13,14 @@ const schema = z.object({
   ignoreRecurring: z.literal(true).optional(),
 });
 
+/** Bring back every bill removed from Recurring. Rules that only held that flag go away; others keep their category or name. */
+export async function DELETE() {
+  await requireSession();
+  const cleared = await prisma.merchantRule.updateMany({ where: { ignoreRecurring: true }, data: { ignoreRecurring: false } });
+  await prisma.merchantRule.deleteMany({ where: { ignoreRecurring: false, hidden: false, category: null, displayName: null } });
+  return NextResponse.json({ ok: true, restored: cleared.count });
+}
+
 export async function POST(req: Request) {
   await requireSession();
   const parsed = schema.safeParse(await req.json());

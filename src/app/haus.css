@@ -150,6 +150,11 @@ main.page-stack textarea {
   min-height: 2rem;
 }
 
+/* The Transactions tabs row: one height and one gap below it on All, Recurring, and Refunds, so nothing jumps. */
+.txn-toolbar {
+  margin-bottom: 0.75rem;
+}
+
 /* ---------- Type roles ---------- */
 
 .kicker {

@@ -6,6 +6,8 @@
 import { addDays, addMonths } from "date-fns";
 import { isInternalMove, recurringMerchantKey } from "./categories";
 
+export type RecurringKind = "loan" | "bill" | "subscription";
+
 export type Cadence = "weekly" | "biweekly" | "monthly" | "bimonthly" | "quarterly" | "semiannual" | "annual";
 
 export type RecurringBill = {
@@ -13,8 +15,12 @@ export type RecurringBill = {
   /** The latest charge. */
   amount: number;
   cadence: Cadence;
-  /** Loan payments (mortgage, car, student) apart from subscriptions and other bills. */
-  kind: "loan" | "subscription";
+  /**
+   * loan: mortgage, car, student and other loan payments.
+   * bill: essential services, often varying with use (utilities, phone and internet, insurance).
+   * subscription: optional services at a set price (streaming, software, memberships).
+   */
+  kind: RecurringKind;
   lastDate: string;
   /** When the next charge should land, from the last one and the cadence. */
   nextDate: string;
@@ -44,6 +50,18 @@ const BILL_CATEGORIES = /^(RENT_AND_UTILITIES|LOAN_PAYMENTS|GENERAL_SERVICES|INS
 /** Bills that vary with use. Their amounts may move a lot between charges. */
 const VARIABLE_CATEGORIES = /^RENT_AND_UTILITIES/;
 const LOAN = /LOAN|MORTGAGE/;
+/** Essential services: utilities, phone and internet, insurance, rent. */
+const BILL = /RENT_AND_UTILITIES|INSURANCE|TELECOM|INTERNET|CABLE|WATER|GAS_AND_ELECTRIC|SEWAGE|RENT\b/;
+const BILL_NAME = /\b(insurance|insur|energy|electric|power|utilit|water|sewer|waste|gas|internet|wireless|mobile|telecom|cable)\b/i;
+
+/** Loans by category; bills by category, name, or an amount that moves with use; everything else is a subscription. */
+export function recurringKind(category: string, detailed: string, label: string, amounts: number[]): RecurringKind {
+  if (LOAN.test(category) || LOAN.test(detailed)) return "loan";
+  if (BILL.test(category) || BILL.test(detailed) || BILL_NAME.test(label)) return "bill";
+  const typical = median(amounts);
+  const varies = amounts.some((a) => Math.abs(a - typical) / typical > 0.1);
+  return varies ? "bill" : "subscription";
+}
 
 /** A change this small is rounding or tax noise, not a new price. */
 const PRICE_CHANGE_MIN_PCT = 0.02;
@@ -60,7 +78,7 @@ const OVERDUE_GRACE_DAYS = 10;
 type Charge = { amount: number; date: Date };
 
 /** Shared words that make one merchant look like two: "Puget Sound Energy Inc" and "Puget Sound Energy". */
-function billKey(label: string) {
+export function billKey(label: string) {
   return recurringMerchantKey(label)
     .replace(/\b(inc|llc|ltd|co|corp|corporation|company|pbc|plc)\b/g, " ")
     .replace(/\s+/g, " ")
@@ -164,7 +182,7 @@ export function inferRecurring(
       label: g.label,
       amount: last.amount,
       cadence: rhythm.cadence,
-      kind: LOAN.test(g.category) || LOAN.test(g.detailed) ? "loan" : "subscription",
+      kind: recurringKind(g.category, g.detailed, g.label, run.map((c) => c.amount)),
       lastDate: last.date.toISOString(),
       nextDate: nextAfter(last.date, rhythm).toISOString(),
       annual: last.amount * rhythm.perYear,

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { isBrokerageDeposit, isContributionBuy, retirementDepositKind, unmatchedDeposits } from "./outside-deposits";
+import { isBrokerageDeposit, isContributionBuy, retirementDepositKind, retirementInflows, unmatchedDeposits } from "./outside-deposits";
 
 test("ACH deposits count as deposits; dividends, contributions, and internal transfers do not", () => {
   assert.equal(isBrokerageDeposit({ type: "transfer", subtype: "transfer", name: "ACH deposit of $1000 into Brokerage", amount: -1000 }), true);
@@ -22,6 +22,16 @@ test("a deposit matched by money leaving a linked account is not outside money",
     { date: "2026-09-01", amount: 1000, accountId: "rh" },
   ];
   assert.deepEqual(unmatchedDeposits(deposits, outflows).map((d) => d.id), ["a", "b"]);
+});
+
+test("a payroll contribution stays when a linked account spends the same amount that day", () => {
+  const payroll = [{ id: "pay", date: "2026-09-15", amount: 2000, accountId: "401k", institution: "Plan" }];
+  const plain = [{ id: "xfer", date: "2026-09-15", amount: 2000, accountId: "ira", institution: "Broker" }];
+  const outflows = [{ date: "2026-09-15", amount: 2000, accountId: "checking" }];
+  assert.deepEqual(
+    retirementInflows(payroll, plain, outflows).map((d) => d.id),
+    ["pay"],
+  );
 });
 
 test("one outflow explains only one deposit", () => {

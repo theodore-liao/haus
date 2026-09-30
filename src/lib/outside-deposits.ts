@@ -96,3 +96,11 @@ export function unmatchedDeposits<T extends Deposit>(deposits: T[], outflows: Ou
   }
   return out;
 }
+
+/**
+ * Payroll contributions always count: pay never shows leaving a bank. A same-sized bill must not hide them,
+ * and must not use up the outflow that explains a real transfer. Plain deposits still need no match.
+ */
+export function retirementInflows<T extends Deposit>(payroll: T[], plain: T[], outflows: Outflow[], windowDays = 5): T[] {
+  return [...payroll, ...unmatchedDeposits(plain, outflows, windowDays)];
+}

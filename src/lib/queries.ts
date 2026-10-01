@@ -82,6 +82,7 @@ import {
   isBrokerageDeposit,
   isContributionBuy,
   retirementDepositKind,
+  retirementInflows,
   unmatchedDeposits,
 } from "./outside-deposits";
 import type { FlowRow } from "./spend-net";
@@ -1694,7 +1695,7 @@ async function retirementContributions(filter: OwnerFilter): Promise<RetirementD
   if (!payroll.length && !plain.length) return [];
   const { outflows, coveredFrom } = await linkedOutflows();
   const judged = plain.filter((d) => coveredFrom && d.date >= addDaysIso(coveredFrom, 5));
-  return unmatchedDeposits([...payroll, ...judged], outflows);
+  return retirementInflows(payroll, judged, outflows);
 }
 
 /** The fund the contribution bought, or the plan's own wording when no fund is named. */

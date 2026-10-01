@@ -49,7 +49,6 @@ export function SpendingClient({
   const [range, setRange] = useReportWindow(initialRange);
   // Arriving from a Budget link (Overview, Goals): show the current month so the figures match theirs.
   useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect
     if (window.location.hash === "#budget") setRange(defaultTxnWindow());
   }, []);
   const [popupTitle, setPopupTitle] = useState<string | null>(null);

@@ -1,6 +1,8 @@
 // Stock pay that never touches a bank account: RSU vests and ESPP purchases arrive as investment
 // transactions in the brokerage. Matching is by the wording brokers use, not by company.
 
+import { inPriorMonths } from "./range";
+
 export const EQUITY_VEST_CATEGORY = "EQUITY_VEST";
 export const EQUITY_ESPP_CATEGORY = "EQUITY_ESPP";
 /** Saved copies and report rows use this prefix so they never collide with a bank transaction id. */
@@ -100,4 +102,21 @@ export function trailingYear(events: EquityEvent[], kind: EquityKind, now: Date,
   const months = Math.min(12, Math.max(1, Math.round(covered)));
   const annual = (total * 12) / months;
   return { total, count: rows.length, months, annual, monthly: annual / 12 };
+}
+
+/** "You save now" uses the three complete months before this one, then multiplies by 4. */
+export const SAVE_MONTHS = 3;
+export const SAVE_FACTOR = 4;
+
+/**
+ * One kind of stock pay in the three complete months before this one. The year is that total times 4.
+ * A vest or purchase outside those months does not count, including one in the current month.
+ */
+export function priorQuarter(events: EquityEvent[], kind: EquityKind, now: Date): EquityYear & { items: EquityEvent[] } {
+  const items = events
+    .filter((e) => e.kind === kind && inPriorMonths(e.date, now, SAVE_MONTHS))
+    .sort((a, b) => b.date.localeCompare(a.date));
+  const total = items.reduce((s, e) => s + e.amount, 0);
+  const annual = total * SAVE_FACTOR;
+  return { total, count: items.length, months: SAVE_MONTHS, annual, monthly: annual / 12, items };
 }

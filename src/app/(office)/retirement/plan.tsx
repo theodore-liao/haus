@@ -47,14 +47,14 @@ export type SaveNow = {
   spendPeriod: number;
   loans: number;
   factor: number;
+  /** Retirement contributions a year: the 3 months before this one, times 4. */
   contributions: number;
-  contributionsYtd: number;
-  /** RSU vests over the last 12 months, null when there are none. */
+  /** Retirement contributions over those 3 months, before times 4. */
+  contributionsPeriod: number;
+  /** RSU vests in the 3 months before this one, null when there are none. The year is that total times 4. */
   vests: (EquityYear & { items: EquityEvent[] }) | null;
-  /** ESPP purchases over the last 12 months, null when there are none. */
-  espp: EquityYear | null;
-  /** Share of the year gone, which scales this year's contributions to a full year. */
-  yearFraction: number;
+  /** ESPP purchases in the 3 months before this one, null when there are none. The year is that total times 4. */
+  espp: (EquityYear & { items: EquityEvent[] }) | null;
   basis: string;
 };
 
@@ -873,7 +873,6 @@ const CADENCE: Record<string, string> = {
 
 /** "?" beside You save now: every number the estimate is built from. */
 function SaveBreakdown({ saveNow }: { saveNow: SaveNow }) {
-  const months = Math.max(1, Math.round(saveNow.yearFraction * 12));
   return (
     <Popover>
       <PopoverTrigger asChild>
@@ -925,9 +924,8 @@ function SaveBreakdown({ saveNow }: { saveNow: SaveNow }) {
                 ))}
               </ul>
               <p className="footnote mt-1">
-                {saveNow.vests.count} {saveNow.vests.count === 1 ? "vest" : "vests"} in the last {saveNow.vests.months} {saveNow.vests.months === 1 ? "month" : "months"} add up to{" "}
-                <Money value={saveNow.vests.total} />
-                {saveNow.vests.months < 12 ? <>, scaled to 12 months</> : null}. Averaged this way so one vest does not swing the result. Amounts are the shares you kept, after tax withholding.
+                {saveNow.vests.count} {saveNow.vests.count === 1 ? "vest" : "vests"} in the 3 months before this one add up to <Money value={saveNow.vests.total} />, times 4 for a
+                year. Averaged this way so one vest does not swing the result. Amounts are the shares you kept, after tax withholding.
               </p>
             </div>
           ) : null}
@@ -939,7 +937,7 @@ function SaveBreakdown({ saveNow }: { saveNow: SaveNow }) {
               </dd>
             </div>
             <p className="text-muted-foreground">
-              <Money value={saveNow.spendPeriod} /> over the last {saveNow.basis} × {saveNow.factor}
+              <Money value={saveNow.spendPeriod} /> in the {saveNow.basis} × {saveNow.factor}
               {saveNow.loans > 0.5 ? (
                 <>
                   , with <Money value={saveNow.loans} /> of loan payments
@@ -956,13 +954,13 @@ function SaveBreakdown({ saveNow }: { saveNow: SaveNow }) {
               </dd>
             </div>
             <p className="text-muted-foreground">
-              {saveNow.contributionsYtd > 0.5 ? (
+              {saveNow.contributionsPeriod > 0.5 ? (
                 <>
-                  <Money value={saveNow.contributionsYtd} /> so far this year, over about {months} {months === 1 ? "month" : "months"}, scaled to 12. Paycheck
-                  contributions come out before take-home pay, so they are added back.
+                  <Money value={saveNow.contributionsPeriod} /> in the 3 months before this one, times 4. Paycheck contributions come out before take-home pay, so they are
+                  added back.
                 </>
               ) : (
-                "No contributions found in your linked retirement accounts this year. If you contribute, enter your own yearly figure."
+                "No contributions found in your linked retirement accounts in the 3 months before this one. If you contribute, enter your own yearly figure."
               )}
             </p>
           </div>
@@ -975,9 +973,8 @@ function SaveBreakdown({ saveNow }: { saveNow: SaveNow }) {
                 </dd>
               </div>
               <p className="text-muted-foreground">
-                {saveNow.espp.count} {saveNow.espp.count === 1 ? "purchase" : "purchases"} totalling <Money value={saveNow.espp.total} /> in the last {saveNow.espp.months}{" "}
-                {saveNow.espp.months === 1 ? "month" : "months"}
-                {saveNow.espp.months < 12 ? ", scaled to 12" : ""}. Plan contributions come out of pay before take-home, so they are added back.
+                {saveNow.espp.count} {saveNow.espp.count === 1 ? "purchase" : "purchases"} totalling <Money value={saveNow.espp.total} /> in the 3 months before this one, times
+                4. Plan contributions come out of pay before take-home, so they are added back.
               </p>
             </div>
           ) : null}
@@ -1656,24 +1653,44 @@ function KidsSection({
   const listFits = useScrollFits(listEl);
   const [moreBelow, setMoreBelow] = useState(false);
   const measureList = useCallback(() => {
-    if (listEl) setMoreBelow(listEl.scrollHeight - listEl.scrollTop - listEl.clientHeight > 4);
+    if (!listEl) return;
+    setMoreBelow(listEl.scrollHeight - listEl.scrollTop - listEl.clientHeight > 4);
   }, [listEl]);
+  const revealClipped = useCallback(() => {
+    if (!listEl) return;
+    const error = listEl.querySelector(".field-note[data-error]");
+    if (!error) return;
+    const er = error.getBoundingClientRect();
+    const lr = listEl.getBoundingClientRect();
+    // The fade covers the bottom of the list, so the message has to clear that as well as the edge.
+    const limit = lr.bottom - 36;
+    if (er.bottom > limit) listEl.scrollTop += er.bottom - limit;
+    else if (er.top < lr.top) listEl.scrollTop -= lr.top - er.top;
+  }, [listEl]);
+  const kidCount = useRef(kids.length);
   useLayoutEffect(() => {
     if (!listEl) return;
+    if (kids.length > kidCount.current) listEl.scrollTop = listEl.scrollHeight;
+    kidCount.current = kids.length;
     measureList();
-    const watcher = new ResizeObserver(measureList);
+    revealClipped();
+    const watcher = new ResizeObserver(() => {
+      measureList();
+      revealClipped();
+    });
     watcher.observe(listEl);
     for (const child of listEl.children) watcher.observe(child);
     const changes = new MutationObserver(() => {
       for (const child of listEl.children) watcher.observe(child);
       measureList();
+      revealClipped();
     });
     changes.observe(listEl, { childList: true, subtree: true });
     return () => {
       watcher.disconnect();
       changes.disconnect();
     };
-  }, [listEl, measureList, kids]);
+  }, [listEl, measureList, revealClipped, kids]);
   return (
     <section className="form-section">
       <div className="kicker flex items-center gap-1">
@@ -1755,16 +1772,23 @@ function KidsSection({
               <li key={kid.id} className="kids-row">
                 <div className="kids-name min-w-0">
                   {kid.planned ? (
-                    <div className="field-box" title={childNote(age)}>
-                      <input
-                        data-live=""
-                        aria-label="Child's name"
-                        placeholder="Planned child"
-                        className="!font-sans"
-                        value={kid.name}
-                        maxLength={80}
-                        onChange={(e) => update(kid.id, { name: e.target.value })}
-                      />
+                    <div className="kids-identity">
+                      <div className="field-box" title={childNote(age)}>
+                        <input
+                          data-live=""
+                          aria-label="Child's name"
+                          placeholder="Planned child"
+                          className="!font-sans"
+                          value={kid.name}
+                          maxLength={80}
+                          onChange={(e) => update(kid.id, { name: e.target.value })}
+                        />
+                      </div>
+                      {kid.birthYear == null ? (
+                        <span className="kids-note kids-year-hint" title={childNote(age)}>
+                          {childNote(age)}
+                        </span>
+                      ) : null}
                     </div>
                   ) : (
                     <div className="kids-identity">
@@ -1777,15 +1801,6 @@ function KidsSection({
                       </span>
                     </div>
                   )}
-                  {/* A planned child's age is plain from its birth year; only a missing year needs saying. */}
-                  {kid.planned && kid.birthYear == null ? (
-                    <>
-                      <div className="footnote kids-year-hint mt-0.5 px-1">{childNote(age)}</div>
-                      <div className="footnote kids-year-hint-short mt-0.5 px-1" title={childNote(age)}>
-                        Needs a birth year.
-                      </div>
-                    </>
-                  ) : null}
                 </div>
                 <NumberField
                   className="kids-year"

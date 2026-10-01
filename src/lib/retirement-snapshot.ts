@@ -8,6 +8,8 @@ import {
   retirementNumber,
   type RetirementPlanInput,
 } from "./retirement-plan";
+import { SAVE_MONTHS } from "./equity-comp";
+import { inPriorMonths } from "./range";
 
 export const PLAN_DEFAULTS = {
   rate: 7,
@@ -42,14 +44,16 @@ export function mergeChildren(saved: PlanChildPref[] | undefined, household: { i
 /**
  * What the household saves a year now: regular take-home pay and stock vests, minus all spending, plus
  * retirement contributions and stock-plan purchases (both come out of pay before take-home).
+ * Vests, spending, contributions, and ESPP are the three complete months before this one, times 4.
  */
 export function estimateSaving(input: {
   payAnnual: number;
   spendAnnual: number | null;
-  contributionsYtd: number;
-  /** RSU vests over the last 12 months, scaled to a year. */
+  /** Retirement contributions from the three complete months before this one, already times 4. */
+  contributionsAnnual: number;
+  /** RSU vests from those three months, already times 4. */
   vestAnnual?: number;
-  /** ESPP purchases over the last 12 months, scaled to a year. */
+  /** ESPP purchases from those three months, already times 4. */
   esppAnnual?: number;
   now: Date;
 }) {
@@ -58,10 +62,18 @@ export function estimateSaving(input: {
     1 / 12,
     (input.now.getTime() - Date.UTC(input.now.getUTCFullYear(), 0, 1)) / (365.25 * 86_400_000),
   );
-  const contributions = Math.max(0, input.contributionsYtd / yearFraction);
+  const contributions = Math.max(0, input.contributionsAnnual);
   const vests = Math.max(0, input.vestAnnual ?? 0);
   const espp = Math.max(0, input.esppAnnual ?? 0);
   return { amount: input.payAnnual + vests - input.spendAnnual + contributions + espp, contributions, vests, espp, yearFraction };
+}
+
+/** Retirement contributions in the three complete months before this one. Times 4 is the year. */
+export function contributionsPriorQuarter(rows: { contributions: { date: string; amount: number }[] }[], now: Date) {
+  return rows.reduce(
+    (sum, row) => sum + row.contributions.filter((c) => inPriorMonths(c.date, now, SAVE_MONTHS)).reduce((s, c) => s + c.amount, 0),
+    0,
+  );
 }
 
 export type RetirementSnapshot = {

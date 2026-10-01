@@ -22,7 +22,7 @@ import {
 import { REFUNDS } from "./flow-labels";
 import { loadCardPaymentFlags } from "./card-payments";
 import { effectiveCategory, isInternalMove, isInvestFunding, isTransferCategory, recurringMerchantKey, txnMerchantKey } from "./categories";
-import { dayKey, ymKey } from "./range";
+import { dayKey, priorMonths, ymKey } from "./range";
 import { plaidIdsOnLedger, savedChargeCounted, savedOwnerNow } from "./report-archive";
 
 async function hiddenMerchantKeys() {
@@ -70,8 +70,8 @@ export { inferRecurring };
 import { listBudgets } from "./budgets";
 import { buildInsights, rankInsights, topActions, type Debt } from "./insights";
 import { readProjectionPrefs } from "./projection-prefs";
-import { PLAN_DEFAULTS, estimateSaving, mergeChildren, retirementSnapshot } from "./retirement-snapshot";
-import { EQUITY_ID_PREFIX, ESPP_LABEL, VEST_LABEL, dedupeEspp, equityKind, equityKindOfCategory, trailingYear, type EquityEvent } from "./equity-comp";
+import { PLAN_DEFAULTS, contributionsPriorQuarter, estimateSaving, mergeChildren, retirementSnapshot } from "./retirement-snapshot";
+import { EQUITY_ID_PREFIX, ESPP_LABEL, SAVE_FACTOR, SAVE_MONTHS, VEST_LABEL, dedupeEspp, equityKind, equityKindOfCategory, priorQuarter, trailingYear, type EquityEvent } from "./equity-comp";
 import { realReturn } from "./retirement-plan";
 import { mustPayMonthly } from "./emergency-fund";
 import { readShowGoals } from "./goals";
@@ -1433,6 +1433,9 @@ export async function getEquityComp(filter: OwnerFilter, now = new Date()) {
     events: kept,
     vests: trailingYear(kept, "vest", now, dataStart),
     espp: trailingYear(kept, "espp", now, dataStart),
+    /** Vests and ESPP in the three complete months before this one, each total times 4. What "You save now" uses. */
+    saveVests: priorQuarter(kept, "vest", now),
+    saveEspp: priorQuarter(kept, "espp", now),
   };
 }
 
@@ -1850,12 +1853,13 @@ export async function getInsights(filter: OwnerFilter) {
   const childRows = retirementData.rows.filter((r) => isChildAccountType(r.kind));
   const childBalances = childRows.reduce((s, r) => s + r.balance, 0);
   const ytd = retirementRows.reduce((s, r) => s + r.ytd, 0);
+  const contribWindow = contributionsPriorQuarter(retirementRows, now);
   const estimate = estimateSaving({
     payAnnual: pay.annual,
     spendAnnual: run ? run.total * run.factor : null,
-    contributionsYtd: ytd,
-    vestAnnual: equity.vests.annual,
-    esppAnnual: equity.espp.annual,
+    contributionsAnnual: contribWindow * 4,
+    vestAnnual: equity.saveVests.annual,
+    esppAnnual: equity.saveEspp.annual,
     now,
   });
   const snap =
@@ -2009,10 +2013,15 @@ function cadenceOf(dates: number[]): { cadence: string; perYear: number } | null
   const sorted = [...dates].sort((a, b) => a - b);
   const gaps: number[] = [];
   for (let i = 1; i < sorted.length; i++) gaps.push((sorted[i] - sorted[i - 1]) / 86400000);
-  const avg = gaps.reduce((s, x) => s + x, 0) / gaps.length;
+  const med = median(gaps);
+  // A deposit far from the usual amount is left out of this cluster. That opens a gap of about two
+  // cycles. The gap is a skipped deposit, not a different rhythm.
+  const typical = med > 0 ? gaps.filter((d) => d <= med * 1.75) : gaps;
+  const sample = typical.length >= 2 ? typical : gaps;
+  const avg = sample.reduce((s, x) => s + x, 0) / sample.length;
   if (avg >= 6 && avg <= 8) return { cadence: "weekly", perYear: 52 };
-  if (avg >= 13 && avg <= 15 && gaps.every((d) => d >= 12 && d <= 16)) return { cadence: "biweekly", perYear: 26 };
-  if (avg >= 13 && avg <= 17) return { cadence: "semi-monthly", perYear: 24 };
+  if (avg >= 12 && avg <= 16 && sample.every((d) => d >= 11 && d <= 18)) return { cadence: "biweekly", perYear: 26 };
+  if (avg >= 13 && avg <= 18) return { cadence: "semi-monthly", perYear: 24 };
   if (avg >= 26 && avg <= 35) return { cadence: "monthly", perYear: 12 };
   return null;
 }
@@ -2051,35 +2060,21 @@ const FIXED_SPEND = new Set([LOAN_PAYMENTS, "Rent and utilities"]);
 
 
 
-/** Spend over the most recent complete months, with the factor that scales it to a year.
- *  Capped at three because Plaid's initial pull covers ~90 days; older months are usually thin. */
+/** Spend in the three complete months before this one, times 4 for a year. */
 export function annualisedSpend(flows: Flow[], now: Date) {
-  const current = ymKey(now);
-  const spend = flows.filter((f) => f.kind === "spend");
-  const months = [...new Set(spend.map((f) => f.month))].filter((m) => m < current).sort().slice(-3);
-  if (months.length === 0) {
-    // Only the current month so far: scale by the days elapsed.
-    const days = Math.max(1, now.getDate());
-    const rows = spend.filter((f) => f.month === current);
-    if (rows.length === 0) return null;
-    const total = rows.reduce((s, f) => s + f.amount, 0);
-    const discretionary = rows.filter((f) => !FIXED_SPEND.has(f.category)).reduce((s, f) => s + f.amount, 0);
-    const noLoans = rows.filter((f) => f.category !== LOAN_PAYMENTS).reduce((s, f) => s + f.amount, 0);
-    return { total, discretionary, noLoans, basis: `${days} days`, factor: Math.round((365 / days) * 10) / 10 };
-  }
-  const set = new Set(months);
-  const rows = spend.filter((f) => set.has(f.month));
+  const months = new Set(priorMonths(now, SAVE_MONTHS));
+  const rows = flows.filter((f) => f.kind === "spend" && months.has(f.month));
+  if (rows.length === 0) return null;
   const total = rows.reduce((s, f) => s + f.amount, 0);
   const discretionary = rows.filter((f) => !FIXED_SPEND.has(f.category)).reduce((s, f) => s + f.amount, 0);
   const noLoans = rows.filter((f) => f.category !== LOAN_PAYMENTS).reduce((s, f) => s + f.amount, 0);
-  const n = months.length;
   return {
     total,
     discretionary,
     /** Everything but loan payments: what a household still spends once its loans are gone. */
     noLoans,
-    basis: `${n} complete month${n === 1 ? "" : "s"}`,
-    factor: Math.round((12 / n) * 100) / 100,
+    basis: "3 months before this one",
+    factor: SAVE_FACTOR,
   };
 }
 

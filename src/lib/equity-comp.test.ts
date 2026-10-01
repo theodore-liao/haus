@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { dedupeEspp, equityKind, trailingYear, type EquityEvent } from "./equity-comp";
-import { estimateSaving } from "./retirement-snapshot";
+import { dedupeEspp, equityKind, priorQuarter, trailingYear, type EquityEvent } from "./equity-comp";
+import { contributionsPriorQuarter, estimateSaving } from "./retirement-snapshot";
+import { annualisedSpend } from "./queries";
 
 describe("equityKind", () => {
   it("reads a broker's vest deposit as an RSU vest", () => {
@@ -67,11 +68,54 @@ describe("trailingYear", () => {
   });
 });
 
+describe("priorQuarter", () => {
+  const now = new Date("2026-10-01T12:00:00Z");
+  it("keeps vests in the three complete months before this one and multiplies by 4", () => {
+    const rows = [ev("2026-09-01", 10_000), ev("2026-07-03", 10_000), ev("2026-06-01", 12_000), ev("2026-10-01", 9_000)];
+    const y = priorQuarter(rows, "vest", now);
+    assert.deepEqual(y.items.map((e) => e.date), ["2026-09-01", "2026-07-03"]);
+    assert.equal(y.total, 20_000);
+    assert.equal(y.annual, 80_000);
+  });
+  it("keeps kinds apart", () => {
+    assert.equal(priorQuarter([ev("2026-09-01", 500, "espp")], "vest", now).total, 0);
+    assert.equal(priorQuarter([ev("2026-09-01", 500, "espp")], "espp", now).annual, 2_000);
+  });
+});
+
 describe("estimateSaving with stock pay", () => {
-  it("adds vests and ESPP to what is saved", () => {
+  it("adds vests, ESPP, and the already annualised contributions", () => {
     const now = new Date("2026-07-01T00:00:00Z");
-    const base = estimateSaving({ payAnnual: 100_000, spendAnnual: 60_000, contributionsYtd: 0, now })!;
-    const withStock = estimateSaving({ payAnnual: 100_000, spendAnnual: 60_000, contributionsYtd: 0, vestAnnual: 40_000, esppAnnual: 30_000, now })!;
-    assert.equal(withStock.amount - base.amount, 70_000);
+    const base = estimateSaving({ payAnnual: 100_000, spendAnnual: 60_000, contributionsAnnual: 0, now })!;
+    const withStock = estimateSaving({ payAnnual: 100_000, spendAnnual: 60_000, contributionsAnnual: 8_000, vestAnnual: 40_000, esppAnnual: 30_000, now })!;
+    assert.equal(withStock.amount - base.amount, 78_000);
+    assert.equal(withStock.contributions, 8_000);
+  });
+});
+
+describe("contributions and spending in the three months before this one", () => {
+  const now = new Date("2026-10-01T12:00:00Z");
+  it("sums retirement contributions in those months", () => {
+    const total = contributionsPriorQuarter(
+      [
+        {
+          contributions: [
+            { date: "2026-09-15", amount: 1_000 },
+            { date: "2026-06-01", amount: 5_000 },
+            { date: "2026-10-01", amount: 700 },
+          ],
+        },
+      ],
+      now,
+    );
+    assert.equal(total, 1_000);
+  });
+  it("annualises only spending in those months, times 4", () => {
+    const flow = (date: string, amount: number, category = "Food") => ({ date, month: date.slice(0, 7), kind: "spend" as const, category, merchant: "Shop", amount });
+    const run = annualisedSpend([flow("2026-09-01", 100), flow("2026-06-01", 900), flow("2026-10-01", 50), flow("2026-08-01", 40, "Loan payments")], now)!;
+    assert.equal(run.total, 140);
+    assert.equal(run.noLoans, 100);
+    assert.equal(run.factor, 4);
+    assert.equal(run.basis, "3 months before this one");
   });
 });

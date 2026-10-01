@@ -6,7 +6,7 @@ import { annualisedPaychecks, annualisedSpend, getConnectionCount, getEquityComp
 import { getOwnerFilter } from "@/lib/request";
 import { hausTypeLabel, isChildAccountType } from "@/lib/account-types";
 import { readProjectionPrefs } from "@/lib/projection-prefs";
-import { estimateSaving, retirementSnapshot } from "@/lib/retirement-snapshot";
+import { contributionsPriorQuarter, estimateSaving, retirementSnapshot } from "@/lib/retirement-snapshot";
 import { Pill, Pills } from "@/components/pills";
 import { formatApprox } from "@/lib/format";
 import { RetirementPlan, type SaveNow } from "./plan";
@@ -42,7 +42,15 @@ export default async function RetirementPage() {
   const paychecks = annualisedPaychecks(reports.flows);
   const pay = paychecks.annual;
   const ytd = retirement.reduce((sum, row) => sum + row.ytd, 0);
-  const estimate = estimateSaving({ payAnnual: pay, spendAnnual: run ? run.total * run.factor : null, contributionsYtd: ytd, vestAnnual: equity.vests.annual, esppAnnual: equity.espp.annual, now });
+  const contribWindow = contributionsPriorQuarter(retirement, now);
+  const estimate = estimateSaving({
+    payAnnual: pay,
+    spendAnnual: run ? run.total * run.factor : null,
+    contributionsAnnual: contribWindow * 4,
+    vestAnnual: equity.saveVests.annual,
+    esppAnnual: equity.saveEspp.annual,
+    now,
+  });
   const saveNow: SaveNow | null =
     estimate && run
       ? {
@@ -56,13 +64,12 @@ export default async function RetirementPage() {
           })),
           spend: run.total * run.factor,
           spendPeriod: run.total,
-          loans: Math.round((run.total - run.noLoans) * run.factor),
+          loans: Math.round(run.total - run.noLoans),
           factor: run.factor,
           contributions: Math.round(estimate.contributions),
-          contributionsYtd: ytd,
-          vests: equity.vests.annual > 0 ? { ...equity.vests, items: equity.events.filter((e) => e.kind === "vest").slice(0, 8) } : null,
-          espp: equity.espp.annual > 0 ? equity.espp : null,
-          yearFraction: estimate.yearFraction,
+          contributionsPeriod: contribWindow,
+          vests: equity.saveVests.annual > 0 ? equity.saveVests : null,
+          espp: equity.saveEspp.annual > 0 ? equity.saveEspp : null,
           basis: run.basis,
         }
       : null;

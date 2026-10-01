@@ -21,6 +21,21 @@ export function dayKey(d: Date) {
   return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}-${String(d.getUTCDate()).padStart(2, "0")}`;
 }
 
+/** The `count` complete months before the current one, oldest first, as YYYY-MM. */
+export function priorMonths(now: Date, count = 3) {
+  const months: string[] = [];
+  for (let i = count; i >= 1; i--) {
+    const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+    months.push(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`);
+  }
+  return months;
+}
+
+/** A stored calendar day falls in the three complete months before the current one. */
+export function inPriorMonths(date: string, now: Date, count = 3) {
+  return priorMonths(now, count).includes(date.slice(0, 7));
+}
+
 /** YYYY-MM of a stored calendar date (ISO string prefix or UTC midnight Date). */
 export function storedYm(date: Date | string) {
   if (typeof date === "string") {

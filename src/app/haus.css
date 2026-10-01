@@ -1630,11 +1630,11 @@ body *:hover,
     padding-inline: 0.25rem;
   }
   .kids-year .field-box {
-    padding-inline: 0.375rem;
+    padding-inline: 0.2rem;
   }
   .kids-year .field-box input {
-    flex: 0 0 4.6ch;
-    width: 4.6ch;
+    flex: 0 0 4ch;
+    width: 4ch;
   }
   .kids-name .field-box {
     padding-inline: 0.375rem;
@@ -1650,13 +1650,17 @@ body *:hover,
 .kids-identity {
   display: flex;
   align-items: center;
-  gap: 0.35rem;
+  gap: 0.25rem;
   min-width: 0;
   min-height: 2.25rem;
-  padding-inline: 0.25rem;
 }
 
-/* The name ellipsizes. It keeps a short readable width; the age note then ellipsizes rather than wiping the name out. */
+.kids-identity .field-box {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+/* The name ellipsizes once the age note has its room. On a narrow row the short note stays whole. */
 .kids-label {
   flex: 0 1 auto;
   min-width: 3.25rem;
@@ -1677,10 +1681,13 @@ body *:hover,
   color: var(--muted-foreground);
 }
 
-/* Wide rows use the full age note. A narrow row uses the short one so it stays whole while the name ellipsizes. */
-.kids-note-short,
-.kids-year-hint-short {
+/* Wide rows use the full age note beside the name. A narrow row uses the short age note, and drops the missing-year sentence so the placeholder keeps its room. The field's title still has the full sentence. */
+.kids-note-short {
   display: none;
+}
+
+.kids-year-hint {
+  flex: 0 0 auto;
 }
 
 @container (max-width: 32rem) {
@@ -1694,20 +1701,10 @@ body *:hover,
     overflow: visible;
     text-overflow: clip;
   }
-  .kids-year-hint-short {
-    display: block;
-  }
 }
 
 .kids-name input {
   text-overflow: ellipsis;
-}
-
-/* Missing-year help stays one line under the name, including when the row is narrow. */
-.kids-name > .footnote {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 .kids-year {

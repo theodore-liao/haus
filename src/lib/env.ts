@@ -35,10 +35,10 @@ export function allowedEmails() {
     .filter(Boolean);
 }
 
+/** Set when Haus is only ever served over HTTPS, so the login cookie is always HTTPS-only. */
 export function publicHttps() {
   if (process.env.HAUS_HTTPS === "1") return true;
-  const url = process.env.HAUS_PUBLIC_URL || "";
-  return url.startsWith("https://") || process.env.NODE_ENV === "production";
+  return (process.env.HAUS_PUBLIC_URL || "").startsWith("https://");
 }
 
 export function finnhubKey(dbKey?: string | null) {

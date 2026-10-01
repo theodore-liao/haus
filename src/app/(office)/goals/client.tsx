@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useState } from "react";
 import { ArrowRight, SlidersHorizontal } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { HeroCard } from "@/components/hero-card";
@@ -8,6 +9,7 @@ import { Pill, Pills } from "@/components/pills";
 import { Money } from "@/components/money";
 import { SectionLabel, kickerClass } from "@/components/type";
 import { cn } from "@/lib/utils";
+import { useScrollFits } from "@/lib/use-scroll-fits";
 import { netStatus, type BudgetTracker, type TrackerCell } from "@/lib/budget-tracker";
 import type { Insight } from "@/lib/insights";
 import { withBlurredMoney } from "@/components/blur-money";
@@ -60,6 +62,8 @@ export function GoalsClient({
   const worst = behind.length ? behind[0] : null;
   const current = totals[totals.length - 1];
   const span = months.length ? `${months[0].label}–${months[months.length - 1].label}` : "";
+  const [trackerBox, setTrackerBox] = useState<HTMLDivElement | null>(null);
+  const trackerFits = useScrollFits(trackerBox);
 
   return (
     <>
@@ -135,7 +139,11 @@ export function GoalsClient({
               Budget minus spent: <span className="text-positive">green</span> is saved, <span className="text-negative">red</span> is over.
             </p>
             {/* Wide screens: one table. */}
-            <div className="soft-scroll hidden max-h-[32rem] sm:block">
+            <div
+              ref={setTrackerBox}
+              data-scroll-fits={trackerFits || undefined}
+              className="soft-scroll hidden max-h-[32rem] sm:block"
+            >
               <table className="w-full text-sm">
                 <thead className="sticky top-0 bg-card text-left">
                   <tr className={cn("border-b border-border", kickerClass)}>

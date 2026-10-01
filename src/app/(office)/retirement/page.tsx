@@ -209,7 +209,6 @@ export default async function RetirementPage() {
         saved={projectionPrefs}
         // Child accounts pay for college, so they come off college costs rather than counting as retirement money.
         investedDefault={overview.tiles.cash + overview.tiles.investments - custodial.reduce((sum, row) => sum + row.balance, 0)}
-        lockedDefault={retirement.reduce((sum, row) => sum + row.balance, 0)}
         netWorth={overview.netWorth}
         spendNow={spendNow}
         childBalances={custodial.reduce((sum, row) => sum + row.balance, 0)}

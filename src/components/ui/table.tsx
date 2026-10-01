@@ -5,13 +5,20 @@ export function Table({
   className,
   containerClassName,
   containerRef,
+  scrollFits,
   ...props
 }: React.HTMLAttributes<HTMLTableElement> & {
   containerClassName?: string;
   containerRef?: React.Ref<HTMLDivElement>;
+  /** From `useScrollFits` on the container, so a `scroll-contain` box that fits lets the page scroll. */
+  scrollFits?: boolean;
 }) {
   return (
-    <div ref={containerRef} className={cn("relative w-full min-w-0 overflow-auto", containerClassName)}>
+    <div
+      ref={containerRef}
+      data-scroll-fits={scrollFits || undefined}
+      className={cn("relative w-full min-w-0 overflow-auto", containerClassName)}
+    >
       <table className={cn("data-table", className)} {...props} />
     </div>
   );
@@ -34,7 +41,7 @@ export function TableRow({
   return (
     <tr
       ref={ref}
-      className={cn("border-b border-border transition-colors hover:bg-secondary/50", className)}
+      className={cn("border-b border-border transition-colors", className)}
       {...props}
     />
   );

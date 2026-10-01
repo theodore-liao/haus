@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { X } from "lucide-react";
 import { ChartCard } from "./chart-card";
@@ -9,6 +9,7 @@ import { Money } from "./money";
 import { colorFor } from "@/lib/category-colors";
 import { budgetStatus } from "@/lib/budget-window";
 import { summarizeBudget, type BudgetOutlookRow } from "@/lib/attention";
+import { useScrollFits } from "@/lib/use-scroll-fits";
 import { cn } from "@/lib/utils";
 
 export type RelinkNotice = { key: string; name: string };
@@ -42,19 +43,18 @@ export function BudgetCard({
   const sum = useMemo(() => summarizeBudget(shown), [shown]);
   const chip = CHIP[sum.status];
 
-  const listRef = useRef<HTMLUListElement>(null);
+  const [list, setList] = useState<HTMLUListElement | null>(null);
+  const listFits = useScrollFits(list);
   const [more, setMore] = useState(false);
   const measure = useCallback(() => {
-    const el = listRef.current;
-    if (el) setMore(el.scrollHeight - el.scrollTop - el.clientHeight > 4);
-  }, []);
+    if (list) setMore(list.scrollHeight - list.scrollTop - list.clientHeight > 4);
+  }, [list]);
   useEffect(() => {
-    const el = listRef.current;
-    if (!el) return;
+    if (!list) return;
     const watcher = new ResizeObserver(measure);
-    watcher.observe(el);
+    watcher.observe(list);
     return () => watcher.disconnect();
-  }, [measure, shown.length]);
+  }, [list, measure, shown.length]);
 
   async function send(method: "POST" | "DELETE", category: string) {
     const res = await fetch("/api/budget-dismissed", {
@@ -90,7 +90,7 @@ export function BudgetCard({
   return (
     <ChartCard
       kicker="Budget"
-      className="lg:absolute lg:inset-0 lg:h-auto max-lg:max-h-[30rem]"
+      className="max-lg:h-auto max-lg:max-h-[30rem] lg:h-full lg:min-h-0"
       actions={
         rows.length > 0 ? (
           <span className="normal-case tracking-normal text-muted-foreground">
@@ -146,9 +146,10 @@ export function BudgetCard({
           ))}
           <div className="relative flex min-h-0 flex-1 flex-col">
             <ul
-              ref={listRef}
+              ref={setList}
               onScroll={measure}
-              className="soft-scroll min-h-0 flex-1 space-y-3 pr-1"
+              data-scroll-fits={listFits || undefined}
+              className="budget-scroll soft-scroll min-h-0 flex-1 space-y-3 pr-1"
             >
               {shown.map((r) => {
                 const status = budgetStatus(r.spent, r.budget, elapsed);

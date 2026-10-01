@@ -12,6 +12,13 @@ const quoteCache = new Map<string, { quote: Quote; at: number }>();
 const TTL_MS = 15 * 60 * 1000;
 /** Symbols with no price history anywhere, and when to try them again. */
 const historyMissUntil = new Map<string, number>();
+/** Oldest close a feed would give, so a longer chart does not ask again until this expires. */
+const historyFloor = new Map<string, { at: number; date: Date }>();
+const HISTORY_FLOOR_MS = 24 * 60 * 60 * 1000;
+/** Public CoinGecko history is refused past this many days. */
+export const GECKO_HISTORY_DAYS = 365;
+/** Coinbase rejects a daily request longer than 300 candles. */
+export const COINBASE_CHUNK_DAYS = 280;
 
 function sleep(ms: number) {
   return new Promise((r) => setTimeout(r, ms));
@@ -490,6 +497,48 @@ function dayKey(d: Date) {
   return priceDayKey(d);
 }
 
+function oldestDate(rows: { date: Date }[]) {
+  let best: Date | null = null;
+  for (const row of rows) {
+    if (!best || row.date.getTime() < best.getTime()) best = row.date;
+  }
+  return best;
+}
+
+/** The series reaches back to the day that was asked for, with a few days of slack. */
+export function seriesStartsBy(rows: { date: Date }[], from: Date) {
+  const old = oldestDate(rows);
+  return old != null && old.getTime() <= from.getTime() + 7 * 86_400_000;
+}
+
+/** Daily windows short enough for one Coinbase candle request. */
+export function candleWindows(from: Date, to: Date, maxDays: number) {
+  const out: { start: Date; end: Date }[] = [];
+  if (!(maxDays > 0) || !(to.getTime() > from.getTime())) return out;
+  const span = maxDays * 86_400_000;
+  let start = from.getTime();
+  const endAll = to.getTime();
+  while (start < endAll) {
+    const end = Math.min(endAll, start + span);
+    out.push({ start: new Date(start), end: new Date(end) });
+    if (end === endAll) break;
+    start = end;
+  }
+  return out;
+}
+
+/** Days to ask CoinGecko for. The public feed rejects anything over a year, which used to drop the whole download. */
+export function geckoHistoryDays(from: Date, to: Date) {
+  const days = Math.max(1, Math.ceil((to.getTime() - from.getTime()) / 86_400_000));
+  return Math.min(days, GECKO_HISTORY_DAYS);
+}
+
+function askedFrom(symbol: string, from: Date) {
+  const floor = historyFloor.get(symbol);
+  if (floor && Date.now() - floor.at < HISTORY_FLOOR_MS && floor.date.getTime() > from.getTime()) return floor.date;
+  return from;
+}
+
 function seriesReaches(rows: { date: Date }[], to: Date) {
   let best: Date | null = null;
   for (const row of rows) {
@@ -569,7 +618,6 @@ export async function ensurePriceHistory(symbols: HistorySymbol[], from: Date, t
   const toDay = startOfDay(to);
   const household = await prisma.household.findUnique({ where: { id: "haus" } });
   const token = finnhubKey(household?.quoteApiKey);
-  const need = neededCloses(fromDay, toDay);
 
   const unique = new Map<string, HistorySymbol>();
   for (const item of symbols) {
@@ -597,10 +645,20 @@ export async function ensurePriceHistory(symbols: HistorySymbol[], from: Date, t
   const checked = await Promise.all(
     list.map(async (item) => {
       if ((historyMissUntil.get(item.symbol) ?? 0) > now) return null;
-      const existing = await coverageRows(item.symbol, fromDay, toDay);
+      const askFrom = askedFrom(item.symbol, fromDay);
+      const existing = await coverageRows(item.symbol, askFrom, toDay);
       // A long series that stopped weeks ago still looks "complete" by bar count, and 1W then
-      // reads that old close as if it were last week. The newest bar has to be recent.
-      if (existing.length >= need && seriesMatchesSpot(existing, item.spot) && seriesReaches(existing, toDay)) return null;
+      // reads that old close as if it were last week. The newest bar has to be recent, and the
+      // oldest has to reach the day that was asked for (a year of bars is not a five-year chart).
+      const askNeed = neededCloses(askFrom, toDay);
+      if (
+        existing.length >= askNeed &&
+        seriesMatchesSpot(existing, item.spot) &&
+        seriesReaches(existing, toDay) &&
+        seriesStartsBy(existing, askFrom)
+      ) {
+        return null;
+      }
       return { item, existing };
     }),
   );
@@ -620,12 +678,24 @@ export async function ensurePriceHistory(symbols: HistorySymbol[], from: Date, t
         // A symbol no feed has history for (a money-market fund, say) isn't asked again for a while.
         const miss = () => historyMissUntil.set(item.symbol, Date.now() + TTL_MS);
         if (kind === "crypto") {
+          const kept: { date: Date }[] = [];
           if (item.coingeckoId) {
             const rows = await fetchGeckoHistoryRows(item.coingeckoId, fromDay, toDay);
-            if (await tryWrite(rows, "coingecko")) return;
+            if (await tryWrite(rows, "coingecko")) {
+              kept.push(...rows);
+              // A short window (the 45-day backfill) is done. A longer chart still needs the older stretches.
+              if (seriesStartsBy(rows, fromDay)) return;
+            }
           }
           const cb = await fetchCoinbaseHistoryRows(item.symbol, fromDay, toDay);
-          if (!(await tryWrite(cb, "coinbase"))) miss();
+          if (await tryWrite(cb, "coinbase")) kept.push(...cb);
+          if (!kept.length) miss();
+          else {
+            const old = oldestDate(kept);
+            if (old && old.getTime() > fromDay.getTime() + 14 * 86_400_000) {
+              historyFloor.set(item.symbol, { at: Date.now(), date: startOfDay(old) });
+            }
+          }
           return;
         }
         if (token) {
@@ -641,8 +711,7 @@ export async function ensurePriceHistory(symbols: HistorySymbol[], from: Date, t
 }
 
 async function fetchGeckoHistoryRows(id: string, from: Date, to: Date) {
-  const days = Math.max(1, Math.ceil((to.getTime() - from.getTime()) / 86400000));
-  const url = `https://api.coingecko.com/api/v3/coins/${encodeURIComponent(id)}/market_chart?vs_currency=usd&days=${Math.min(days, 730)}&interval=daily`;
+  const url = `https://api.coingecko.com/api/v3/coins/${encodeURIComponent(id)}/market_chart?vs_currency=usd&days=${geckoHistoryDays(from, to)}&interval=daily`;
   try {
     const res = await fetch(url, {
       cache: "no-store",
@@ -677,7 +746,7 @@ async function fetchFinnhubHistoryRows(symbol: string, token: string, from: Date
   }
 }
 
-async function fetchCoinbaseHistoryRows(symbol: string, from: Date, to: Date) {
+async function fetchCoinbaseChunk(symbol: string, from: Date, to: Date) {
   const url = `https://api.exchange.coinbase.com/products/${encodeURIComponent(symbol)}-USD/candles?granularity=86400&start=${from.toISOString()}&end=${to.toISOString()}`;
   try {
     const res = await fetch(url, {
@@ -694,6 +763,17 @@ async function fetchCoinbaseHistoryRows(symbol: string, from: Date, to: Date) {
   } catch {
     return [];
   }
+}
+
+/** One request cannot cover more than 300 days, so a long chart is several shorter ones. */
+async function fetchCoinbaseHistoryRows(symbol: string, from: Date, to: Date) {
+  const windows = candleWindows(from, to, COINBASE_CHUNK_DAYS);
+  const rows: { date: Date; close: number }[] = [];
+  for (let i = 0; i < windows.length; i += 3) {
+    const parts = await Promise.all(windows.slice(i, i + 3).map((w) => fetchCoinbaseChunk(symbol, w.start, w.end)));
+    for (const part of parts) rows.push(...part);
+  }
+  return rows;
 }
 
 async function fetchYahooHistoryRows(symbol: string, from: Date, to: Date) {

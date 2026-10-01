@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useState, type CSSProperties, type ReactNode } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Money } from "@/components/money";
 import { kickerClass } from "@/components/type";
@@ -20,6 +20,7 @@ import {
 } from "@/lib/range";
 import { format } from "date-fns";
 import { cn } from "@/lib/utils";
+import { useScrollFits } from "@/lib/use-scroll-fits";
 import { CategoryMerchantDialog } from "@/components/category-merchants";
 import { groupIncomeNode, groupInvestNode, groupSpendNode } from "@/lib/category-breakdown";
 import type { MerchantLine } from "@/lib/merchant-lines";
@@ -55,6 +56,14 @@ export function CashFlowBlock({
 }) {
   const [range, setRange] = useReportWindow(initialRange);
   const [popup, setPopup] = useState<Popup | null>(null);
+  const [chartsEl, setChartsEl] = useState<HTMLDivElement | null>(null);
+  const [chartsH, setChartsH] = useState<number | null>(null);
+  const [monthsBox, setMonthsBox] = useState<HTMLDivElement | null>(null);
+  const monthsFit = useScrollFits(monthsBox);
+  const [moreBelow, setMoreBelow] = useState(false);
+  const measureMonths = useCallback(() => {
+    if (monthsBox) setMoreBelow(monthsBox.scrollHeight - monthsBox.scrollTop - monthsBox.clientHeight > 4);
+  }, [monthsBox]);
   const [edit, setEdit] = useState<TxnRow | null>(null);
   const [liveTxns, setLiveTxns] = useState(txns);
   const [liveFlows, setLiveFlows] = useState(flows);
@@ -62,6 +71,22 @@ export function CashFlowBlock({
     setLiveTxns(txns);
     setLiveFlows(flows);
   }, [txns, flows]);
+  useLayoutEffect(() => {
+    if (!chartsEl) return;
+    const measure = () => {
+      const wide = window.matchMedia("(min-width: 1024px)").matches;
+      setChartsH(wide ? Math.round(chartsEl.getBoundingClientRect().height) : null);
+    };
+    measure();
+    const watcher = new ResizeObserver(measure);
+    watcher.observe(chartsEl);
+    const mq = window.matchMedia("(min-width: 1024px)");
+    mq.addEventListener("change", measure);
+    return () => {
+      watcher.disconnect();
+      mq.removeEventListener("change", measure);
+    };
+  }, [chartsEl]);
 
   function applySave(patch: TxnSave) {
     const revised = reviseMatching(liveTxns, patch);
@@ -127,6 +152,14 @@ export function CashFlowBlock({
   }, [liveFlows, archiveCoversFrom]);
 
   const monthsWithRate = useMemo(() => withComparisons(months), [months]);
+  useEffect(() => {
+    if (!monthsBox) return;
+    measureMonths();
+    const watcher = new ResizeObserver(measureMonths);
+    watcher.observe(monthsBox);
+    for (const child of monthsBox.children) watcher.observe(child);
+    return () => watcher.disconnect();
+  }, [monthsBox, measureMonths, monthsWithRate.length]);
   const trend = useMemo(
     () =>
       [...monthsWithRate]
@@ -163,21 +196,27 @@ export function CashFlowBlock({
             }}
           />
       </ChartCard>
-      {between}
-      <div className="grid items-stretch gap-4 lg:grid-cols-2">
-      <div className="relative min-w-0">{budget}</div>
-      <Card className="flex min-w-0 flex-col">
+      <div ref={setChartsEl}>{between}</div>
+      <div className="overview-split" style={chartsH != null ? ({ "--overview-row": `${chartsH}px` } as CSSProperties) : undefined}>
+      <div className="overview-budget min-w-0">{budget}</div>
+      <div className="overview-months min-w-0">
+      <Card className="flex min-h-0 min-w-0 flex-col overflow-hidden">
         <CardHeader>
           <CardTitle>Month by month</CardTitle>
         </CardHeader>
         {trend.length >= 3 ? (
-          <div className="px-[var(--space-card)] pb-3">
+          <div className="shrink-0 px-[var(--space-card)] pb-3">
             <div className="footnote mb-1">Savings rate</div>
             <SavingsRateTrend data={trend} />
           </div>
         ) : null}
-        <CardContent className="px-0 pb-0">
-          <div className="max-h-[min(24rem,calc(100dvh-18rem))] soft-scroll">
+        <CardContent className="relative flex min-h-0 flex-1 flex-col px-0 pb-0">
+          <div
+            ref={setMonthsBox}
+            onScroll={measureMonths}
+            data-scroll-fits={monthsFit || undefined}
+            className="month-scroll soft-scroll min-h-0 flex-1"
+          >
             <table className="data-table">
               <thead className="sticky top-0 z-10 bg-card">
                 <tr className={cn("border-b border-border", kickerClass)}>
@@ -239,8 +278,16 @@ export function CashFlowBlock({
               </tbody>
             </table>
           </div>
+          {!monthsFit && moreBelow ? (
+            <div
+              aria-hidden
+              className="pointer-events-none absolute inset-x-0 bottom-0 h-8"
+              style={{ background: "linear-gradient(to top, var(--card), transparent)" }}
+            />
+          ) : null}
         </CardContent>
       </Card>
+      </div>
       </div>
       <CategoryMerchantDialog
         open={popup != null}

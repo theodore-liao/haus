@@ -42,11 +42,22 @@ export async function requireSession() {
   }
 }
 
-export function cookieOptions() {
+/**
+ * Browsers drop an HTTPS-only cookie sent over plain HTTP everywhere except this computer's own address,
+ * so a second computer on the home network could never stay signed in. Mark it HTTPS-only when the request was.
+ */
+export function requestIsHttps(req: Request) {
+  if (publicHttps()) return true;
+  const forwarded = req.headers.get("x-forwarded-proto")?.split(",")[0]?.trim().toLowerCase();
+  if (forwarded) return forwarded === "https";
+  return new URL(req.url).protocol === "https:";
+}
+
+export function cookieOptions(req: Request) {
   return {
     httpOnly: true,
     sameSite: "lax" as const,
-    secure: publicHttps(),
+    secure: requestIsHttps(req),
     path: "/",
     maxAge: MAX_AGE,
   };

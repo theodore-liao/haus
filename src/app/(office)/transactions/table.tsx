@@ -44,6 +44,7 @@ import { ReportRange } from "@/components/chart-range";
 import { defaultTxnWindow, inWindow, type WindowKey } from "@/lib/range";
 import type { TxnRow } from "@/lib/txn-row";
 import { visibleSlice } from "@/lib/virtual-range";
+import { useScrollFits } from "@/lib/use-scroll-fits";
 import { ArrowDown, ArrowUp, StickyNote } from "lucide-react";
 import type { Cadence, RecurringKind } from "@/lib/recurring";
 
@@ -193,6 +194,7 @@ export function TransactionsTable({
   const filtering = deferredQuery.length > 0;
   const searchAll = filtering && !chipDuringSearch;
   const [scroller, setScroller] = useState<HTMLDivElement | null>(null);
+  const scrollFits = useScrollFits(scroller);
   const [deskBody, setDeskBody] = useState<HTMLTableSectionElement | null>(null);
   const [phoneList, setPhoneList] = useState<HTMLUListElement | null>(null);
   const [range, setRange] = useState<WindowKey | null>(() =>
@@ -432,10 +434,14 @@ export function TransactionsTable({
     return null;
   }
   const scrollClass =
-    containerClassName ?? "max-h-[calc(100dvh-17rem)] overscroll-contain md:max-h-[calc(100dvh-14.5rem)]";
+    containerClassName ?? "max-h-[calc(100dvh-17rem)] scroll-contain md:max-h-[calc(100dvh-14.5rem)]";
 
   return (
-    <div ref={readOnly ? setScroller : undefined} className={readOnly ? scrollClass + " min-h-0 overflow-auto" : undefined}>
+    <div
+      ref={readOnly ? setScroller : undefined}
+      data-scroll-fits={(readOnly && scrollFits) || undefined}
+      className={readOnly ? scrollClass + " min-h-0 overflow-auto" : undefined}
+    >
       <div className={readOnly ? "section-head" : "section-head txn-toolbar"}>
         <div className="flex min-w-0 flex-wrap items-center gap-3">
           {lead}
@@ -545,6 +551,7 @@ export function TransactionsTable({
           className="table-fixed"
           containerClassName={readOnly ? "overflow-visible" : scrollClass}
           containerRef={readOnly ? undefined : setScroller}
+          scrollFits={!readOnly && scrollFits}
         >
           <colgroup>
             {table.getVisibleLeafColumns().map((column) => (

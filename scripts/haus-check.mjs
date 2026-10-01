@@ -5,7 +5,8 @@
 //   node scripts/haus-check.mjs diff <before-label> <after-label>
 //   node scripts/haus-check.mjs ux [--pages ...]      uses each page like a person and flags UX problems
 //
-// --real uses localhost:3000 and the password in .env. --demo uses localhost:3001 and the test password.
+// --real uses the real server (npm run dev on localhost:3000, or npm start on localhost) and the password in .env.
+// --demo uses localhost:3001 and the test password.
 // Output goes to .grok/, which git ignores: screenshots of the real household never leave this machine.
 import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
@@ -32,9 +33,25 @@ const option = (name) => {
   return i >= 0 ? rest[i + 1] : undefined;
 };
 
+async function answers(base) {
+  try {
+    await fetch(`${base}/lock`, { redirect: "manual", signal: AbortSignal.timeout(3000) });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+const REAL_CANDIDATES = ["http://localhost:3000", "http://localhost"];
+const realBase =
+  flag("--real") && !option("--base")
+    ? ((await Promise.all(REAL_CANDIDATES.map(answers))).map((ok, i) => (ok ? REAL_CANDIDATES[i] : null)).find(Boolean) ??
+      REAL_CANDIDATES[0])
+    : null;
+
 function target() {
   if (flag("--real")) {
-    return { base: option("--base") ?? "http://localhost:3000", password: envPassword() };
+    return { base: option("--base") ?? realBase, password: envPassword() };
   }
   return { base: option("--base") ?? "http://localhost:3001", password: "demo-household" };
 }

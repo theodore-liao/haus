@@ -10,7 +10,7 @@ These mirror `.cursor/rules/*.mdc`. Keep the two in step when one changes. Hooks
 
 - Before changing any page, read the whole-app section, the design-system section, and the sections for the pages you touch.
 - Before reporting a change as done, check the result against those lines. If a line no longer holds, fix the change, not the line.
-- For a feature change, take `npm run shots -- before --real` first when port 3000 is up, then `after` and `shots:diff`. Look at every page the diff lists.
+- For a feature change, take `npm run shots -- before --real` first when the real server is up (port 3000 or 80), then `after` and `shots:diff`. Look at every page the diff lists.
 - If Aurin asks for something that contradicts a line, do what Aurin asked and rewrite that line.
 - When Aurin corrects something, add or update one plain line in the same change.
 
@@ -43,8 +43,8 @@ The critic only reads and reports. The screenshot diff against the real househol
 ## Looking at pages
 
 - Screenshots from `npm run shots` and `npm run ux` land in `.grok/`. Open them with the Read tool. Phone shots are tall and get scaled down, so check small details in the browser.
-- The built-in browser (`mcp__Claude_Browser__*`) drives the app directly. On the test household (port 3001) log in with `demo-household`. On the real household (port 3000) Aurin logs in in the browser pane; do not type the real password. The `--real` scripts read it from `.env` themselves.
-- Aurin is fine with you inspecting the real household on port 3000. Look, do not type into its inputs (they save), and never restart or stop it.
+- The built-in browser (`mcp__Claude_Browser__*`) drives the app directly. On the test household (port 3001) log in with `demo-household`. On the real household (port 3000 under `npm run dev`, port 80 under `npm start`) Aurin logs in in the browser pane; do not type the real password. The `--real` scripts read it from `.env` themselves.
+- Aurin is fine with you inspecting the real household on port 3000 or 80. Look, do not type into its inputs (they save), and never restart or stop it.
 - Use `resize_window` for phone width and set it back to `desktop` after.
 
 ## Console errors
@@ -53,7 +53,7 @@ Development builds record browser console errors and warnings to `.grok/console.
 
 ## Dev server
 
-Aurin runs `npm run dev` in their own PowerShell on port 3000. Do not run `npm run dev` or `next dev`; a hook blocks them. If port 3000 is down, ask Aurin to start it. Test households run on ports 3001–3009, and a Stop hook kills anything left there at the end of each turn.
+Aurin runs Haus in their own PowerShell: `npm run dev` on port 3000 while changing code, or the built app (`npm start`) on port 80 day to day. Do not run `npm run dev`, `next dev`, or `npm start`; a hook blocks the first two. Use whichever of port 3000 or 80 is up, and never touch either. If neither is up, ask Aurin to start one. Test households run on ports 3001–3009, and a Stop hook kills anything left there at the end of each turn.
 
 ## Sync wip with master
 

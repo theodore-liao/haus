@@ -5,8 +5,8 @@ alwaysApply: true
 
 # Dev server
 
-Aurin runs `npm run dev` in their own PowerShell. Leave that process alone.
+Aurin runs Haus in their own PowerShell: `npm run dev` on port 3000 while changing code, or the built app (`npm start`) on port 80 day to day. Leave that process alone.
 
-If a server is needed to verify a change and one is already listening on port 3000, use it and do not start another. Do not run `npm run dev` or `next dev`. If port 3000 is down, ask Aurin to start it.
+If a server is needed to verify a change and one is already listening on port 3000 or 80, use it and do not start another. Do not run `npm run dev`, `next dev`, or `npm start`. If neither port is up, ask Aurin to start one.
 
-A hook blocks those commands. Another hook stops anything left on ports 3001–3009 when the turn ends. Never touch port 3000.
+A hook blocks `npm run dev` and `next dev`. Another hook stops anything left on ports 3001–3009 when the turn ends. Never touch port 3000 or port 80.

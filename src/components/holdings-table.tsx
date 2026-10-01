@@ -17,6 +17,7 @@ import { AllocationChart } from "./charts";
 import { Button } from "./ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "./ui/card";
 import { cn } from "@/lib/utils";
+import { useScrollFits } from "@/lib/use-scroll-fits";
 import { withHolder } from "@/lib/owners";
 import { portfolioSummary } from "@/lib/portfolio";
 
@@ -126,6 +127,8 @@ export function InvestmentsBoard({
   // One filter for the Account column: options are "Account - Holder", matching what the cell shows.
   const [acctSel, setAcctSel] = useState<Set<string> | null>(null);
   const [q, setQ] = useState("");
+  const [tableBox, setTableBox] = useState<HTMLDivElement | null>(null);
+  const tableFits = useScrollFits(tableBox);
   const [sort, setSort] = useState<{ key: SortKey; dir: SortDir }>({ key: "value", dir: "desc" });
 
   const classOpts = useMemo(() => [...new Set(tableMaterial.map((r) => classKey(r.class)))].sort(), [tableMaterial]);
@@ -347,7 +350,9 @@ export function InvestmentsBoard({
           </ul>
           <Table
             className="hidden table-fixed md:table"
-            containerClassName="hidden max-h-[min(30rem,calc(100dvh-18rem))] overscroll-contain md:block"
+            containerClassName="hidden max-h-[min(30rem,calc(100dvh-18rem))] scroll-contain md:block"
+            containerRef={setTableBox}
+            scrollFits={tableFits}
           >
             <colgroup>
               {/* Text columns take what the figures leave; figures never wrap. Day P/L waits for a 2xl viewport. */}

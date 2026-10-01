@@ -1171,6 +1171,9 @@ export async function getSymbolDetail(symbol: string, filter: OwnerFilter) {
       ...t,
       accountLabel: accountLabel(t.account.name, t.account.item.institutionName),
     }));
+  const isCrypto =
+    coins.length > 0 || holdings.some((h) => h.symbol?.toUpperCase() === upper && isCryptoHoldingType(h.type));
+  const spotLot = lots.find((l) => (l.quotePrice ?? l.institutionPrice ?? 0) > 0);
   const [prices, investments] = await Promise.all([
     prisma.pricePoint.findMany({ where: { symbol: upper }, orderBy: { date: "asc" }, select: { date: true, close: true } }),
     getInvestments(filter),
@@ -1191,6 +1194,12 @@ export async function getSymbolDetail(symbol: string, filter: OwnerFilter) {
     lots,
     trades,
     prices: prices.map((p) => ({ date: p.date.toISOString(), close: p.close })),
+    /** Lets the price chart fill older closes after the page is up. A coin's list only keeps about 45 days. */
+    history: {
+      kind: isCrypto ? ("crypto" as const) : ("equity" as const),
+      coingeckoId: isCrypto ? coinGeckoId(upper, coins.find((c) => c.coingeckoId)?.coingeckoId ?? null) : null,
+      spot: spotLot ? (spotLot.quotePrice ?? spotLot.institutionPrice) : null,
+    },
     stocksShare: stocksTotal > 0 && stocksValue > 0 ? stocksValue / stocksTotal : null,
   };
 }

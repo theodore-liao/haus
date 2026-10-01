@@ -98,6 +98,7 @@ export function BudgetList({
   return (
     <ChartCard
       id="budget"
+      className="breakdown-budget"
       kicker="Budget"
       actions={
         daysLeft != null ? (

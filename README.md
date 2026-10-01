@@ -31,9 +31,24 @@ From this folder:
    npm start
    ```
 
-6. Open [http://localhost:3000](http://localhost:3000) and enter the passphrase.
+6. Open [http://localhost](http://localhost) and enter the passphrase.
 
 This is how to run Haus day to day: a built app opens each page quickly. When you change `.env`, or pull new code, stop it and run both commands again.
+
+### Open it from another computer at home
+
+`npm start` also answers other computers on your home network, on the web's standard port, so the address needs no number after it. On the other computer, open `http://YOUR-PC-NAME` (the name Windows shows under Settings, System, About) and enter the same passphrase. Phones often cannot look up a computer's name; use its home-network address instead, like `http://10.0.0.25`. This computer has to be on with Haus running.
+
+Windows blocks this until the home network is marked Private and port 80 is allowed on private networks. In PowerShell run as administrator:
+
+```powershell
+Get-NetConnectionProfile | Set-NetConnectionProfile -NetworkCategory Private
+New-NetFirewallRule -DisplayName "Haus (home network)" -Direction Inbound -Protocol TCP -LocalPort 80 -Profile Private -Action Allow
+```
+
+Only do the first line on your own home network, not on public Wi-Fi. Do not forward port 80 on your router: Haus is meant for the home network, not the internet.
+
+`npm run dev` still runs on [http://localhost:3000](http://localhost:3000), so it can run beside the built app.
 
 ### While changing Haus's code
 

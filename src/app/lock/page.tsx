@@ -14,9 +14,9 @@ export default function LockPage() {
 
   // A native (no-JS) form post that fails redirects back here with ?error=1.
   useEffect(() => {
-    if (new URLSearchParams(window.location.search).get("error")) {
-      setError("Denied.");
-    }
+    const code = new URLSearchParams(window.location.search).get("error");
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    if (code) setError(code === "locked" ? "Too many wrong tries. Try again in a few minutes." : "Denied.");
   }, []);
 
   async function onSubmit(e: FormEvent<HTMLFormElement>) {

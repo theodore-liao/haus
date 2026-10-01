@@ -5,7 +5,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Money, Delta } from "@/components/money";
 import { HeroCard } from "@/components/hero-card";
 import { ChartCard } from "@/components/chart-card";
-import { NetWorthChart } from "@/components/charts";
+import { SymbolPriceChart } from "@/components/symbol-price-chart";
 import { Button } from "@/components/ui/button";
 import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
@@ -99,11 +99,13 @@ export default async function SymbolPage({
         <Money value={value} />
       </HeroCard>
       <ChartCard kicker="Price">
-        <NetWorthChart
-          data={data.prices.map((p) => ({ date: p.date, netWorth: p.close }))}
-          name="Close"
-          zeroBased={false}
-          empty="No stored price history for this symbol yet."
+        <SymbolPriceChart
+          key={data.symbol}
+          symbol={data.symbol}
+          kind={data.history.kind}
+          coingeckoId={data.history.coingeckoId}
+          spot={data.history.spot}
+          prices={data.prices}
         />
       </ChartCard>
       <Card>

@@ -1,4 +1,4 @@
-// Runs Haus against a test household on its own port and build folder, leaving the real server on 3000 alone.
+// Runs Haus against a test household on its own port and build folder, leaving the real server (3000 or 80) alone.
 // Usage: node scripts/demo-server.mjs [full|single|empty] [port]
 import { spawn, execFileSync } from "node:child_process";
 import { existsSync } from "node:fs";
@@ -6,8 +6,8 @@ import path from "node:path";
 
 const profile = process.argv[2] ?? "full";
 const port = process.argv[3] ?? "3001";
-if (port === "3000") {
-  console.error("Port 3000 belongs to the real Haus server. Pick another port.");
+if (port === "3000" || port === "80") {
+  console.error(`Port ${port} belongs to the real Haus server. Pick another port.`);
   process.exit(1);
 }
 

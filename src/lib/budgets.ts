@@ -100,8 +100,8 @@ export async function setBudget(category: string, monthly: number) {
     `;
   } else {
     await prisma.$executeRaw`
-      INSERT INTO "CategoryBudget" ("id", "category", "monthly")
-      VALUES (${randomUUID()}, ${name}, ${amount})
+      INSERT INTO "CategoryBudget" ("id", "category", "monthly", "createdAt", "updatedAt")
+      VALUES (${randomUUID()}, ${name}, ${amount}, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
     `;
   }
   return { category: name, monthly: amount };

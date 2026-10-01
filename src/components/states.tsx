@@ -2,7 +2,6 @@ import { Landmark, type LucideIcon } from "lucide-react";
 import { ConnectPlaid } from "./connect-plaid";
 import { InfoTip } from "./info-tip";
 import { Skeleton } from "./ui/skeleton";
-import { Button } from "./ui/button";
 import { NAV } from "@/lib/nav";
 
 export function EmptyLedger({
@@ -46,19 +45,6 @@ export function EmptyLedger({
             </p>
           ) : null}
         </div>
-      )}
-    </div>
-  );
-}
-
-export function ErrorState({ message, onRetry }: { message: string; onRetry?: () => void }) {
-  return (
-    <div className="rounded-lg border border-border bg-card px-5 py-6">
-      <p className="text-sm text-negative">{message}</p>
-      {onRetry && (
-        <Button variant="outline" size="sm" className="mt-3" onClick={onRetry}>
-          Try again
-        </Button>
       )}
     </div>
   );

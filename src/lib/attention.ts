@@ -1,6 +1,6 @@
 // What needs a look on Overview. Pure so it can be tested without a database.
 import { storedYm, ymKey } from "./range";
-import { aggregateFlows, applyMerchantRefunds, merchantKey, type FlowRow } from "./spend-net";
+import { aggregateFlows, applyMerchantRefunds, budgetFlows, merchantKey, type FlowRow } from "./spend-net";
 import type { BudgetRow } from "./budget-window";
 import { HIGH_UTILIZATION, INSURANCE_RENEWAL_DAYS, STALE_CONNECTION_HOURS } from "./constants";
 import { policyTypeLabel } from "./insurance";
@@ -50,7 +50,7 @@ function dayStart(date: string | Date) {
 /** Every budget with what this month has spent against it, refunds netted the same way as Spending. */
 export function budgetMonth(flows: FlowRow[], budgets: BudgetRow[], now = new Date()) {
   const month = ymKey(now);
-  const netted = applyMerchantRefunds(flows.filter((f) => storedYm(f.date) === month));
+  const netted = applyMerchantRefunds(budgetFlows(flows).filter((f) => storedYm(f.date) === month));
   const spent = new Map(aggregateFlows(netted).spendRows.map((r) => [r.label, r.value]));
   return budgets
     .filter((b) => b.monthly > 0)
@@ -74,7 +74,7 @@ export type BudgetOutlookRow = {
  */
 export function budgetOutlook(flows: FlowRow[], budgets: BudgetRow[], now = new Date()): BudgetOutlookRow[] {
   const month = ymKey(now);
-  const netted = applyMerchantRefunds(flows.filter((f) => storedYm(f.date) === month));
+  const netted = applyMerchantRefunds(budgetFlows(flows).filter((f) => storedYm(f.date) === month));
   const last = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
   const day = now.getDate();
   const daysLeft = last - day;
@@ -105,7 +105,7 @@ export function summarizeBudget(rows: BudgetOutlookRow[]): BudgetSummary {
 
 export function overBudget(flows: FlowRow[], budgets: BudgetRow[], now = new Date()) {
   const month = ymKey(now);
-  const netted = applyMerchantRefunds(flows.filter((f) => storedYm(f.date) === month));
+  const netted = applyMerchantRefunds(budgetFlows(flows).filter((f) => storedYm(f.date) === month));
   const spent = new Map(aggregateFlows(netted).spendRows.map((r) => [r.label, r.value]));
   return budgets
     .filter((b) => b.monthly > 0 && (spent.get(b.category) ?? 0) > b.monthly + 0.005)

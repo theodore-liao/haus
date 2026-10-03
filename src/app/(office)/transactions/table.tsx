@@ -276,6 +276,7 @@ export function TransactionsTable({
               <span className="min-w-0 truncate">{row.original.merchant}</span>
               <CardMatchNote match={row.original.cardMatch} />
               <NoteMark memo={row.original.memo} />
+              {row.original.budgetExcluded ? <span className="footnote shrink-0 whitespace-nowrap">not in budget</span> : null}
             </span>
           </BrandLabel>
         ),
@@ -513,6 +514,7 @@ export function TransactionsTable({
                     <div className="mt-0.5 truncate text-xs text-muted-foreground">
                       <span className="num">{formatDate(t.date)}</span> · {categoryLabel(t.category)} · {t.account}
                     </div>
+                    {t.budgetExcluded ? <div className="footnote mt-0.5">not in budget</div> : null}
                     {readOnly && t.name && t.name !== t.merchant ? (
                       <div className="mt-0.5 truncate text-xs text-muted-foreground">{t.name}</div>
                     ) : null}
@@ -688,6 +690,24 @@ function TransactionSheetForm({
   const [memo, setMemo] = useState(row?.memo ?? "");
   const [applyAll, setApplyAll] = useState(true);
   const [host, setHost] = useState<HTMLDivElement | null>(null);
+  // Applies the moment it's flipped: budgets drop or count this one charge; the spend total and donut keep it.
+  const [inBudget, setInBudget] = useState(!row?.budgetExcluded);
+  async function toggleBudget(on: boolean) {
+    if (!row?.plaidId) return;
+    setInBudget(on);
+    const res = await fetch("/api/budget-excluded", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id: row.plaidId, excluded: !on }),
+    }).catch(() => null);
+    if (!res?.ok) {
+      setInBudget(!on);
+      toast.error("Could not change whether this counts toward the budget.");
+      return;
+    }
+    toast.success(on ? "Counts toward the budget again." : "Left out of the budget. It still counts as spending.");
+    routerRefresh();
+  }
   // Whether this merchant is listed under Recurring, read when the sheet opens. Only charges can recur.
   const canRecur = row != null && row.amount > 0 && !row.internal;
   const [recurring, setRecurring] = useState<RecurringChoice & { loaded: boolean; was: RecurringChoice }>({
@@ -819,6 +839,15 @@ function TransactionSheetForm({
                   <Switch checked={applyAll} onCheckedChange={setApplyAll} />
                   Always categorize this merchant this way
                 </label>
+                {row.amount > 0 && !row.internal && row.plaidId ? (
+                  <label className="flex items-center gap-2 text-sm text-muted-foreground">
+                    <Switch checked={inBudget} onCheckedChange={(on) => void toggleBudget(on)} />
+                    <span>
+                      Count this charge toward budget
+                      <span className="footnote block">This charge only. Applies right away.</span>
+                    </span>
+                  </label>
+                ) : null}
                 {canRecur ? (
                   <div className="space-y-2">
                     <label className="flex items-center gap-2 text-sm text-muted-foreground">

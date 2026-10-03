@@ -139,7 +139,7 @@ export function ChildrenForms({
                 defaultValue={existing?.owner}
                 className="mt-1 flex h-9 w-full rounded-md border border-border bg-card px-3 text-sm"
               >
-                {ownerOptions(names).map((o) => (
+                {ownerOptions(names, existing?.owner).map((o) => (
                   <option key={o.value} value={o.value}>
                     {o.label}
                   </option>

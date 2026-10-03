@@ -1,11 +1,30 @@
 export const RANGE_KEYS = ["1m", "3m", "6m", "1y", "all"] as const;
 export type RangeKey = (typeof RANGE_KEYS)[number];
 export type CalKey = `cal:${string}`;
-export type WindowKey = RangeKey | CalKey;
+/** A window the household picks by its two days, both included: `custom:YYYY-MM-DD:YYYY-MM-DD`. */
+export type CustomKey = `custom:${string}:${string}`;
+export type WindowKey = RangeKey | CalKey | CustomKey;
 export const DEFAULT_RANGE: RangeKey = "3m";
 
 export function isCalKey(key: string): key is CalKey {
   return key.startsWith("cal:");
+}
+
+export function isCustomKey(key: string): key is CustomKey {
+  return key.startsWith("custom:");
+}
+
+/** The custom window from two days in either order. */
+export function customKey(a: string, b: string): CustomKey {
+  const [from, to] = a <= b ? [a, b] : [b, a];
+  return `custom:${from}:${to}`;
+}
+
+/** First and last day of a custom window, and how many days it spans (both ends counted). */
+export function customBounds(key: CustomKey) {
+  const [, from, to] = key.split(":");
+  const days = Math.round((asLocalDate(to).getTime() - asLocalDate(from).getTime()) / 86_400_000) + 1;
+  return { from, to, days: Math.max(1, days) };
 }
 
 /** Local wall-time YYYY-MM (chip labels / "today"). */
@@ -169,5 +188,10 @@ export function inRange(date: Date | string, key: RangeKey) {
 
 export function inWindow(date: Date | string, key: WindowKey) {
   if (isCalKey(key)) return storedYm(date) === key.slice(4);
+  if (isCustomKey(key)) {
+    const { from, to } = customBounds(key);
+    const day = typeof date === "string" ? date.slice(0, 10) : dayKey(date);
+    return day >= from && day <= to;
+  }
   return inRange(date, key);
 }

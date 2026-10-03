@@ -168,7 +168,7 @@ async function seedFull({ single }) {
     data: {
       id: "haus",
       nameA: "Alex Rivera",
-      nameB: single ? "Two" : "Sam Rivera",
+      nameB: single ? "" : "Sam Rivera",
       birthdateA: new Date("1990-04-12"),
       birthdateB: single ? null : new Date("1991-09-03"),
       showCrypto: true,

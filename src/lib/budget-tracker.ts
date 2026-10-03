@@ -1,6 +1,6 @@
 // Month-by-month budget results for Goals: each category against its current monthly budget. Pure for tests.
 import { storedYm, ymKey } from "./range";
-import { aggregateFlows, applyMerchantRefunds, type FlowRow } from "./spend-net";
+import { aggregateFlows, applyMerchantRefunds, budgetFlows, type FlowRow } from "./spend-net";
 import type { BudgetRow } from "./budget-window";
 
 export type TrackerMonth = {
@@ -34,7 +34,7 @@ export function budgetTracker(flows: FlowRow[], budgets: BudgetRow[], now = new 
     months.push({ ym: ymKey(d), label: d.toLocaleString("en-US", { month: "short" }), partial: i === 0 });
   }
   const spentBy = months.map((m) => {
-    const netted = applyMerchantRefunds(flows.filter((f) => storedYm(f.date) === m.ym));
+    const netted = applyMerchantRefunds(budgetFlows(flows).filter((f) => storedYm(f.date) === m.ym));
     return new Map(aggregateFlows(netted).spendRows.map((r) => [r.label, r.value]));
   });
   const share = monthShare(now);

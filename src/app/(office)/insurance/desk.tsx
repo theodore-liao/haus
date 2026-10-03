@@ -8,6 +8,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { ConfirmButton } from "@/components/confirm-button";
 import { policyCoversMember } from "@/lib/insurance";
+import { hasSpouse } from "@/lib/owners";
 import { InfoTip } from "@/components/info-tip";
 import { PremiumControl } from "./premium";
 
@@ -51,7 +52,7 @@ export function InsuranceDesk({
   const members = useMemo(
     () => [
       { id: "a", label: names.nameA },
-      { id: "b", label: names.nameB },
+      ...(hasSpouse(names) ? [{ id: "b", label: names.nameB }] : []),
       ...names.children.map((c) => ({ id: `child:${c.id}`, label: c.name.trim().split(/\s+/)[0] ?? c.name })),
     ],
     [names],

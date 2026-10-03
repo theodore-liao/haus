@@ -86,7 +86,7 @@ const projectionPrefsSchema = z
 
 const patchSchema = z.object({
   nameA: z.string().min(1).max(40).optional(),
-  nameB: z.string().min(1).max(40).optional(),
+  nameB: z.string().max(40).optional(),
   birthdateA: isoDay,
   birthdateB: isoDay,
   quoteApiKey: z.string().nullable().optional(),
@@ -112,7 +112,10 @@ export async function PATCH(req: Request) {
   if (!parsed.success) return NextResponse.json({ error: "Invalid payload." }, { status: 400 });
   const previous = await ensureHousehold();
   // Goals keeps its switch in the settings table, so it needs no new column.
-  const { birthdateA, birthdateB, projectionPrefs: projectionPatch, showGoals, ...rest } = parsed.data;
+  const { birthdateA, birthdateB: dobB, projectionPrefs: projectionPatch, showGoals, ...rest } = parsed.data;
+  // The spouse is optional: a blank name means no spouse, and their birthdate goes with it.
+  if (rest.nameB !== undefined) rest.nameB = rest.nameB.trim();
+  const birthdateB = rest.nameB === "" ? null : dobB;
   if (showGoals !== undefined) await writeShowGoals(showGoals);
   if (parsed.data.pairCardPayments !== undefined) clearCardPaymentCache();
   const hasHouseholdFields =

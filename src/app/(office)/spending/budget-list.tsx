@@ -111,7 +111,10 @@ export function BudgetList({
       <p className="footnote mb-3">
         {months === 1
           ? "Each figure is that category’s monthly budget."
-          : `Each figure is the monthly budget × ${months} for this window.`}
+          : Number.isInteger(months)
+            ? `Each figure is the monthly budget × ${months} for this window.`
+            : // A custom window: say it in days, since 38 days is not a tidy number of months.
+              `Each figure is the monthly budget scaled to ${Math.round(months * (365.25 / 12))} ${Math.round(months * (365.25 / 12)) === 1 ? "day" : "days"} (about ${months.toFixed(2)} months).`}
         {elapsed != null ? ` The tick marks how much of the month has gone (${Math.round(elapsed * 100)}%).` : null}
       </p>
       <ul className="min-h-0 flex-1 space-y-3 overflow-x-clip overflow-y-auto pr-1">

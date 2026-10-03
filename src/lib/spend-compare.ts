@@ -1,6 +1,6 @@
 // Spend by category against an earlier window, and one category month by month. Pure for tests.
 import { addDays, addMonths, format } from "date-fns";
-import { asLocalDate, cashflowTableMonths, isCalKey, rangeStart, ymKey, type WindowKey } from "./range";
+import { asLocalDate, cashflowTableMonths, customBounds, isCalKey, isCustomKey, rangeStart, ymKey, type WindowKey } from "./range";
 import { aggregateFlows, applyMerchantRefunds, type FlowRow } from "./spend-net";
 
 /** Local calendar day as YYYY-MM-DD. */
@@ -34,6 +34,12 @@ export function previousWindow(key: WindowKey, now = new Date()): { from: string
     return { from: localDay(prev), to: localDay(month), label: format(prev, "MMMM") };
   }
   if (key === "all") return null;
+  if (isCustomKey(key)) {
+    // The same number of days just before the chosen ones.
+    const { from, days } = customBounds(key);
+    const start = asLocalDate(from);
+    return { from: localDay(addDays(start, -days)), to: localDay(start), label: days === 1 ? "the day before" : `the ${days} days before` };
+  }
   const start = rangeStart(key, now)!;
   const from = new Date(start.getFullYear(), start.getMonth(), start.getDate());
   const months = key === "1m" ? 1 : key === "3m" ? 3 : key === "6m" ? 6 : 12;

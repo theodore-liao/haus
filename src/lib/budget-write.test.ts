@@ -3,7 +3,8 @@ import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { fileURLToPath } from "node:url";
+// Imports in the generated script are file:// URLs; a bare "C:\..." path is not a valid ESM specifier on Windows.
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 
@@ -21,8 +22,8 @@ test("a new budget saves when updatedAt has no database default", () => {
   writeFileSync(
     script,
     `
-import { setBudget } from ${JSON.stringify(path.join(root, "src/lib/budgets.ts"))};
-import { prisma } from ${JSON.stringify(path.join(root, "src/lib/db.ts"))};
+import { setBudget } from ${JSON.stringify(pathToFileURL(path.join(root, "src/lib/budgets.ts")).href)};
+import { prisma } from ${JSON.stringify(pathToFileURL(path.join(root, "src/lib/db.ts")).href)};
 
 const row = await setBudget("Dining", 42.5);
 if (row.category !== "Dining" || row.monthly !== 42.5) throw new Error("insert");

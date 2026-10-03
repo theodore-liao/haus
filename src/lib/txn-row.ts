@@ -20,4 +20,8 @@ export type TxnRow = {
   /** Set when this row was paired with the same amount on another linked account. */
   cardMatch: "matched" | null;
   memo: string | null;
+  /** The bank's transaction id, which budget exclusions are kept by. */
+  plaidId?: string;
+  /** Left out of budgets by the household; still counted in spending. */
+  budgetExcluded?: boolean;
 };

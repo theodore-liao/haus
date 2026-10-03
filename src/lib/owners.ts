@@ -28,10 +28,20 @@ export function givenName(name: string | null | undefined): string {
   return t.split(/\s+/)[0] ?? t;
 }
 
+/** Names the app writes itself when no spouse was entered. They are not a person. */
+const PLACEHOLDER_SPOUSE = ["two", "new user"];
+
+/** No spouse: the second name is blank or still the default "Two". Real names are never treated as blank. */
+export function hasSpouse(names: { nameB?: string | null }): boolean {
+  const n = (names.nameB ?? "").trim().toLowerCase();
+  return n !== "" && !PLACEHOLDER_SPOUSE.includes(n);
+}
+
 export function ownerLabel(owner: string, names: HouseholdNames): string {
   if (owner === "a") return givenName(names.nameA) || names.nameA;
-  if (owner === "b") return givenName(names.nameB) || names.nameB;
-  if (owner === "joint") return "Joint";
+  // Money already owned by "b" stays visible even when there is no spouse name.
+  if (owner === "b") return hasSpouse(names) ? givenName(names.nameB) || names.nameB : "Second person";
+  if (owner === "joint") return hasSpouse(names) ? "Joint" : givenName(names.nameA) || names.nameA;
   if (owner.startsWith("child:")) {
     const id = owner.slice("child:".length);
     const child = names.children.find((c) => c.id === id || c.name === id);
@@ -87,11 +97,27 @@ export function childLabelFor(
   return found;
 }
 
-export function ownerOptions(names: HouseholdNames) {
-  return [
+/** Owner a new joint-by-default item starts with: Joint for a couple, the primary alone. */
+export function defaultOwner(names: { nameB?: string | null }): "joint" | "a" {
+  return hasSpouse(names) ? "joint" : "a";
+}
+
+/** `current` is an owner already saved on the item being edited; it stays in the list even if hidden now. */
+export function ownerOptions(names: HouseholdNames, current?: string | null) {
+  const spouse = hasSpouse(names);
+  const list = [
     { value: "a", label: givenName(names.nameA) || names.nameA },
-    { value: "b", label: givenName(names.nameB) || names.nameB },
-    { value: "joint", label: "Joint" },
+    ...(spouse
+      ? [
+          { value: "b", label: givenName(names.nameB) || names.nameB },
+          { value: "joint", label: "Joint" },
+        ]
+      : []),
     ...names.children.map((c) => ({ value: `child:${c.id}`, label: givenName(c.name) || c.name })),
   ];
+  // An older item still saved as Joint keeps its choice, named so it isn't a second copy of the primary's name.
+  if (current && !list.some((o) => o.value === current)) {
+    list.push({ value: current, label: current === "joint" ? "Joint (saved before)" : ownerLabel(current, names) });
+  }
+  return list;
 }

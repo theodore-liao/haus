@@ -69,7 +69,7 @@ export function AppShell({
               HAUS
             </div>
             <div className="mt-1 truncate text-sm text-muted-foreground">
-              {nameA} & {nameB}
+              {nameB ? `${nameA} & ${nameB}` : nameA}
             </div>
           </div>
           <PrivacyToggle />

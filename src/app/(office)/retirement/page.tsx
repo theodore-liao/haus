@@ -4,6 +4,7 @@ import { HeroCard } from "@/components/hero-card";
 import { withBlurredMoney } from "@/components/blur-money";
 import { annualisedPaychecks, annualisedSpend, getConnectionCount, getEquityComp, getOverview, getReports, getRetirement } from "@/lib/queries";
 import { getOwnerFilter } from "@/lib/request";
+import { hasSpouse } from "@/lib/owners";
 import { hausTypeLabel, isChildAccountType } from "@/lib/account-types";
 import { readProjectionPrefs } from "@/lib/projection-prefs";
 import { contributionsPriorQuarter, estimateSaving, retirementSnapshot } from "@/lib/retirement-snapshot";
@@ -222,7 +223,7 @@ export default async function RetirementPage() {
         householdChildren={data.names.children.map((child) => ({ id: child.id, name: child.name }))}
         holders={[
           { key: "A", name: data.names.nameA, birthdate: data.names.birthdateA },
-          { key: "B", name: data.names.nameB, birthdate: data.names.birthdateB },
+          ...(hasSpouse(data.names) ? [{ key: "B" as const, name: data.names.nameB, birthdate: data.names.birthdateB }] : []),
         ]}
       />
     </>

@@ -20,6 +20,7 @@ import { TransactionsTable } from "../transactions/table";
 import { TxnExport } from "@/components/txn-export";
 import type { PlanChildPref } from "@/lib/projection-prefs";
 import type { MonthWindow } from "@/lib/prefs";
+import { hasSpouse } from "@/lib/owners";
 
 type ChildRow = { id: string; name: string };
 
@@ -61,7 +62,7 @@ export function SettingsClient({
 }) {
   const router = useRouter();
   const [t, setT] = useState(nameA);
-  const [j, setJ] = useState(nameB);
+  const [j, setJ] = useState(hasSpouse({ nameB }) ? nameB : "");
   const [dobA, setDobA] = useState(birthdateA ?? "");
   const [dobB, setDobB] = useState(birthdateB ?? "");
   const [kids, setKids] = useState(initialChildren);
@@ -98,7 +99,7 @@ export function SettingsClient({
       const res = await fetch("/api/household", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ nameA: t, nameB: j, birthdateA: dobA || null, birthdateB: dobB || null }),
+        body: JSON.stringify({ nameA: t, nameB: j.trim(), birthdateA: dobA || null, birthdateB: hasSpouse({ nameB: j }) ? dobB || null : null }),
       });
       if (!res.ok) {
         toast.error("Could not save names.");
@@ -291,17 +292,19 @@ export function SettingsClient({
             <Input className="mt-1.5" value={t} onChange={(e) => setT(e.target.value)} />
           </div>
           <div>
-            <Label>Spouse</Label>
+            <Label>Spouse (optional)</Label>
             <Input className="mt-1.5" value={j} onChange={(e) => setJ(e.target.value)} />
           </div>
           <div>
             <Label>{birthdateLabel(t, "Your")}</Label>
             <Input type="date" className="mt-1.5" value={dobA} onChange={(e) => setDobA(e.target.value)} />
           </div>
-          <div>
-            <Label>{birthdateLabel(j, "Partner's")}</Label>
-            <Input type="date" className="mt-1.5" value={dobB} onChange={(e) => setDobB(e.target.value)} />
-          </div>
+          {hasSpouse({ nameB: j }) ? (
+            <div>
+              <Label>{birthdateLabel(j, "Partner's")}</Label>
+              <Input type="date" className="mt-1.5" value={dobB} onChange={(e) => setDobB(e.target.value)} />
+            </div>
+          ) : null}
           <p className="footnote sm:col-span-2">Birthdates set ages in the retirement planner.</p>
           <div className="space-y-3 sm:col-span-2">
             <div>

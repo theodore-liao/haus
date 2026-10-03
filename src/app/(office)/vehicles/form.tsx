@@ -8,7 +8,7 @@ import { ConfirmButton } from "@/components/confirm-button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { ownerOptions } from "@/lib/owners";
+import { defaultOwner, ownerOptions } from "@/lib/owners";
 
 type Existing = {
   id: string;
@@ -139,10 +139,10 @@ export function VehicleForm({
               <Label>Holder</Label>
               <select
                 name="owner"
-                defaultValue={existing?.owner ?? "joint"}
+                defaultValue={existing?.owner ?? defaultOwner(names)}
                 className="mt-1 flex h-9 w-full rounded-md border border-border bg-card px-3 text-sm"
               >
-                {ownerOptions(names).map((o) => (
+                {ownerOptions(names, existing?.owner).map((o) => (
                   <option key={o.value} value={o.value}>
                     {o.label}
                   </option>

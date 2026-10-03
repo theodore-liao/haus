@@ -22,10 +22,18 @@ function entry(limits: LoginLimits, key: string, now: number) {
   return found;
 }
 
-/** Milliseconds until this address may try again, or 0 when it may try now. */
+/** Drop addresses whose tries have aged out and whose lock has ended. A check alone must not keep one. */
+function prune(limits: LoginLimits, now: number) {
+  for (const [key, e] of limits) {
+    e.misses = e.misses.filter((t) => now - t < LOGIN_WINDOW_MS);
+    if (e.misses.length === 0 && e.lockedUntil <= now) limits.delete(key);
+  }
+}
+
+/** Milliseconds until this address may try again, or 0 when it may try now. Does not store the address. */
 export function loginWait(limits: LoginLimits, address: string, now = Date.now()) {
-  const wait = Math.max(entry(limits, address, now).lockedUntil, entry(limits, ALL, now).lockedUntil) - now;
-  return wait > 0 ? wait : 0;
+  const until = Math.max(limits.get(address)?.lockedUntil ?? 0, limits.get(ALL)?.lockedUntil ?? 0);
+  return until > now ? until - now : 0;
 }
 
 export function recordMiss(limits: LoginLimits, address: string, now = Date.now()) {
@@ -40,6 +48,7 @@ export function recordMiss(limits: LoginLimits, address: string, now = Date.now(
       e.misses = [];
     }
   }
+  prune(limits, now);
 }
 
 /** A correct passphrase clears that address's misses; the household-wide count still runs out on its own. */
@@ -54,5 +63,7 @@ export function waitMessage(ms: number) {
 
 /** The visitor's address as Next passes it on. The first entry is the original client. */
 export function requestAddress(headers: Headers) {
-  return headers.get("x-forwarded-for")?.split(",")[0]?.trim() || "unknown";
+  const first = headers.get("x-forwarded-for")?.split(",")[0]?.trim() ?? "";
+  // A forged header can be enormous. Only a short address is kept, so one request cannot pin a huge key.
+  return first.slice(0, 200) || "unknown";
 }

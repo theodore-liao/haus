@@ -15,10 +15,27 @@ export async function readBudgetExcluded(): Promise<Set<string>> {
   }
 }
 
+async function writeBudgetExcluded(ids: Set<string>) {
+  const value = JSON.stringify([...ids].slice(-MAX));
+  await prisma.setting.upsert({ where: { key: KEY }, create: { key: KEY, value }, update: { value } });
+}
+
 export async function setBudgetExcluded(id: string, excluded: boolean) {
   const ids = await readBudgetExcluded();
   if (excluded) ids.add(id);
   else ids.delete(id);
-  const value = JSON.stringify([...ids].slice(-MAX));
-  await prisma.setting.upsert({ where: { key: KEY }, create: { key: KEY, value }, update: { value } });
+  await writeBudgetExcluded(ids);
+}
+
+/**
+ * A pending charge posts under a new bank id. The exclusion follows that id, the same way a
+ * category or note does, so the posted charge stays out of the budget.
+ */
+export async function moveBudgetExcluded(fromId: string, toId: string) {
+  if (!fromId || !toId || fromId === toId) return;
+  const ids = await readBudgetExcluded();
+  if (!ids.has(fromId)) return;
+  ids.delete(fromId);
+  ids.add(toId);
+  await writeBudgetExcluded(ids);
 }

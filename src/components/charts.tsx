@@ -11,7 +11,6 @@ import {
   Pie,
   PieChart,
   ResponsiveContainer,
-  Legend,
   Line,
   LineChart,
   ReferenceLine,
@@ -1119,40 +1118,4 @@ function wrapLabel(name: string, width = 13): string[] {
   }
   if (cur) lines.push(cur);
   return lines.slice(0, 3);
-}
-
-export function ValueDebtChart({
-  rows,
-}: {
-  rows: { label: string; value: number; debt: number; equity: number }[];
-}) {
-  if (!rows.length) return null;
-  const data = rows.map((r) => ({
-    ...r,
-    label: r.label.length > 18 ? `${r.label.slice(0, 16)}…` : r.label,
-  }));
-  return (
-    <div className="h-64 w-full">
-      <ResponsiveContainer>
-        <BarChart data={data} margin={{ top: 8, right: 8, left: 0, bottom: 8 }}>
-          <CartesianGrid stroke={GRID} vertical={false} />
-          <XAxis dataKey="label" tick={AXIS} axisLine={false} tickLine={false} interval={0} />
-          <YAxis
-            tick={MONEY_AXIS}
-            axisLine={false}
-            tickLine={false}
-            width={64}
-            tickFormatter={(v) =>
-              new Intl.NumberFormat("en-US", { notation: "compact", maximumFractionDigits: 1 }).format(v)
-            }
-          />
-          <Tooltip content={<Tip />} />
-          <Legend wrapperStyle={{ fontSize: 11, color: "#8fa0b8" }} />
-          <Bar dataKey="value" name="Value" fill="#7EABD4" radius={[2, 2, 0, 0]} />
-          <Bar dataKey="debt" name="Debt" fill="#D4928C" radius={[2, 2, 0, 0]} />
-          <Bar dataKey="equity" name="Equity" fill="#7DB8A4" radius={[2, 2, 0, 0]} />
-        </BarChart>
-      </ResponsiveContainer>
-    </div>
-  );
 }

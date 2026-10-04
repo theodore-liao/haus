@@ -32,6 +32,7 @@ test("a posted Plaid id keeps category, merchant, and note from the pending char
 
   const { prisma } = await import("./db");
   const { applyPlaidTransactionChanges } = await import("./plaid-sync");
+  const { readBudgetExcluded, setBudgetExcluded } = await import("./budget-excluded");
 
   await prisma.plaidItem.create({
     data: { id: "item1", itemId: "plaid-item", accessToken: "sandbox" },
@@ -67,6 +68,8 @@ test("a posted Plaid id keeps category, merchant, and note from the pending char
   const accounts = new Map([["plaid-acct", "acct1"]]);
 
   await seedPending("pending-same", "same batch");
+  await setBudgetExcluded("pending-same", true);
+  await setBudgetExcluded("unrelated-charge", true);
   const migrated = new Set<string>();
   await applyPlaidTransactionChanges(
     accounts,
@@ -93,8 +96,13 @@ test("a posted Plaid id keeps category, merchant, and note from the pending char
   assert.equal(same?.userMerchant, "Cafe");
   assert.equal(same?.memo, "same batch");
   assert.equal(await prisma.txn.findUnique({ where: { plaidTransactionId: "pending-same" } }), null);
+  const afterSame = await readBudgetExcluded();
+  assert.equal(afterSame.has("posted-same"), true);
+  assert.equal(afterSame.has("pending-same"), false);
+  assert.equal(afterSame.has("unrelated-charge"), true);
 
   await seedPending("pending-split", "later sync");
+  await setBudgetExcluded("pending-split", true);
   await applyPlaidTransactionChanges(
     accounts,
     { added: [], modified: [], removed: [{ transaction_id: "pending-split" }] },
@@ -125,6 +133,10 @@ test("a posted Plaid id keeps category, merchant, and note from the pending char
   assert.equal(split?.userCategory, "GROCERIES");
   assert.equal(split?.userMerchant, "Cafe");
   assert.equal(split?.memo, "later sync");
+  const afterSplit = await readBudgetExcluded();
+  assert.equal(afterSplit.has("posted-split"), true);
+  assert.equal(afterSplit.has("pending-split"), false);
+  assert.equal(afterSplit.has("posted-same"), true);
 
   await prisma.txn.create({
     data: {
@@ -160,6 +172,33 @@ test("a posted Plaid id keeps category, merchant, and note from the pending char
   assert.equal(kept?.name, "Rent payment");
   assert.equal(kept?.userCategory, "RENT_AND_UTILITIES");
   assert.equal(kept?.memo, "do not wipe");
+
+  // A later sync of a charge that already posted must not put a leftover pending exclusion back.
+  await setBudgetExcluded("posted-same", false);
+  await setBudgetExcluded("pending-left", true);
+  await applyPlaidTransactionChanges(
+    accounts,
+    {
+      added: [],
+      modified: [
+        {
+          transaction_id: "posted-same",
+          account_id: "plaid-acct",
+          pending: false,
+          pending_transaction_id: "pending-left",
+          date: "2026-09-22",
+          name: "Starbucks",
+          merchant_name: "Starbucks",
+          amount: 12.5,
+        },
+      ],
+      removed: [],
+    },
+    new Set(),
+  );
+  const afterEdit = await readBudgetExcluded();
+  assert.equal(afterEdit.has("posted-same"), false);
+  assert.equal(afterEdit.has("pending-left"), true);
 
   await prisma.$disconnect();
 });

@@ -6,6 +6,7 @@ import { toast } from "sonner";
 import { X } from "lucide-react";
 import { ChartCard } from "./chart-card";
 import { Money } from "./money";
+import { BudgetLabel, useOpenCategory } from "./open-category";
 import { colorFor } from "@/lib/category-colors";
 import { budgetStatus } from "@/lib/budget-window";
 import { summarizeBudget, type BudgetOutlookRow } from "@/lib/attention";
@@ -35,6 +36,7 @@ export function BudgetCard({
   elapsed: number;
   notices: RelinkNotice[];
 }) {
+  const openCategory = useOpenCategory();
   const [hidden, setHidden] = useState(dismissed);
   const shown = useMemo(
     () => rows.filter((r) => !hidden.includes(r.category)),
@@ -169,13 +171,7 @@ export function BudgetCard({
                 return (
                   <li key={r.category}>
                     <div className="flex min-w-0 items-center gap-2">
-                      <span
-                        className="size-2 shrink-0 rounded-sm"
-                        style={{ background: colorFor(r.category) }}
-                      />
-                      <span className="min-w-0 flex-1 truncate text-sm">
-                        {r.category}
-                      </span>
+                      <BudgetLabel category={r.category} onOpen={openCategory} />
                       <span
                         className={cn(
                           "num text-xs",

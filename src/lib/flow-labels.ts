@@ -2,7 +2,6 @@
 export const OTHER_CATEGORIES = "Other";
 /** Money back from shops (returns, credits) that didn't net against a charge in the window. */
 export const REFUNDS = "Refunds";
-export const FROM_SAVINGS = "From savings";
 export const TO_SAVINGS = "To savings/investments";
 export const TO_INVESTMENTS = "To investments";
 

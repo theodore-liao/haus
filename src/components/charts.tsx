@@ -33,7 +33,7 @@ import { SliceBreakdownDialog, type SliceItem } from "./category-merchants";
 import { CategoryIcon, hasCategoryIcon } from "@/lib/category-icons";
 import { colorFor, donutColorMap } from "@/lib/category-colors";
 import type { CategoryChange } from "@/lib/spend-compare";
-import { FROM_SAVINGS, isOtherSlice, OTHER_CATEGORIES, TO_INVESTMENTS, TO_SAVINGS } from "@/lib/flow-labels";
+import { isOtherSlice, OTHER_CATEGORIES, TO_INVESTMENTS, TO_SAVINGS } from "@/lib/flow-labels";
 import {
   sankeyLeafAction,
   sankeyLinkAction,
@@ -50,7 +50,6 @@ const GRID = "rgba(148,163,184,0.12)";
 const ICE = "#A8C5E2";
 const HUB_FILL = "#8B9BB3";
 const SAVED_FILL = "#6FC4B0";
-const DRAWN_FILL = "#D48992";
 const INVEST_FILL = "#8EA4DC";
 /** Sankey-only fills so restored donut teals do not collapse rental / loan / shopping / savings. */
 const SANKEY_FILLS: Record<string, string> = {
@@ -701,7 +700,7 @@ export function CashflowSankey({
   invest?: number;
   onSpendClick?: (label: string) => void;
   onIncomeClick?: (label: string) => void;
-  onBalanceClick?: (kind: "from-savings" | "to-savings" | "to-investments") => void;
+  onBalanceClick?: (kind: "to-savings" | "to-investments") => void;
 }) {
   const sources = topSlices(income, SANKEY_INCOME_LIMIT).map((r) => ({
     ...r,
@@ -744,7 +743,6 @@ export function CashflowSankey({
   };
   if (invest >= 1 && Number.isFinite(invest)) place({ key: "save:invest", label: TO_INVESTMENTS, value: invest, fill: INVEST_FILL });
   if (saved > 1) place({ key: "save:to", label: TO_SAVINGS, value: saved, fill: SAVED_FILL });
-  if (saved < -1) right.push({ key: "save:from", label: FROM_SAVINGS, value: -saved, fill: DRAWN_FILL });
   for (const s of right) {
     if (!(s.value >= 1) || !Number.isFinite(s.value)) continue;
     links.push({ source: hub, target: idx(s.key, s.label, s.fill), value: s.value });
@@ -776,7 +774,7 @@ function CashflowSankeyChart({
   links: { source: number; target: number; value: number }[];
   onSpendClick?: (label: string) => void;
   onIncomeClick?: (label: string) => void;
-  onBalanceClick?: (kind: "from-savings" | "to-savings" | "to-investments") => void;
+  onBalanceClick?: (kind: "to-savings" | "to-investments") => void;
 }) {
   const box = useRef<HTMLDivElement>(null);
   const [width, setWidth] = useState(0);
@@ -911,7 +909,7 @@ function runSankeyAction(
   handlers: {
     onSpendClick?: (label: string) => void;
     onIncomeClick?: (label: string) => void;
-    onBalanceClick?: (kind: "from-savings" | "to-savings" | "to-investments") => void;
+    onBalanceClick?: (kind: "to-savings" | "to-investments") => void;
   },
 ) {
   if (!action) return;
@@ -925,7 +923,7 @@ function sankeyOpens(
   handlers: {
     onSpendClick?: (label: string) => void;
     onIncomeClick?: (label: string) => void;
-    onBalanceClick?: (kind: "from-savings" | "to-savings" | "to-investments") => void;
+    onBalanceClick?: (kind: "to-savings" | "to-investments") => void;
   },
 ) {
   if (!action) return false;
@@ -952,7 +950,7 @@ function RainbowLink({
 > & {
   onSpendClick?: (label: string) => void;
   onIncomeClick?: (label: string) => void;
-  onBalanceClick?: (kind: "from-savings" | "to-savings" | "to-investments") => void;
+  onBalanceClick?: (kind: "to-savings" | "to-investments") => void;
 }) {
   const source = payload?.source as { name?: string; label?: string } | undefined;
   const target = payload?.target as { name?: string; label?: string } | undefined;
@@ -1011,7 +1009,7 @@ function SankeyNode({
   compact?: boolean;
   onSpendClick?: (label: string) => void;
   onIncomeClick?: (label: string) => void;
-  onBalanceClick?: (kind: "from-savings" | "to-savings" | "to-investments") => void;
+  onBalanceClick?: (kind: "to-savings" | "to-investments") => void;
   inflowTotal: number;
   outflowTotal: number;
 }) {

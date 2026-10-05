@@ -7,7 +7,7 @@ import { kickerClass } from "@/components/type";
 import { Pill } from "@/components/pills";
 import { ChartCard } from "@/components/chart-card";
 import { CashflowSankey, SavingsRateTrend } from "@/components/charts";
-import { FROM_SAVINGS, OTHER_CATEGORIES, TO_INVESTMENTS } from "@/lib/flow-labels";
+import { OTHER_CATEGORIES, TO_INVESTMENTS } from "@/lib/flow-labels";
 import { sankeyOtherTitle } from "@/lib/sankey-node";
 import { otherCategoryLabels, SANKEY_INCOME_LIMIT, SANKEY_SPEND_LIMIT } from "@/lib/sankey-slices";
 import { formatPct } from "@/lib/format";
@@ -15,6 +15,7 @@ import { ReportRange, useReportWindow } from "@/components/chart-range";
 import {
   asLocalDate,
   cashflowTableMonths,
+  defaultTxnWindow,
   inWindow,
   type WindowKey,
 } from "@/lib/range";
@@ -22,7 +23,9 @@ import { format } from "date-fns";
 import { cn } from "@/lib/utils";
 import { useScrollFits } from "@/lib/use-scroll-fits";
 import { CategoryMerchantDialog } from "@/components/category-merchants";
-import { groupIncomeNode, groupInvestNode, groupSpendNode } from "@/lib/category-breakdown";
+import { groupCategory, groupIncomeNode, groupInvestNode, groupSpendNode } from "@/lib/category-breakdown";
+import { categoryTrend } from "@/lib/spend-compare";
+import { OpenCategoryContext } from "@/components/open-category";
 import type { MerchantLine } from "@/lib/merchant-lines";
 import { applyMerchantRefunds, aggregateFlows, type FlowRow } from "@/lib/spend-net";
 import { withComparisons } from "@/lib/cashflow-months";
@@ -33,7 +36,8 @@ import { TransactionSheet, type TxnSave } from "@/app/(office)/transactions/tabl
 type Popup =
   | { kind: "spend" | "income"; title: string }
   | { kind: "invest" }
-  | { kind: "from-savings" };
+  /** A Budget card row. It covers the open month, which is what that card measures, not the cashflow chip. */
+  | { kind: "budget"; title: string };
 
 export function CashFlowBlock({
   flows,
@@ -103,23 +107,30 @@ export function CashFlowBlock({
   const savings = incomeAll - spendAll;
 
   const windowTxns = useMemo(() => liveTxns.filter((t) => inWindow(t.date, range)), [liveTxns, range]);
+  const openBudgetCategory = useCallback((title: string) => setPopup({ kind: "budget", title }), []);
   const popupLines = useMemo((): MerchantLine[] => {
     if (!popup) return [];
-    if (popup.kind === "from-savings") {
-      return agg.spendRows.map((r) => ({ category: r.label, merchant: r.label, amount: r.value }));
+    if (popup.kind === "budget") {
+      const month = defaultTxnWindow();
+      return groupCategory(
+        liveTxns.filter((t) => inWindow(t.date, month)),
+        popup.title,
+      );
     }
     if (popup.kind === "invest") return groupInvestNode(windowTxns, netted);
     if (popup.kind === "income") return groupIncomeNode(windowTxns, netted, agg.incomeRows, popup.title);
     return groupSpendNode(windowTxns, netted, agg.spendRows, popup.title);
-  }, [popup, windowTxns, netted, agg]);
+  }, [popup, liveTxns, windowTxns, netted, agg]);
+  const popupTrend = useMemo(
+    () => (popup?.kind === "budget" ? categoryTrend(liveFlows, popup.title, archiveCoversFrom) : []),
+    [popup, liveFlows, archiveCoversFrom],
+  );
   const popupTitle =
-    popup?.kind === "from-savings"
-      ? FROM_SAVINGS
-      : popup?.kind === "invest"
-        ? TO_INVESTMENTS
-        : popup && (popup.kind === "income" || popup.kind === "spend") && popup.title === OTHER_CATEGORIES
-          ? sankeyOtherTitle(popup.kind)
-          : (popup?.title ?? "");
+    popup?.kind === "invest"
+      ? TO_INVESTMENTS
+      : popup && (popup.kind === "income" || popup.kind === "spend") && popup.title === OTHER_CATEGORIES
+        ? sankeyOtherTitle(popup.kind)
+        : (popup?.title ?? "");
   const otherNote =
     popup && (popup.kind === "income" || popup.kind === "spend") && popup.title === OTHER_CATEGORIES
       ? otherCategoryLabels(
@@ -192,13 +203,14 @@ export function CashFlowBlock({
             onIncomeClick={(label) => setPopup({ kind: "income", title: label })}
             onBalanceClick={(kind) => {
               if (kind === "to-investments") setPopup({ kind: "invest" });
-              else if (kind === "from-savings") setPopup({ kind: "from-savings" });
             }}
           />
       </ChartCard>
       <div ref={setChartsEl}>{between}</div>
       <div className="overview-split" style={chartsH != null ? ({ "--overview-row": `${chartsH}px` } as CSSProperties) : undefined}>
-      <div className="overview-budget min-w-0">{budget}</div>
+      <div className="overview-budget min-w-0">
+        <OpenCategoryContext.Provider value={openBudgetCategory}>{budget}</OpenCategoryContext.Provider>
+      </div>
       <div className="overview-months min-w-0">
       <Card className="flex min-h-0 min-w-0 flex-col overflow-hidden">
         <CardHeader>
@@ -293,10 +305,11 @@ export function CashFlowBlock({
         open={popup != null}
         title={popupTitle}
         lines={popupLines}
-        note={popup?.kind === "from-savings" ? "Spending exceeded income in this window." : otherNote}
+        note={otherNote}
         onClose={() => setPopup(null)}
-        onOpenTxn={popup?.kind === "from-savings" ? undefined : setEdit}
-        positiveAmounts={popup?.kind !== "from-savings"}
+        onOpenTxn={setEdit}
+        positiveAmounts
+        trend={popupTrend}
       />
       <TransactionSheet row={edit} onClose={() => setEdit(null)} onSaved={applySave} />
     </section>

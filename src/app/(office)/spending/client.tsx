@@ -138,6 +138,7 @@ export function SpendingClient({
             months={budgetMonths(range, spendMonths)}
             daysLeft={daysLeftInMonth(range)}
             elapsed={monthElapsed(range)}
+            onOpen={setPopupTitle}
           />
         </div>
       )}

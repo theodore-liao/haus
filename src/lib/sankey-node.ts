@@ -2,12 +2,11 @@
 export type SankeyLeafAction =
   | { type: "income"; label: string }
   | { type: "spend"; label: string }
-  | { type: "balance"; kind: "from-savings" | "to-investments" };
+  | { type: "balance"; kind: "to-investments" };
 
 export function sankeyLeafAction(nodeName: string, label: string): SankeyLeafAction | null {
   if (nodeName.startsWith("in:")) return { type: "income", label };
   if (nodeName.startsWith("out:")) return { type: "spend", label };
-  if (nodeName === "save:from") return { type: "balance", kind: "from-savings" };
   if (nodeName === "save:invest") return { type: "balance", kind: "to-investments" };
   return null;
 }
@@ -22,7 +21,7 @@ export function sankeyLinkAction(
   return sankeyLeafAction(targetName, targetLabel) ?? sankeyLeafAction(sourceName, sourceLabel);
 }
 
-/** Income on the left. On the right, spending plus what was saved. From savings is not part of that total. */
+/** Income on the left. On the right, spending plus what was saved. */
 export function sankeySideTotals(
   nodes: { name: string }[],
   links: { source: number; target: number; value: number }[],

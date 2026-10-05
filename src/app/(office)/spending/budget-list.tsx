@@ -6,6 +6,7 @@ import { toast } from "sonner";
 import { NumberField } from "@/components/number-field";
 import { Button } from "@/components/ui/button";
 import { colorFor } from "@/lib/category-colors";
+import { BudgetLabel } from "@/components/open-category";
 import { Money } from "@/components/money";
 import { ChartCard } from "@/components/chart-card";
 import { budgetStatus, type BudgetRow } from "@/lib/budget-window";
@@ -19,6 +20,7 @@ export function BudgetList({
   months,
   daysLeft,
   elapsed,
+  onOpen,
 }: {
   rows: BudgetRow[];
   /** Every category that can be added, with the 3-month average as its starting monthly amount. */
@@ -28,6 +30,8 @@ export function BudgetList({
   daysLeft: number | null;
   /** Share of the open month gone. Null unless the chip is the current month. */
   elapsed: number | null;
+  /** Opens that category's merchant window, as a donut slice does. */
+  onOpen: (category: string) => void;
 }) {
   const [list, setList] = useState(rows);
   const remaining = useMemo(
@@ -122,6 +126,7 @@ export function BudgetList({
             spent={spent[row.category] ?? 0}
             months={months}
             elapsed={elapsed}
+            onOpen={onOpen}
             onCommit={(monthly) => {
               const previous = list;
               setList(list.map((item) => (item.category === row.category ? { ...item, monthly } : item)));
@@ -159,6 +164,7 @@ function BudgetRowView({
   spent,
   months,
   elapsed,
+  onOpen,
   onCommit,
   onRemove,
 }: {
@@ -166,6 +172,7 @@ function BudgetRowView({
   spent: number;
   months: number;
   elapsed: number | null;
+  onOpen: (category: string) => void;
   onCommit: (monthly: number) => void;
   onRemove: () => void;
 }) {
@@ -181,8 +188,7 @@ function BudgetRowView({
   return (
     <li>
       <div className="flex min-w-0 items-center gap-2">
-        <span className="size-2 shrink-0 rounded-sm" style={{ background: colorFor(row.category) }} />
-        <span className="min-w-0 flex-1 truncate text-sm">{row.category}</span>
+        <BudgetLabel category={row.category} onOpen={onOpen} />
         {editing ? (
           <>
             {/* The box applies on Enter or leaving it; Save closes the editor once the typed amount has gone in. */}

@@ -236,7 +236,7 @@ Sizes, spacing, and placement come from shared styles, not from each page. Use t
 - Check the browser console and the dev server log after every change, and fix what they show.
 - Any change to how a page looks or behaves passes `npm run ux` and the `ux-critic` subagent before it is reported done (see `CLAUDE.md` or `.cursor/rules/ux-review.mdc`, and `docs/ux-checklist.md`).
 - A page view never waits on something it doesn't need: no fixed pauses unless a download actually happened, outside prices cached (15 minutes, including symbols with no data), and slow key derivation done once. Tabs open in well under a second on the dev server; if one takes seconds, profile it before adding features.
-- Day to day, Haus runs as a built app (`npm run build`, then `npm start`); `npm run dev` is for changing code.
+- Day to day, Haus runs as a built app (`npm run build`, then `npm start`); `npm run dev` is for changing code. Building creates the local database when it is missing. Setup does not include a migration command.
 - Browser code works over plain HTTP from another computer at home, where browsers switch off HTTPS-only features: no `crypto.randomUUID` (use `clientId()`), clipboard, or `crypto.subtle` without a fallback. Check a change that adds or saves something from another device's address, not only `localhost`.
 - A raw SQL insert fills every required column itself, including `updatedAt`; Prisma's `@updatedAt` gives the database no default.
 - Do not start `npm run dev` or `next dev`. Use Aurin's server on port 3000 or 80. Never touch either port. A hook stops anything left on ports 3001–3009 when the turn ends.

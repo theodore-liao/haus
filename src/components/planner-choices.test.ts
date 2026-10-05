@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
-import { chromium } from "playwright-core";
+import { launchTestBrowser } from "@/lib/test-browser";
 
 const css = readFileSync("src/app/haus.css", "utf8");
 const plan = readFileSync("src/app/(office)/retirement/plan.tsx", "utf8");
@@ -21,8 +21,7 @@ test("the retirement age choice keeps long household names inside a phone page",
   assert.match(choices[1], /max-width:\s*100%/);
   assert.match(segmented[1], /text-overflow:\s*ellipsis/);
 
-  const executablePath = process.env.CHROME_PATH;
-  const browser = await chromium.launch({ headless: true, ...(executablePath ? { executablePath } : {}) });
+  const browser = await launchTestBrowser();
   try {
     const page = await browser.newPage({ viewport: { width: 412, height: 915 } });
     await page.setContent(`<!doctype html>

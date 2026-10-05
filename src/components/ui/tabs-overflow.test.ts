@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
-import { chromium } from "playwright-core";
+import { launchTestBrowser } from "@/lib/test-browser";
 
 const css = readFileSync("src/app/haus.css", "utf8");
 const tabs = readFileSync("src/components/ui/tabs.tsx", "utf8");
@@ -18,9 +18,7 @@ test("tab rows keep a long household name inside the page", async () => {
   assert.match(fit[1], /max-width:\s*100%/);
   assert.match(fit[1], /text-overflow:\s*ellipsis/);
 
-  // CHROME_PATH points at an installed browser where Playwright's own download is missing (cloud runs).
-  const executablePath = process.env.CHROME_PATH;
-  const browser = await chromium.launch({ headless: true, ...(executablePath ? { executablePath } : {}) });
+  const browser = await launchTestBrowser();
   try {
     const page = await browser.newPage({ viewport: { width: 412, height: 915 } });
     await page.setContent(`<!doctype html>

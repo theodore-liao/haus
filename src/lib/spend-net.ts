@@ -10,7 +10,14 @@ export type FlowRow = {
   /** Fund bought, or the word the plan uses for the deposit, when the merchant is the account or the stock. */
   detail?: string;
   amount: number;
+  /** Spending the household left out of budgets. It still counts everywhere else. */
+  noBudget?: boolean;
 };
+
+/** Spending that counts toward budgets: everything but the charges the household left out. */
+export function budgetFlows<T extends { noBudget?: boolean }>(flows: T[]): T[] {
+  return flows.filter((f) => !f.noBudget);
+}
 
 export function merchantKey(name: string) {
   return name.toLowerCase().replace(/\s+/g, " ").trim();

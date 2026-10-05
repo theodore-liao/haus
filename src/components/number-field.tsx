@@ -253,10 +253,11 @@ export function Segmented<T extends string>({
           type="button"
           role="radio"
           aria-checked={o.value === value}
+          title={o.label}
           tabIndex={o.value === value ? 0 : -1}
           onClick={() => onChange(o.value)}
         >
-          {o.label}
+          <span>{o.label}</span>
         </button>
       ))}
     </div>

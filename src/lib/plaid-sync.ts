@@ -17,6 +17,7 @@ import type { AccountBase, InvestmentsHoldingsGetResponse, Transaction } from "p
 import { plaidAccessToken } from "./token-crypto";
 import { clearCardPaymentCache, loadCardPaymentFlags } from "./card-payments";
 import { merchantKey as normalizeMerchantKey, ruleKeyBase, ruleKeyIsMatched } from "./categories";
+import { moveBudgetExcluded } from "./budget-excluded";
 import { archiveEquityEvents, archiveTransactions } from "./saved-txns";
 import {
   deleteTxnUserEdit,
@@ -164,7 +165,7 @@ async function upsertAccounts(
 /**
  * Upsert one sync page. A posted transaction often arrives under a new id while the
  * pending id shows up in `removed` (sometimes on a later page or a later sync).
- * Household category, merchant, and note edits are copied onto the posted row.
+ * Household category, merchant, note, and budget-exclusion edits are copied onto the posted row.
  * SavedTxn rows are not deleted here.
  */
 export async function applyPlaidTransactionChanges(
@@ -190,6 +191,9 @@ export async function applyPlaidTransactionChanges(
         where: { plaidTransactionId: txn.pending_transaction_id },
       });
       fallback = pending ? userFieldsOf(pending) : await readTxnUserEdit(txn.pending_transaction_id);
+      // Only when this posted row is new. A later sync of the same charge must not undo a choice
+      // the household made after it posted.
+      await moveBudgetExcluded(txn.pending_transaction_id, txn.transaction_id);
     }
     const kept = preservedUserFields(existing ? userFieldsOf(existing) : null, fallback);
     const data = {

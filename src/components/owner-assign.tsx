@@ -19,8 +19,6 @@ export function OwnerAssign({ item, onDone }: { item: Item; onDone: () => void }
   );
   const [options, setOptions] = useState<{ value: string; label: string }[]>([
     { value: "a", label: "Primary" },
-    { value: "b", label: "Spouse" },
-    { value: "joint", label: "Joint" },
   ]);
   const [saving, setSaving] = useState(false);
 
@@ -28,7 +26,13 @@ export function OwnerAssign({ item, onDone }: { item: Item; onDone: () => void }
     fetch("/api/household")
       .then((r) => r.json())
       .then((d) => {
-        if (d.options) setOptions(d.options);
+        if (d.options) {
+          setOptions(d.options);
+          // Without a spouse there is no Joint: unassigned accounts go to the primary.
+          if (!d.options.some((o: { value: string }) => o.value === "joint")) {
+            setOwners((cur) => Object.fromEntries(Object.entries(cur).map(([id, v]) => [id, v === "joint" ? "a" : v])));
+          }
+        }
       })
       .catch(() => undefined);
   }, []);

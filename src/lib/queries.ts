@@ -20,6 +20,7 @@ import {
   savedUserCategory,
 } from "./constants";
 import { REFUNDS } from "./flow-labels";
+import { readBudgetExcluded } from "./budget-excluded";
 import { loadCardPaymentFlags } from "./card-payments";
 import { effectiveCategory, isInternalMove, isInvestFunding, isTransferCategory, recurringMerchantKey, txnMerchantKey } from "./categories";
 import { dayKey, priorMonths, ymKey } from "./range";
@@ -869,10 +870,11 @@ async function loadVisibleTxns(filter: OwnerFilter) {
 }
 
 export async function getTransactions(filter: OwnerFilter) {
-  const names = await getNames();
-  const visible = await loadVisibleTxns(filter);
+  const [names, visible, budgetExcluded] = await Promise.all([getNames(), loadVisibleTxns(filter), readBudgetExcluded()]);
   return visible.map((t) => ({
     id: t.id,
+    plaidId: t.plaidTransactionId,
+    budgetExcluded: budgetExcluded.has(t.plaidTransactionId),
     date: t.date.toISOString(),
     name: t.name,
     merchant: ledgerMerchant(t),
@@ -1453,13 +1455,14 @@ function inflowLabel(code: string, source: string) {
 }
 
 export async function getReports(filter: OwnerFilter) {
-  const [visible, ignoredRecurring, marks, hidden, ledgerIds, accountOwners] = await Promise.all([
+  const [visible, ignoredRecurring, marks, hidden, ledgerIds, accountOwners, budgetExcluded] = await Promise.all([
     loadVisibleTxns(filter),
     ignoredRecurringKeys(),
     readRecurringMarks(),
     hiddenMerchantKeys(),
     prisma.txn.findMany({ select: { plaidTransactionId: true } }),
     prisma.account.findMany({ select: { id: true, owner: true } }),
+    readBudgetExcluded(),
   ]);
   const txns = visible;
   // Every ledger id, including accounts outside this filter. The saved copy is
@@ -1518,6 +1521,7 @@ export async function getReports(filter: OwnerFilter) {
         category: categoryLabel(cat),
         merchant: merch,
         amount: t.amount,
+        ...(budgetExcluded.has(t.plaidTransactionId) ? { noBudget: true } : {}),
       });
     }
   }
@@ -1622,6 +1626,7 @@ export async function getReports(filter: OwnerFilter) {
         category: categoryLabel(s.category),
         merchant: s.merchant,
         amount: s.amount,
+        ...(budgetExcluded.has(s.plaidTransactionId) ? { noBudget: true } : {}),
       });
     }
   }

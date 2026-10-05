@@ -42,7 +42,7 @@ export async function ensureHousehold() {
   await sealPlaidTokens();
   return prisma.household.upsert({
     where: { id: "haus" },
-    create: { id: "haus", nameA: "One", nameB: "Two" },
+    create: { id: "haus", nameA: "One", nameB: "" },
     update: {},
   });
 }

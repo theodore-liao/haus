@@ -47,6 +47,12 @@ test("the furthest behind category comes first, and unbudgeted or zero budgets a
   );
 });
 
+test("a charge left out of the budget doesn't count against it", () => {
+  const flows = [spend("2026-09-05", 200), { ...spend("2026-09-06", 900), id: "big", noBudget: true }];
+  const t = budgetTracker(flows, [{ category: "Food and drink", monthly: 500 }], NOW);
+  assert.equal(t.rows[0].cells[2].spent, 200);
+});
+
 test("within a dollar is even", () => {
   assert.equal(netStatus(0.5), "even");
   assert.equal(netStatus(12), "ahead");

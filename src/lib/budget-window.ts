@@ -1,10 +1,12 @@
-import { isCalKey, ymKey, type WindowKey } from "./range";
+import { customBounds, isCalKey, isCustomKey, ymKey, type WindowKey } from "./range";
 
 export type BudgetRow = { category: string; monthly: number };
 
 /** How many monthly budgets the selected date chip covers. */
 export function budgetMonths(key: WindowKey, spendMonths: number) {
   if (isCalKey(key) || key === "1m") return 1;
+  // A custom window budgets its share of the year: 45 days is about 1.5 monthly budgets.
+  if (isCustomKey(key)) return customBounds(key).days / (365.25 / 12);
   if (key === "3m") return 3;
   if (key === "6m") return 6;
   if (key === "1y") return 12;

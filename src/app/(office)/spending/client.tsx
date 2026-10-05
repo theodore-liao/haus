@@ -10,7 +10,7 @@ import { budgetMonths, daysLeftInMonth, monthElapsed, type BudgetRow } from "@/l
 import { categoryChanges, categoryTrend } from "@/lib/spend-compare";
 import { defaultTxnWindow, inWindow, type WindowKey } from "@/lib/range";
 import { CategoryMerchantDialog } from "@/components/category-merchants";
-import { applyMerchantRefunds, aggregateFlows, type FlowRow } from "@/lib/spend-net";
+import { applyMerchantRefunds, aggregateFlows, budgetFlows, type FlowRow } from "@/lib/spend-net";
 import { groupCategory } from "@/lib/category-breakdown";
 import { flowAfterRevision, reviseMatching } from "@/lib/txn-revise";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -72,6 +72,11 @@ export function SpendingClient({
   const sliced = useMemo(() => liveFlows.filter((f) => inWindow(f.date, range)), [liveFlows, range]);
   const netted = useMemo(() => applyMerchantRefunds(sliced), [sliced]);
   const agg = useMemo(() => aggregateFlows(netted), [netted]);
+  // Budgets leave out the charges the household excluded; the donut still shows every charge.
+  const budgetSpent = useMemo(
+    () => Object.fromEntries(aggregateFlows(applyMerchantRefunds(budgetFlows(sliced))).spendRows.map((r) => [r.label, r.value])),
+    [sliced],
+  );
   const spendTotal = agg.spendRows.reduce((s, r) => s + r.value, 0);
   // Fixed costs start unchecked so the ring shows what is actually steerable month to month.
   const [off, setOff] = useState<Set<string>>(() => new Set(FIXED_COSTS));
@@ -97,7 +102,7 @@ export function SpendingClient({
             <TabsTrigger value="recurring">Recurring</TabsTrigger>
           </TabsList>
         </Tabs>
-        {tab === "breakdown" ? <ReportRange value={range} onChange={setRange} /> : null}
+        {tab === "breakdown" ? <ReportRange value={range} onChange={setRange} custom /> : null}
       </div>
 
       {tab === "recurring" ? <RecurringPanel recurring={recurring} rows={liveTxns} removedCount={removedCount} /> : null}
@@ -134,7 +139,7 @@ export function SpendingClient({
           <BudgetList
             rows={budgets}
             choices={budgetChoices}
-            spent={Object.fromEntries(agg.spendRows.map((r) => [r.label, r.value]))}
+            spent={budgetSpent}
             months={budgetMonths(range, spendMonths)}
             daysLeft={daysLeftInMonth(range)}
             elapsed={monthElapsed(range)}

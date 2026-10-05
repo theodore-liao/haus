@@ -350,9 +350,9 @@ export function RetirementPlan({
       <Card>
         <CardHeader row>
           <CardTitle>Retirement planner</CardTitle>
-          <div className="flex flex-wrap items-center gap-x-6 gap-y-2">
+          <div className="planner-choices">
             {withDob.length > 1 ? (
-              <div className="flex items-center gap-2">
+              <div className="planner-ages">
                 <span className="kicker">Ages are</span>
                 <Segmented
                   label="Whose age"

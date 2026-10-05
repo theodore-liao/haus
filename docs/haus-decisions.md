@@ -192,6 +192,7 @@ Sizes, spacing, and placement come from shared styles, not from each page. Use t
 
 - Connections opens with one status line: what needs relinking, what hasn't synced in two days, or that all connections are working. Relink is quiet on healthy connections and the main button on broken ones.
 - Each institution lists its accounts in a table: name without the institution repeated, type and last four, balance (debts negative and grey), who it belongs to, and tax treatment (Taxable, Traditional IRA, 401(k), 403(b), Roth IRA, HSA, 529 college, Custodial, Trump Account) for investment accounts. Phones put the balance on the account's second line and stack both choices under it with small labels. A change the server refuses says so.
+- When Plaid's window closes on an error, Haus shows Plaid's own message with the institution and Plaid's code in brackets, for 20 seconds, and writes it to the server log. Closing the window yourself shows nothing.
 - Without Plaid keys the page says bank linking isn't set up, keeps the setup detail behind a "?", and disables Add institution. With no connections it shows the same centered empty state as other pages.
 
 ## Insights

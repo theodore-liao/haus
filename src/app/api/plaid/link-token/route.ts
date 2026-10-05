@@ -46,6 +46,7 @@ export async function POST(req: Request) {
     return NextResponse.json({ link_token: created.data.link_token });
   } catch (e) {
     const err = plaidErr(e);
+    console.warn(`[plaid link-token] code=${JSON.stringify(err.code)} message=${JSON.stringify(err.message)}`);
     const message =
       err.code === "INVALID_API_KEYS"
         ? `Plaid rejected these keys for the ${plaidEnv()} environment. Sandbox and production secrets are different — set PLAID_ENV to match the keys you pasted, then restart.`

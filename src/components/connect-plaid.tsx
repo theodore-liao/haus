@@ -6,6 +6,7 @@ import { toast } from "sonner";
 import { Button } from "./ui/button";
 import { OwnerAssign } from "./owner-assign";
 import { launchPlaidLink } from "./plaid-link-host";
+import { linkExitMessage } from "@/lib/plaid-link-error";
 
 type LinkedAccount = {
   id: string;
@@ -92,7 +93,26 @@ export function ConnectPlaid({
         onSuccess: (publicToken) => {
           void onSuccess(publicToken);
         },
-        onExit: () => setBusy(false),
+        onExit: (error, metadata) => {
+          setBusy(false);
+          const message = linkExitMessage(error, metadata?.institution?.name);
+          if (!message) return;
+          // Long enough to read or copy; Plaid's code in brackets is what to pass on when asking for help.
+          toast.error(message, { duration: 20000 });
+          void fetch("/api/plaid/link-error", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              error,
+              institution: metadata?.institution?.name ?? null,
+              institutionId: metadata?.institution?.institution_id ?? null,
+              status: metadata?.status ?? null,
+              linkSessionId: metadata?.link_session_id ?? null,
+              requestId: metadata?.request_id ?? null,
+              relink,
+            }),
+          }).catch(() => {});
+        },
       });
     } catch {
       toast.error("Could not start bank linking. Try again.");

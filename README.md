@@ -102,6 +102,7 @@ If you change `.env` later, or get new code, stop Haus, then run `npm run build`
 - **The passphrase is refused:** it has to match `.env` exactly, with the same capital letters. After 5 wrong tries Haus waits 15 minutes before it lets you try again.
 - **You forgot the passphrase:** open `.env`, type a new one, save, and start Haus again.
 - **The browser cannot connect, or Haus says port 80 is in use:** another program is using that address. Close it, or run `npx next start -p 8080` instead and open [http://localhost:8080](http://localhost:8080).
+- **A bank won't connect:** Haus shows Plaid's message with a code in brackets, like `(INSTITUTION_NOT_RESPONDING)`. The same line is in the Haus window, starting with `[plaid link]`. Pass that code on when asking for help. Try from a computer rather than a phone: some banks send you to their own sign-in page, and that works best on a computer.
 - **Anything else:** copy the last red lines from the window into a message to whoever set Haus up for you.
 
 ### Open it from another computer at home

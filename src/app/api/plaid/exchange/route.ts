@@ -101,6 +101,7 @@ export async function POST(req: Request) {
     });
   } catch (e) {
     const err = plaidErr(e);
+    console.warn(`[plaid exchange] code=${JSON.stringify(err.code)} message=${JSON.stringify(err.message)}`);
     return NextResponse.json({ error: err.message, code: err.code }, { status: 400 });
   }
 }

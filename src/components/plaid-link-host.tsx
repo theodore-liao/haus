@@ -2,10 +2,25 @@
 
 import { useEffect, useRef, useState } from "react";
 
+/** What Plaid passes to onExit when Link closes on an error. Null fields are left out by Plaid on some errors. */
+export type PlaidExitError = {
+  error_type?: string | null;
+  error_code?: string | null;
+  error_message?: string | null;
+  display_message?: string | null;
+};
+export type PlaidExitMetadata = {
+  institution?: { name?: string | null; institution_id?: string | null } | null;
+  status?: string | null;
+  link_session_id?: string | null;
+  request_id?: string | null;
+};
+
 type Session = {
   token: string;
   onSuccess: (publicToken: string) => void;
-  onExit: () => void;
+  /** `error` is null when the person closed Link themselves. */
+  onExit: (error: PlaidExitError | null, metadata: PlaidExitMetadata | null) => void;
 };
 
 type PlaidHandler = { open: () => void; exit: (opts?: { force?: boolean }) => void; destroy: () => void };
@@ -13,7 +28,7 @@ type PlaidGlobal = {
   create: (config: {
     token: string;
     onSuccess: (publicToken: string) => void;
-    onExit: () => void;
+    onExit: (error: PlaidExitError | null, metadata: PlaidExitMetadata | null) => void;
   }) => PlaidHandler;
 };
 
@@ -77,15 +92,15 @@ export function PlaidLinkHost() {
             session.onSuccess(publicToken);
             set(null);
           },
-          onExit: () => {
-            session.onExit();
+          onExit: (error, metadata) => {
+            session.onExit(error ?? null, metadata ?? null);
             set(null);
           },
         });
         handler.current.open();
       })
       .catch(() => {
-        session.onExit();
+        session.onExit({ error_code: "LINK_SCRIPT_LOAD_FAILED", display_message: "Couldn’t load Plaid. Check the internet connection and try again." }, null);
         set(null);
       });
     return () => {

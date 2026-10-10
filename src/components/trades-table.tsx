@@ -92,7 +92,7 @@ export function TradesCard({ trades }: { trades: Trade[] }) {
   );
 }
 
-export function TradesTable({
+function TradesTable({
   rows,
   q,
   typeSel,

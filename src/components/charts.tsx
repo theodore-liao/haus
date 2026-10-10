@@ -4,8 +4,6 @@ import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type CSSP
 import {
   Area,
   AreaChart,
-  Bar,
-  BarChart,
   CartesianGrid,
   Cell,
   Pie,
@@ -570,119 +568,6 @@ function PercentLabel({
     >
       {`${Math.round(percent * 100)}%`}
     </text>
-  );
-}
-
-
-
-export function CategoryBars({
-  data,
-  rangeable,
-  onBarClick,
-}: {
-  data: { label: string; value: number; date?: string }[];
-  rangeable?: boolean;
-  onBarClick?: (label: string) => void;
-}) {
-  const [range, setRange] = useChartRange();
-  const sliced = useMemo(() => {
-    if (!rangeable) return data;
-    const startEligible = data.some((d) => d.date);
-    if (!startEligible) return data;
-    const sums: Record<string, number> = {};
-    for (const d of data) {
-      if (d.date && !inRange(d.date, range)) continue;
-      sums[d.label] = (sums[d.label] ?? 0) + d.value;
-    }
-    return Object.entries(sums)
-      .map(([label, value]) => ({ label, value }))
-      .sort((a, b) => b.value - a.value);
-  }, [data, range, rangeable]);
-  if (!sliced.length) {
-    return <p className="py-8 text-sm text-muted-foreground">No categorized spending in this period.</p>;
-  }
-  const height = Math.max(280, sliced.length * 28 + 24);
-  return (
-    <div>
-      {rangeable ? (
-        <div className="mb-2 flex justify-end">
-          <ChartRange value={range} onChange={setRange} />
-        </div>
-      ) : null}
-    <div className="w-full" style={{ height }}>
-      <ResponsiveContainer>
-        <BarChart
-          data={sliced}
-          layout="vertical"
-          margin={{ left: 4, right: 16, top: 4, bottom: 4 }}
-          style={onBarClick ? { cursor: "pointer" } : undefined}
-          onClick={(state) => {
-            const label = (state as { activeLabel?: string } | null)?.activeLabel;
-            if (label && onBarClick) onBarClick(label);
-          }}
-        >
-          <CartesianGrid stroke={GRID} horizontal={false} />
-          <XAxis type="number" tick={MONEY_AXIS} axisLine={false} tickLine={false} tickFormatter={(v) => `$${v}`} />
-          <YAxis
-            type="category"
-            dataKey="label"
-            width={176}
-            interval={0}
-            tick={(props) => <CategoryTick {...props} onLabelClick={onBarClick} />}
-            axisLine={false}
-            tickLine={false}
-          />
-          <Tooltip content={<Tip />} cursor={false} />
-          <Bar
-            dataKey="value"
-            name="Amount"
-            fill={ICE}
-            radius={[0, 2, 2, 0]}
-            barSize={14}
-            cursor={onBarClick ? "pointer" : undefined}
-            activeBar={false}
-            onClick={(d) => {
-              const label = (d as { payload?: { label?: string } })?.payload?.label ?? (d as { label?: string }).label;
-              if (label && onBarClick) onBarClick(label);
-            }}
-          />
-        </BarChart>
-      </ResponsiveContainer>
-    </div>
-    </div>
-  );
-}
-
-function CategoryTick({
-  x,
-  y,
-  payload,
-  onLabelClick,
-}: {
-  x?: number | string;
-  y?: number | string;
-  payload?: { value: string };
-  onLabelClick?: (label: string) => void;
-}) {
-  const label = payload?.value ?? "";
-  const shown = label.length > 22 ? `${label.slice(0, 20)}…` : label;
-  const clickable = Boolean(onLabelClick);
-  return (
-    <g
-      className={clickable ? "cursor-pointer" : undefined}
-      onClick={() => {
-        if (label && onLabelClick) onLabelClick(label);
-      }}
-    >
-      <foreignObject x={Number(x ?? 0) - 176} y={Number(y ?? 0) - 9} width={172} height={18}>
-        <div className="flex h-full items-center justify-end gap-1.5 overflow-hidden pr-1 text-[11px] text-muted-foreground">
-          {hasCategoryIcon(label) ? <CategoryIcon category={label} className="h-3 w-3" /> : null}
-          <span className="truncate" title={label}>
-            {shown}
-          </span>
-        </div>
-      </foreignObject>
-    </g>
   );
 }
 

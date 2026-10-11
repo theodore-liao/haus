@@ -77,10 +77,11 @@ Save the file and close the window.
 
 ```bash
 npm run build
+npx prisma db push
 npm start
 ```
 
-Building takes a few minutes. When `npm start` is running, leave the window open. Haus stops if you close it.
+Building takes a few minutes. The middle line adds any tables or columns this copy of Haus needs, and leaves what is already saved in place. When `npm start` is running, leave the window open. Haus stops if you close it.
 
 On Windows, a box may ask whether to let the app through the firewall. Choose **Allow access**.
 
@@ -97,7 +98,7 @@ Sign in, open **Connections**, and choose **Add institution**. One session cover
 
 To stop Haus, click its window and press Control and C, or close the window.
 
-If you change `.env` later, or get new code, stop Haus, then run `npm run build` and `npm start` again.
+If you change `.env` later, or get new code, stop Haus, then run `npm run build`, `npx prisma db push`, and `npm start` again.
 
 ### If something goes wrong
 
@@ -135,7 +136,7 @@ Only do the first line on your own home network, not on public Wi-Fi. Do not for
 
 ### While changing Haus's code
 
-`npm run dev` runs a development server instead. It reloads as you edit, but it is slower: each page compiles the first time you open it, and every page carries extra checks. Use it only while working on the code, then go back to `npm run build` and `npm start`.
+`npm run dev` runs a development server instead. It reloads as you edit, but it is slower: each page compiles the first time you open it, and every page carries extra checks. Use it only while working on the code, then go back to `npm run build`, `npx prisma db push`, and `npm start`.
 
 ## Environment
 

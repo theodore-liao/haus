@@ -107,7 +107,15 @@ If you change `.env` later, or get new code, stop Haus, then run `npm run build`
 - **You forgot the passphrase:** open `.env`, type a new one, save, and start Haus again.
 - **The browser cannot connect, or Haus says port 80 is in use:** another program is using that address. Close it, or run `npx next start -p 8080` instead and open [http://localhost:8080](http://localhost:8080).
 - **A bank won't connect:** Haus shows Plaid's message with a code in brackets, like `(INSTITUTION_NOT_RESPONDING)`. The same line is in the Haus window, starting with `[plaid link]`. Pass that code on when asking for help. Try from a computer rather than a phone: some banks send you to their own sign-in page, and that works best on a computer.
-- **The window says a table or column does not exist:** the database is behind this copy of Haus. Stop Haus, run `npm run build`, then `npm start` again.
+- **The window says a table or column does not exist:** the database is behind this copy of Haus. Names you may see are `ManualHolding`, `CryptoWallet`, and `pairCardPayments`. Stop Haus, then run:
+
+  ```bash
+  npx prisma db push
+  npm start
+  ```
+
+  That adds the missing tables and columns. It leaves saved balances, categories, notes, and history in place. `npm run build` does the same update, so getting new code and building again also fixes it.
+- **The window warns that Next.js ignored `package-lock.json`:** a lockfile sits outside the Haus folder, often in your user folder. Haus still runs. That warning is not the error above.
 - **Anything else:** copy the last red lines from the window into a message to whoever set Haus up for you.
 
 ### Open it from another computer at home
@@ -131,7 +139,7 @@ Only do the first line on your own home network, not on public Wi-Fi. Do not for
 
 ## Environment
 
-- `DATABASE_URL` — local database file. The example `file:./dev.db` is relative to the `prisma/` folder. `npm run build` creates it.
+- `DATABASE_URL` — local database file. The example `file:./dev.db` is relative to the `prisma/` folder. `npm run build` creates it when it is missing and adds tables and columns this copy of Haus needs.
 - `HAUS_SITE_PASSWORD` — passphrase for the household lock. Required to sign in.
 - `HAUS_SESSION_SECRET` — signs the login cookie. Use at least 32 characters. A local run still starts when this is empty, using a built-in dev secret.
 - `HAUS_TOKEN_KEY` — encrypts saved Plaid connection tokens. Generate it once and keep it. A production build requires it.

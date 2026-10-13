@@ -50,7 +50,7 @@ export function SpendingClient({
   // Arriving from a Budget link (Overview, Goals): show the current month so the figures match theirs.
   useEffect(() => {
     if (window.location.hash === "#budget") setRange(defaultTxnWindow());
-  }, []);
+  }, [setRange]);
   const [popupTitle, setPopupTitle] = useState<string | null>(null);
   const [edit, setEdit] = useState<TxnRow | null>(null);
   const [liveTxns, setLiveTxns] = useState(txns);

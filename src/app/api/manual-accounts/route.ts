@@ -8,11 +8,12 @@ export const dynamic = "force-dynamic";
 
 const schema = z.object({
   id: z.string().optional(),
-  hausType: z.enum(["529", "custodial", "trump", "hsa"]),
-  name: z.string().min(1),
+  // Child accounts, and retirement accounts the household can't link.
+  hausType: z.enum(["529", "custodial", "trump", "hsa", "401k", "403b", "ira", "roth"]),
+  name: z.string().trim().min(1).max(80),
   owner: z.string(),
   beneficiary: z.string().optional(),
-  balance: z.number(),
+  balance: z.number().finite(),
   asOfDate: z.string(),
   notes: z.string().optional(),
 });

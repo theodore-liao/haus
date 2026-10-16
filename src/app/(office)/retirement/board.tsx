@@ -12,7 +12,7 @@ import { BrandLabel } from "@/components/brand-mark";
 import { hausTypeLabel } from "@/lib/account-types";
 import { IRS_LIMITS_YEAR } from "@/lib/constants";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { RemoveHsa } from "./hsa-form";
+import { RemoveRetirementAccount, RetirementAccountForm } from "./account-form";
 import type { SliceItem } from "@/components/category-merchants";
 import { Money } from "@/components/money";
 
@@ -32,6 +32,9 @@ export type RetirementCard = {
   contributions?: ContributionRow[];
   manual?: boolean;
   beneficiary?: string | null;
+  /** When a balance entered by hand was last set. */
+  asOfDate?: string | null;
+  notes?: string | null;
 };
 
 /** Deposits by month for the last twelve, ending with the open month. */
@@ -48,8 +51,29 @@ function monthlyTrend(rows: ContributionRow[], now = new Date()): TrendPoint[] {
   return out;
 }
 
+/** A hand-entered row as the edit form takes it. */
+function manualOf(r: RetirementCard) {
+  return {
+    id: r.id,
+    hausType: r.kind,
+    name: r.name,
+    owner: r.owner,
+    balance: r.balance,
+    asOfDate: r.asOfDate ?? new Date().toISOString().slice(0, 10),
+    notes: r.notes ?? null,
+  };
+}
+
 /** One account's deposits: this year and all time, a month-by-month chart, then every deposit. */
-function ContributionHistory({ row, onClose }: { row: RetirementCard | null; onClose: () => void }) {
+function ContributionHistory({
+  row,
+  onClose,
+  names,
+}: {
+  row: RetirementCard | null;
+  onClose: () => void;
+  names: { nameA: string; nameB: string; children: { id: string; name: string }[] };
+}) {
   const trend = useMemo(() => monthlyTrend(row?.contributions ?? []), [row]);
   const deposits = row?.contributions ?? [];
   const year = String(new Date().getFullYear());
@@ -63,9 +87,19 @@ function ContributionHistory({ row, onClose }: { row: RetirementCard | null; onC
           <DialogDescription>Contribution history{row ? ` · ${row.ownerLabel}` : ""}</DialogDescription>
         </DialogHeader>
         {deposits.length === 0 ? (
-          <p className="text-sm text-muted-foreground">
-            {row?.manual ? "Contributions are not tracked for accounts you enter by hand." : "No contributions found in this account yet."}
-          </p>
+          <>
+            <p className="text-sm text-muted-foreground">
+              {row?.manual
+                ? `Entered by hand${row.asOfDate ? `, as of ${formatDate(row.asOfDate)}` : ""}. Contributions are not tracked for accounts you enter by hand.`
+                : "No contributions found in this account yet."}
+            </p>
+            {row?.manual ? (
+              <div className="flex justify-end gap-2">
+                <RetirementAccountForm names={names} existing={manualOf(row)} onDone={onClose} />
+                <RemoveRetirementAccount id={row.id} name={row.name} onDone={onClose} />
+              </div>
+            ) : null}
+          </>
         ) : (
           <>
             <p className="text-sm text-muted-foreground">
@@ -94,7 +128,13 @@ function ContributionHistory({ row, onClose }: { row: RetirementCard | null; onC
 }
 
 /** The retirement accounts table. Balances only; planning lives in the Retirement planner. */
-export function RetirementAccounts({ rows }: { rows: RetirementCard[] }) {
+export function RetirementAccounts({
+  rows,
+  names,
+}: {
+  rows: RetirementCard[];
+  names: { nameA: string; nameB: string; children: { id: string; name: string }[] };
+}) {
   const hasManual = rows.some((r) => r.manual);
   const [open, setOpen] = useState<RetirementCard | null>(null);
   return (
@@ -112,7 +152,7 @@ export function RetirementAccounts({ rows }: { rows: RetirementCard[] }) {
                   <TableHead className="hidden lg:table-cell">Holdings</TableHead>
                   <TableHead className="num w-32">Value</TableHead>
                   {hasManual ? (
-                    <TableHead className="w-24">
+                    <TableHead className="hidden w-36 sm:table-cell">
                       <span className="sr-only">Actions</span>
                     </TableHead>
                   ) : null}
@@ -127,9 +167,12 @@ export function RetirementAccounts({ rows }: { rows: RetirementCard[] }) {
                         aria-label={`Contribution history for ${r.name}`}
                         className="flex max-w-full min-w-0 cursor-pointer items-center gap-2 rounded-md text-left focus-visible:outline-2 focus-visible:outline-ring"
                       >
-                        <BrandLabel className="min-w-0" kind="institution" name={r.institution}>
-                          <span className="truncate">{r.name}</span>
-                        </BrandLabel>
+                        <span className="cell-stack min-w-0">
+                          <BrandLabel className="min-w-0" kind="institution" name={r.institution}>
+                            <span className="truncate">{r.name}</span>
+                          </BrandLabel>
+                          {r.manual && r.asOfDate ? <span className="truncate">As of {formatDate(r.asOfDate)}, entered by hand</span> : null}
+                        </span>
                       </button>
                     </TableCell>
                     <TableCell className="hidden sm:table-cell">{r.ownerLabel}</TableCell>
@@ -146,8 +189,14 @@ export function RetirementAccounts({ rows }: { rows: RetirementCard[] }) {
                       <Money value={r.balance} />
                     </TableCell>
                     {hasManual ? (
-                      <TableCell className="w-24 py-1 text-right" onClick={(e) => e.stopPropagation()}>
-                        {r.manual ? <RemoveHsa id={r.id} /> : null}
+                      // Phones open the row for Edit and Remove; the account name keeps the room.
+                      <TableCell className="hidden w-36 py-1 pr-2 text-right sm:table-cell" onClick={(e) => e.stopPropagation()}>
+                        {r.manual ? (
+                          <span className="inline-flex items-center gap-0.5">
+                            <RetirementAccountForm names={names} existing={manualOf(r)} />
+                            <RemoveRetirementAccount id={r.id} name={r.name} />
+                          </span>
+                        ) : null}
                       </TableCell>
                     ) : null}
                   </TableRow>
@@ -159,7 +208,7 @@ export function RetirementAccounts({ rows }: { rows: RetirementCard[] }) {
               (60–63); HSA +$1,000 (55+). Family HSA limit shown for HSA accounts.
             </p>
           </CardContent>
-          <ContributionHistory row={open} onClose={() => setOpen(null)} />
+          <ContributionHistory row={open} onClose={() => setOpen(null)} names={names} />
         </Card>
   );
 }

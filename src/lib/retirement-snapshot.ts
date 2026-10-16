@@ -76,6 +76,92 @@ export function contributionsPriorQuarter(rows: { contributions: { date: string;
   );
 }
 
+export type PartnerRetire = {
+  key: "A" | "B";
+  ageNow: number;
+  /** Their own retire age. */
+  retireAge: number;
+  retireYear: number;
+  /** Slider bounds on their own age. */
+  min: number;
+  max: number;
+};
+
+export type RetireTiming = {
+  /** Whose age the planner's timeline counts in. */
+  holderKey: "A" | "B";
+  /** That person's age today; null without a birthdate. */
+  ageNow: number | null;
+  planAge: number;
+  currentYear: number;
+  /** Bounds of the single retire slider, on the timeline's age. */
+  minRetire: number;
+  maxRetire: number;
+  /** When the household is fully retired, on the timeline's age. */
+  retireAge: number;
+  retireYear: number;
+  /** Each partner's own retire age, when both birthdates are known. */
+  partners: [PartnerRetire, PartnerRetire] | null;
+  /** The partner who stops working first, when the two retire in different years. Age is on the timeline. */
+  early: { key: "A" | "B"; age: number; year: number; pay: number; payOwn: boolean } | null;
+};
+
+/**
+ * When each partner retires, worked out once for the planner and for every page that shows its verdict.
+ * Without a partner's own retire age, both retire the year the household's single retire age gives, as before.
+ */
+export function retireTiming(input: {
+  prefs: ProjectionPrefs;
+  holders: { key: "A" | "B"; birthdate: string | null }[];
+  today: string;
+  /** Household take-home pay a year: half of it stands in for a partner's pay until one is entered. */
+  payAnnual?: number | null;
+}): RetireTiming {
+  const { prefs } = input;
+  const D = PLAN_DEFAULTS;
+  const withDob = input.holders.filter((h) => h.birthdate);
+  const holderKey = prefs.holderKey && withDob.some((h) => h.key === prefs.holderKey) ? prefs.holderKey : (withDob[0]?.key ?? "A");
+  const holder = input.holders.find((h) => h.key === holderKey) ?? input.holders[0];
+  const ageNow = holder?.birthdate ? holderAge(holder.birthdate, input.today) : null;
+  const currentYear = Number(input.today.slice(0, 4));
+  const minRetire = ageNow == null ? D.retireMin : Math.max(D.retireMin, Math.floor(ageNow) + 1);
+  const maxRetire = Math.max(D.retireMax, minRetire);
+  const planAge = ageNow ?? D.assumedAge;
+  const single =
+    ageNow == null
+      ? Math.min(D.retireMax, D.assumedAge + (prefs.yearsFallback ?? D.yearsFallback))
+      : Math.min(maxRetire, Math.max(minRetire, prefs.retireAge ?? D.retireAge));
+  // Whole years, as the plan counts them: someone 40 now is 60 twenty calendar years on.
+  const singleYear = currentYear + Math.max(0, single - Math.floor(planAge));
+  const base = { holderKey, ageNow, planAge, currentYear, minRetire, maxRetire };
+
+  const people = input.holders.filter((h): h is { key: "A" | "B"; birthdate: string } => Boolean(h.birthdate));
+  if (ageNow == null || people.length < 2) {
+    return { ...base, retireAge: single, retireYear: singleYear, partners: null, early: null };
+  }
+  const partners = people.slice(0, 2).map((person): PartnerRetire => {
+    const now = holderAge(person.birthdate, input.today);
+    const min = Math.max(D.retireMin, Math.floor(now) + 1);
+    const own = person.key === "A" ? prefs.retireAgeA : prefs.retireAgeB;
+    // Unset: the age they'll be the year the household retires. Kept even past the slider's end, so nothing moves.
+    const sameYear = Math.floor(now) + (singleYear - currentYear);
+    // A saved age past 65 (an older partner pinned where the same year put them) keeps its own end of the range.
+    const max = Math.max(D.retireMax, min, own ?? sameYear);
+    const retireAge = own == null ? Math.max(min, sameYear) : Math.min(max, Math.max(min, own));
+    return { key: person.key, ageNow: now, retireAge, retireYear: currentYear + (retireAge - Math.floor(now)), min, max };
+  }) as [PartnerRetire, PartnerRetire];
+  const [first, last] = [...partners].sort((a, b) => a.retireYear - b.retireYear);
+  const toTimeline = (year: number) => Math.floor(ageNow) + (year - currentYear);
+  const retireYear = last.retireYear;
+  let early: RetireTiming["early"] = null;
+  if (first.retireYear < last.retireYear) {
+    const own = first.key === "A" ? prefs.stopPayA : prefs.stopPayB;
+    const pay = own ?? (input.payAnnual != null && input.payAnnual > 0 ? Math.round(input.payAnnual / 2) : 0);
+    early = { key: first.key, age: toTimeline(first.retireYear), year: first.retireYear, pay, payOwn: own != null };
+  }
+  return { ...base, retireAge: toTimeline(retireYear), retireYear, partners, early };
+}
+
 export type RetirementSnapshot = {
   retireAge: number;
   /** False when no birthdate is set and the plan counts years from an assumed age. */
@@ -84,8 +170,10 @@ export type RetirementSnapshot = {
   number: number | null;
   needed: number | null;
   saving: number | null;
-  /** Earliest age the current saving reaches the number. */
+  /** Earliest age the current saving reaches the number. With partners retiring apart, both move by the same years. */
   paceAge: number | null;
+  /** Each partner's own retire age, when the planner has both birthdates. Null otherwise. */
+  partners?: { key: "A" | "B"; retireAge: number; retireYear: number }[] | null;
 };
 
 export function retirementSnapshot(input: {
@@ -97,21 +185,13 @@ export function retirementSnapshot(input: {
   saveNow: number | null;
   childBalances: number;
   householdChildren: { id: string; name: string }[];
+  /** Household take-home pay a year, for a partner who stops first without their own figure. */
+  payAnnual?: number | null;
 }): RetirementSnapshot {
   const { prefs } = input;
   const D = PLAN_DEFAULTS;
-  const withDob = input.holders.filter((h) => h.birthdate);
-  const holderKey = prefs.holderKey && withDob.some((h) => h.key === prefs.holderKey) ? prefs.holderKey : (withDob[0]?.key ?? "A");
-  const holder = input.holders.find((h) => h.key === holderKey) ?? input.holders[0];
-  const ageNow = holder?.birthdate ? holderAge(holder.birthdate, input.today) : null;
-  const currentYear = Number(input.today.slice(0, 4));
-  const minRetire = ageNow == null ? D.retireMin : Math.max(D.retireMin, Math.floor(ageNow) + 1);
-  const maxRetire = Math.max(D.retireMax, minRetire);
-  const retireAge =
-    ageNow == null
-      ? D.assumedAge + (prefs.yearsFallback ?? D.yearsFallback)
-      : Math.min(maxRetire, Math.max(minRetire, prefs.retireAge ?? D.retireAge));
-  const planAge = ageNow ?? D.assumedAge;
+  const timing = retireTiming({ prefs, holders: input.holders, today: input.today, payAnnual: input.payAnnual });
+  const { ageNow, currentYear, retireAge, planAge } = timing;
   const houseAtRetire = prefs.houseAtRetire !== false;
   const rate = prefs.rate ?? D.rate;
   const liveTo = prefs.liveTo ?? D.liveTo;
@@ -139,6 +219,7 @@ export function retirementSnapshot(input: {
     otherIncomeAge: prefs.otherIncomeAge ?? D.otherIncomeAge,
     tax: (prefs.taxPct ?? D.taxPct) / 100,
     healthcareAnnual: prefs.healthcareAnnual ?? D.healthcareAnnual,
+    earlyStop: timing.early ? { age: timing.early.age, pay: timing.early.pay } : null,
   };
   const result = retirementNumber(plan);
   const valid = result.error == null && !result.impossible && result.number != null && result.number > 0;
@@ -149,7 +230,8 @@ export function retirementSnapshot(input: {
   return {
     retireAge,
     ageKnown: ageNow != null,
-    retireYear: currentYear + Math.max(0, Math.round(retireAge - planAge)),
+    retireYear: timing.retireYear,
+    partners: timing.partners ? timing.partners.map((p) => ({ key: p.key, retireAge: p.retireAge, retireYear: p.retireYear })) : null,
     number,
     needed,
     saving,

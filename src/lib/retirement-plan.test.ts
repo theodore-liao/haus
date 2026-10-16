@@ -283,3 +283,44 @@ test("today's-money saving equals a dollar saving that rises with prices, grown 
   for (let year = 1; year <= 20; year++) nominal = nominal * 1.07 + saving * 1.03 ** year;
   close(nominal / 1.03 ** 20, real, 1);
 });
+
+test("a partner who stops first takes their pay out of each year's saving until the household retires", () => {
+  const base = plan({ retireAge: 60 });
+  const apart = { ...base, earlyStop: { age: 57, pay: 50_000 } };
+  const rb = realReturn(base.growth, base.inflation);
+  const together = balancePath(base, 80_000);
+  const split = balancePath(apart, 80_000);
+  // Same until the partner stops at 57.
+  close(split.find((p) => p.age === 57)!.balance, together.find((p) => p.age === 57)!.balance);
+  // Three years (57, 58, 59) save 50,000 less, each grown to 60.
+  const lost = 50_000 * ((1 + rb) ** 2 + (1 + rb) + 1);
+  close(split.find((p) => p.age === 60)!.balance, together.find((p) => p.age === 60)!.balance - lost);
+  // Pay above saving draws on the balance rather than stopping at zero.
+  const short = balancePath({ ...base, earlyStop: { age: 59, pay: 200_000 } }, 80_000);
+  assert.ok(short.find((p) => p.age === 60)!.flow < 0);
+});
+
+test("retiring apart needs more saving, and no pay lost leaves the plan unchanged", () => {
+  const base = plan({ retireAge: 60 });
+  const number = retirementNumber(base).number!;
+  const together = requiredSaving(base, number);
+  const apart = requiredSaving({ ...base, earlyStop: { age: 55, pay: 40_000 } }, number);
+  assert.ok(apart > together);
+  close(requiredSaving({ ...base, earlyStop: { age: 55, pay: 0 } }, number), together);
+  // The number is what's needed once both have retired, so the gap years do not change it.
+  close(retirementNumber({ ...base, earlyStop: { age: 55, pay: 40_000 } }).number, number);
+});
+
+test("the earliest retire age keeps partners the same years apart", () => {
+  const base = plan({ retireAge: 60, invested: 2_000_000, annualSpend: 60_000 });
+  const apart = { ...base, earlyStop: { age: 57, pay: 30_000 } };
+  const pace = earliestRetireAge(apart, 60_000, 94)!;
+  assert.ok(pace != null && pace < 60);
+  // At that age, with the partner 3 years earlier, the plan fits; a year sooner it does not.
+  const fits = (age: number) => {
+    const p = { ...apart, retireAge: age, earlyStop: { age: age - 3, pay: 30_000 } };
+    return requiredSaving(p, retirementNumber(p).number!) <= 60_000.5;
+  };
+  assert.ok(fits(pace));
+  if (pace > Math.floor(base.ageNow) + 1) assert.ok(!fits(pace - 1));
+});

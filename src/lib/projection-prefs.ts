@@ -44,6 +44,12 @@ export type ProjectionPrefs = {
   healthcareAnnual?: number;
   /** Buy the house the year of retiring (the default), rather than at `houseAge`. */
   houseAtRetire?: boolean;
+  /** Each partner's own retire age, on their own age. Unset follows `retireAge`, so both retire the same year. */
+  retireAgeA?: number;
+  retireAgeB?: number;
+  /** A partner's yearly take-home pay, which stops when they retire before the other. Null uses half the household's. */
+  stopPayA?: number | null;
+  stopPayB?: number | null;
 };
 
 async function ensureColumn() {
@@ -156,6 +162,15 @@ function parse(raw: string | null | undefined): ProjectionPrefs {
     if (typeof o.houseAtRetire === "boolean") out.houseAtRetire = o.houseAtRetire;
     const healthcareAnnual = num(o.healthcareAnnual);
     if (healthcareAnnual !== undefined) out.healthcareAnnual = healthcareAnnual;
+    const retireAgeA = num(o.retireAgeA);
+    const retireAgeB = num(o.retireAgeB);
+    if (retireAgeA !== undefined) out.retireAgeA = retireAgeA;
+    if (retireAgeB !== undefined) out.retireAgeB = retireAgeB;
+    for (const key of ["stopPayA", "stopPayB"] as const) {
+      if (!(key in o)) continue;
+      const pay = numOrNull(o[key]);
+      if (pay !== undefined) out[key] = pay;
+    }
     if ("saveOverride" in o) {
       const saveOverride = numOrNull(o.saveOverride);
       if (saveOverride !== undefined) out.saveOverride = saveOverride;

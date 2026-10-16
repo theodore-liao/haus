@@ -32,3 +32,17 @@ test("a year of bars does not count as covering five years", () => {
   assert.equal(seriesStartsBy(rows, from), false);
   assert.equal(seriesStartsBy(rows, new Date("2025-09-25T00:00:00Z")), true);
 });
+
+test("an unreachable price feed leaves crypto moves empty instead of throwing", async () => {
+  const { cryptoDayMoves } = await import("./quotes");
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = (async () => {
+    throw new TypeError("fetch failed");
+  }) as typeof fetch;
+  try {
+    const moves = await cryptoDayMoves(["bitcoin-offline-test"]);
+    assert.equal(moves.size, 0);
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+});

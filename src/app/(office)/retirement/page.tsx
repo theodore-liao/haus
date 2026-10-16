@@ -4,7 +4,7 @@ import { HeroCard } from "@/components/hero-card";
 import { withBlurredMoney } from "@/components/blur-money";
 import { annualisedPaychecks, annualisedSpend, getConnectionCount, getEquityComp, getOverview, getReports, getRetirement } from "@/lib/queries";
 import { getOwnerFilter } from "@/lib/request";
-import { hasSpouse } from "@/lib/owners";
+import { givenName, hasSpouse } from "@/lib/owners";
 import { hausTypeLabel, isChildAccountType } from "@/lib/account-types";
 import { readProjectionPrefs } from "@/lib/projection-prefs";
 import { contributionsPriorQuarter, estimateSaving, retirementSnapshot } from "@/lib/retirement-snapshot";
@@ -12,7 +12,7 @@ import { Pill, Pills } from "@/components/pills";
 import { formatApprox } from "@/lib/format";
 import { RetirementPlan, type SaveNow } from "./plan";
 import { RetirementAccounts } from "./board";
-import { AddHsa } from "./hsa-form";
+import { RetirementAccountForm } from "./account-form";
 import { ChildrenForms } from "../children/forms";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Money } from "@/components/money";
@@ -95,14 +95,32 @@ export default async function RetirementPage() {
     saveNow: saveNow?.amount ?? null,
     childBalances: custodial.reduce((sum, row) => sum + row.balance, 0),
     householdChildren: data.names.children.map((child) => ({ id: child.id, name: child.name })),
+    payAnnual: pay,
   });
+  // Partners retiring in different years: the header names both, as the planner does.
+  const nameOfKey = (key: "A" | "B") => {
+    const full = key === "A" ? data.names.nameA : data.names.nameB;
+    return givenName(full) || full;
+  };
+  const apart =
+    verdict.partners != null && verdict.partners.length === 2 && verdict.partners[0].retireYear !== verdict.partners[1].retireYear
+      ? [...verdict.partners].sort((a, b) => a.retireYear - b.retireYear)
+      : null;
+  const planned = apart
+    ? `${nameOfKey(apart[0].key)} to retire at ${apart[0].retireAge} and ${nameOfKey(apart[1].key)} at ${apart[1].retireAge}`
+    : null;
+  const sooner = verdict.paceAge != null ? verdict.retireAge - verdict.paceAge : 0;
   const verdictText =
     verdict.number != null && verdict.needed != null && verdict.saving != null
       ? verdict.saving >= verdict.needed
-        ? verdict.ageKnown && verdict.paceAge != null && verdict.paceAge < verdict.retireAge
-          ? `On pace to retire at ${verdict.retireAge}, or as early as ${verdict.paceAge}`
-          : `On pace to retire ${verdict.ageKnown ? `at ${verdict.retireAge}` : `in ${verdict.retireYear}`}`
-        : `About ${formatApprox(verdict.needed - verdict.saving)} a year short of retiring ${verdict.ageKnown ? `at ${verdict.retireAge}` : `in ${verdict.retireYear}`}`
+        ? planned
+          ? `On pace for ${planned}${sooner > 0 ? `, or both ${sooner} ${sooner === 1 ? "year" : "years"} sooner` : ""}`
+          : verdict.ageKnown && verdict.paceAge != null && verdict.paceAge < verdict.retireAge
+            ? `On pace to retire at ${verdict.retireAge}, or as early as ${verdict.paceAge}`
+            : `On pace to retire ${verdict.ageKnown ? `at ${verdict.retireAge}` : `in ${verdict.retireYear}`}`
+        : planned
+          ? `About ${formatApprox(verdict.needed - verdict.saving)} a year short of the plan for ${planned}`
+          : `About ${formatApprox(verdict.needed - verdict.saving)} a year short of retiring ${verdict.ageKnown ? `at ${verdict.retireAge}` : `in ${verdict.retireYear}`}`
       : null;
 
   const childAccounts = (
@@ -156,7 +174,7 @@ export default async function RetirementPage() {
         title="Retirement"
         actions={
           <>
-            <AddHsa names={data.names} />
+            <RetirementAccountForm names={data.names} />
             <ChildrenForms names={data.names} actions={noLedger ? undefined : "child"} />
           </>
         }
@@ -171,7 +189,7 @@ export default async function RetirementPage() {
                 <Link href="/connections" className="underline">
                   Connections
                 </Link>
-                , or add an HSA above.
+, or add one you can&apos;t link with Add retirement account above.
               </>
             ) : (
               <>
@@ -210,7 +228,7 @@ export default async function RetirementPage() {
         <Money value={retirement.reduce((sum, row) => sum + row.balance, 0)} />
       </HeroCard>
       <RetirementPlan
-        accounts={retirement.length > 0 ? <RetirementAccounts rows={retirement} /> : null}
+        accounts={retirement.length > 0 ? <RetirementAccounts rows={retirement} names={data.names} /> : null}
         childAccounts={childAccounts}
         saveNow={saveNow}
         today={today}

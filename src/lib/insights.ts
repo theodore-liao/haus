@@ -88,6 +88,8 @@ export type InsightInput = {
     paceAge: number | null;
     ageKnown: boolean;
     retireYear: number;
+    /** Each partner's own retire age and year, when the planner has both birthdates. */
+    partners?: { key: "A" | "B"; retireAge: number; retireYear: number }[] | null;
   } | null;
   /** Retirement contributions so far this year, and the yearly room across accounts held. */
   contributions: { ytd: number; room: number; yearFraction: number } | null;
@@ -211,8 +213,12 @@ export function buildInsights(x: InsightInput): Insight[] {
   // --- Retirement -------------------------------------------------------------
   const r = x.retirement;
   if (r && r.number != null && r.needed != null && r.saving != null) {
-    const when = r.ageKnown ? `at ${r.retireAge}` : `in ${r.retireYear}`;
+    // Partners retiring in different years: one age can't say when both are done, so speak in years.
+    const apart = r.partners != null && r.partners.length === 2 && r.partners[0].retireYear !== r.partners[1].retireYear;
+    const when = apart ? `by ${r.retireYear}` : r.ageKnown ? `at ${r.retireAge}` : `in ${r.retireYear}`;
+    const retire = apart ? "both retire" : "retire";
     const gap = r.needed - r.saving;
+    const sooner = r.paceAge != null ? r.retireAge - r.paceAge : 0;
     out.push({
       id: "retirement",
       area: "Retirement",
@@ -222,13 +228,17 @@ export function buildInsights(x: InsightInput): Insight[] {
       meter: r.needed > 0 ? against(Math.max(0, r.saving), r.needed, `Target ${whole(r.needed)} a year · you save ${whole(r.saving)}`) : undefined,
       next:
         gap <= 0
-          ? r.paceAge != null && r.paceAge < r.retireAge && r.ageKnown
-            ? `You could retire at ${r.paceAge}, earlier than the ${r.retireAge} you planned.`
+          ? r.paceAge != null && sooner > 0 && r.ageKnown
+            ? apart
+              ? `You could both retire ${sooner} ${sooner === 1 ? "year" : "years"} sooner than you planned.`
+              : `You could retire at ${r.paceAge}, earlier than the ${r.retireAge} you planned.`
             : `What you save now reaches your number ${when}.`
           : r.paceAge != null && r.ageKnown
-            ? `Save ${whole(gap)} more a year to retire ${when}, or plan on ${r.paceAge}.`
-            : `Save ${whole(gap)} more a year to retire ${when}.`,
-      math: `You save about ${whole(r.saving)} a year; retiring ${when} needs ${whole(r.needed)} a year to reach a retirement number of ${whole(r.number)} in today's dollars. From the Retirement planner.`,
+            ? apart
+              ? `Save ${whole(gap)} more a year to ${retire} ${when}, or plan on ${-sooner} ${-sooner === 1 ? "year" : "years"} later.`
+              : `Save ${whole(gap)} more a year to retire ${when}, or plan on ${r.paceAge}.`
+            : `Save ${whole(gap)} more a year to ${retire} ${when}.`,
+      math: `You save about ${whole(r.saving)} a year; ${apart ? "both retiring" : "retiring"} ${when} needs ${whole(r.needed)} a year to reach a retirement number of ${whole(r.number)} in today's dollars. From the Retirement planner.`,
       href: "/retirement",
       impact: gap > 0 ? gap : undefined,
     });

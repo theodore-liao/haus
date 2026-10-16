@@ -27,7 +27,8 @@ export function RefreshButton({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ force }),
       });
-      const data = await res.json();
+      // A server error can come back with no body; say the refresh failed rather than throwing on it.
+      const data = (await res.json().catch(() => ({}))) as { error?: string; skipped?: boolean; message?: string };
       if (!res.ok) {
         toast.error(data.error ?? "Refresh failed.");
         return;
@@ -35,6 +36,8 @@ export function RefreshButton({
       if (data.skipped) return;
       toast.success(data.message ?? "Ledger refreshed.");
       router.refresh();
+    } catch {
+      toast.error("Refresh failed. Check your connection and try again.");
     } finally {
       setBusy(false);
     }

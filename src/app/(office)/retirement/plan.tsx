@@ -16,8 +16,9 @@ import { Callout } from "@/components/callout";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { clientId } from "@/lib/client-id";
 import { formatApprox, formatPct, formatWhole, roundApprox } from "@/lib/format";
+import { givenName } from "@/lib/owners";
 import type { PlanChildPref, ProjectionPrefs } from "@/lib/projection-prefs";
-import { PLAN_DEFAULTS, mergeChildren } from "@/lib/retirement-snapshot";
+import { PLAN_DEFAULTS, mergeChildren, retireTiming } from "@/lib/retirement-snapshot";
 import type { EquityEvent, EquityYear } from "@/lib/equity-comp";
 import {
   affordableSpend,
@@ -25,7 +26,6 @@ import {
   kidCostIn,
   MEDICARE_AGE,
   earliestRetireAge,
-  holderAge,
   IMPOSSIBLE_MESSAGE,
   requiredSaving,
   retirementNumber,
@@ -69,7 +69,6 @@ const YOUR_LINE = "#7EABD4";
 const MARKET_SWING = 0.02;
 const AXIS = { fontSize: 11, fill: "#8fa0b8", fontFamily: "var(--font-geist-sans)" };
 const GRID = "rgba(148,163,184,0.12)";
-const RETIRE_MIN = PLAN_DEFAULTS.retireMin;
 const RETIRE_MAX = PLAN_DEFAULTS.retireMax;
 /** When the money lasts for good, the chart stops here so the years that matter fill it. */
 const FOREVER_CHART_END = 80;
@@ -245,6 +244,10 @@ export function RetirementPlan({
   const [todayMoney, setTodayMoney] = useState(saved.todayMoney !== false);
   const [saveOverride, setSaveOverride] = useState<number | null>(saved.saveOverride ?? null);
   const [healthcareAnnual, setHealthcareAnnual] = useState<number>(saved.healthcareAnnual ?? PLAN_DEFAULTS.healthcareAnnual);
+  const [retireAgeA, setRetireAgeA] = useState<number | undefined>(saved.retireAgeA);
+  const [retireAgeB, setRetireAgeB] = useState<number | undefined>(saved.retireAgeB);
+  const [stopPayA, setStopPayA] = useState<number | null>(saved.stopPayA ?? null);
+  const [stopPayB, setStopPayB] = useState<number | null>(saved.stopPayB ?? null);
 
   /** One setter per saved value: update the page now, save shortly after. */
   function bind<K extends keyof ProjectionPrefs>(key: K, set: (v: NonNullable<ProjectionPrefs[K]>) => void) {
@@ -255,16 +258,37 @@ export function RetirementPlan({
   }
 
   const holder = holders.find((item) => item.key === holderKey) ?? holders[0];
-  const ageNow = holder?.birthdate ? holderAge(holder.birthdate, today) : null;
-  const currentYear = Number(today.slice(0, 4));
-  // Retire age runs from next year of age to 65. A saved age outside that range is shown at the nearest end.
-  const minRetire = ageNow == null ? RETIRE_MIN : Math.max(RETIRE_MIN, Math.floor(ageNow) + 1);
-  const maxRetire = Math.max(RETIRE_MAX, minRetire);
-  const retireAge = ageNow == null ? Math.min(RETIRE_MAX, ASSUMED_AGE + yearsFallback) : Math.min(maxRetire, Math.max(minRetire, retireAgeSaved));
-  const planAge = ageNow ?? ASSUMED_AGE;
+  // When each partner retires: one shared answer with the page header and Insights, so they never disagree.
+  const timing = retireTiming({
+    prefs: { holderKey, retireAge: retireAgeSaved, yearsFallback, retireAgeA, retireAgeB, stopPayA, stopPayB },
+    holders,
+    today,
+    payAnnual: saveNow?.pay ?? null,
+  });
+  const { ageNow, currentYear, minRetire, maxRetire, retireAge, retireYear, planAge, partners, early } = timing;
+  // First names, as the sidebar shows them: these labels sit in narrow places.
+  const nameOf = (key: "A" | "B") => {
+    const full = holders.find((item) => item.key === key)?.name ?? "";
+    return givenName(full) || full || (key === "A" ? "Partner 1" : "Partner 2");
+  };
+  const lastKey = early ? (early.key === "A" ? "B" : "A") : null;
+  /** Moving one partner's slider pins both ages, so neither shifts when the other moves. */
+  function setPartnerAge(key: "A" | "B", age: number) {
+    if (!partners) return;
+    const next = { retireAgeA: partners.find((p) => p.key === "A")!.retireAge, retireAgeB: partners.find((p) => p.key === "B")!.retireAge };
+    if (key === "A") next.retireAgeA = age;
+    else next.retireAgeB = age;
+    setRetireAgeA(next.retireAgeA);
+    setRetireAgeB(next.retireAgeB);
+    persist(next);
+  }
+  function setStopPay(key: "A" | "B", v: number | null) {
+    if (key === "A") setStopPayA(v);
+    else setStopPayB(v);
+    persist(key === "A" ? { stopPayA: v } : { stopPayB: v });
+  }
   // By default the house is bought the year you retire, and moves with the slider.
   const houseAge = houseAtRetire ? retireAge : houseAgeSaved;
-  const retireYear = currentYear + Math.max(0, Math.round(retireAge - planAge));
   const returnShown = returnAfter ?? rate - 2;
 
   const input: RetirementPlanInput = {
@@ -288,6 +312,7 @@ export function RetirementPlan({
     otherIncomeAge,
     tax: taxPct / 100,
     healthcareAnnual,
+    earlyStop: early ? { age: early.age, pay: early.pay } : null,
   };
   const result = retirementNumber(input);
   const valid = result.error == null && !result.impossible && result.number != null && result.number > 0;
@@ -329,7 +354,22 @@ export function RetirementPlan({
   const kidSavingCut = kidExtra.reduce((sum, y) => sum + Math.max(0, y.cost), 0);
   const kidSavingFreed = kidExtra.reduce((sum, y) => sum + Math.max(0, -y.cost), 0);
   const kidCutYears = kidExtra.filter((y) => y.cost > 0.5).map((y) => y.year);
-  const retireFor = (age: number) => (ageNow != null ? `retire at ${age}` : `retire in ${currentYear + (age - Math.floor(planAge))}`);
+  // Partners retiring apart: name both. A different age moves both by the same years, as the pace search does.
+  const bothAt = (shift: number) =>
+    partners!
+      .slice()
+      .sort((a, b) => a.retireYear - b.retireYear)
+      .map((p) => `${nameOf(p.key)} at ${p.retireAge - shift}`)
+      .join(", ");
+  const retireFor = (age: number) => {
+    if (early && partners) {
+      const shift = retireAge - age;
+      if (shift === 0) return `retire as planned (${bothAt(0)})`;
+      const n = Math.abs(shift);
+      return `both retire ${n} ${n === 1 ? "year" : "years"} ${shift > 0 ? "sooner" : "later"} (${bothAt(shift)})`;
+    }
+    return ageNow != null ? `retire at ${age}` : `retire in ${currentYear + (age - Math.floor(planAge))}`;
+  };
 
   const toRetireYear = (1 + inflation / 100) ** Math.max(0, retireYear - currentYear);
   const unit = todayMoney ? 1 : toRetireYear;
@@ -414,13 +454,46 @@ export function RetirementPlan({
           <div className="planner-chart min-w-0">
             {/* Directly above the graph it moves. Kept out of the figures so a longer answer never shifts it mid-drag. */}
             <div className="planner-controls min-w-0">
-              {ageNow != null ? (
+              {partners ? (
+                <div className="planner-sliders">
+                  {partners.map((p) => (
+                    <RetireSlider
+                      key={p.key}
+                      value={p.retireAge}
+                      min={p.min}
+                      max={p.max}
+                      label={`${nameOf(p.key)} retires at ${p.retireAge}`}
+                      ariaLabel={`${nameOf(p.key)} retires at`}
+                      note={String(p.retireYear)}
+                      onChange={(v) => setPartnerAge(p.key, v)}
+                    />
+                  ))}
+                  {early && lastKey ? (
+                    <p className="footnote planner-sliders-note">
+                      From {early.year} to {retireYear} only {nameOf(lastKey)} works, so you save about <Money value={early.pay} approx /> a year less (
+                      {nameOf(early.key)}&apos;s take-home pay, under Assumptions).
+                    </p>
+                  ) : null}
+                </div>
+              ) : ageNow != null ? (
                 <RetireSlider
                   value={retireAge}
                   min={minRetire}
                   max={maxRetire}
                   label={`Retire at ${retireAge}`}
-                  note={`${retireYear}, when ${holder.name} is ${retireAge}`}
+                  note={
+                    holders.length > 1 && holders.some((h) => !h.birthdate) ? (
+                      <>
+                        {retireYear}, when {holder.name} is {retireAge}. Add both birthdates in{" "}
+                        <Link href="/settings" className="underline">
+                          Settings
+                        </Link>{" "}
+                        to retire on different years.
+                      </>
+                    ) : (
+                      `${retireYear}, when ${holder.name} is ${retireAge}`
+                    )
+                  }
                   onChange={bind("retireAge", setRetireAge)}
                 />
               ) : (
@@ -457,6 +530,8 @@ export function RetirementPlan({
                 incomeAge={otherIncome > 0 ? otherIncomeAge : null}
                 medicare={healthcareAnnual > 0 && retireAge < MEDICARE_AGE ? MEDICARE_AGE : null}
                 retireAge={retireAge}
+                retireLabel={early && lastKey ? `${nameOf(lastKey)} retires` : "Retire"}
+                firstStop={early && lastKey ? { age: early.age, name: nameOf(early.key), pay: early.pay } : null}
                 houseAge={housePrice != null && houseAge != null && houseAge > planAge ? houseAge : null}
                 kids={kids
                   .filter((kid): kid is PlanChildPref & { birthYear: number } => kid.birthYear != null)
@@ -604,7 +679,7 @@ export function RetirementPlan({
                             persist({ houseAtRetire: next });
                           }}
                         />
-                        Buy the house the year I retire
+                        {early ? "Buy the house the year we're both retired" : "Buy the house the year I retire"}
                       </label>
                     ) : null}
                   </div>
@@ -724,6 +799,28 @@ export function RetirementPlan({
                     onValue={(v) => bind("otherIncomeAge", setOtherIncomeAge)(v ?? otherIncomeAge)}
                     info={`Counts from ${currentYear + Math.max(0, otherIncomeAge - Math.floor(planAge))}.`}
                   />
+                  {early && lastKey ? (
+                    <NumberField
+                      label={`${nameOf(early.key)}'s take-home pay`}
+                      prefix="$"
+                      money
+                      allowBlank
+                      placeholder="Estimate"
+                      value={early.payOwn ? early.pay : null}
+                      min={0}
+                      max={1e8}
+                      onValue={(v) => setStopPay(early.key, v)}
+                      info={
+                        <>
+                          {nameOf(early.key)}&apos;s yearly pay after tax, in today&apos;s prices. It stops in {early.year}, when {nameOf(early.key)} retires; until{" "}
+                          {nameOf(lastKey)} retires in {retireYear}, you save that much less a year, and draw on savings if spending is more than{" "}
+                          {nameOf(lastKey)}&apos;s pay covers.
+                          <PaySources saveNow={saveNow} onPick={(v) => setStopPay(early.key, v)} />
+                        </>
+                      }
+                      help={<PayHelp own={early.payOwn} pay={early.pay} saveNow={saveNow} name={nameOf(early.key)} onPick={(v) => setStopPay(early.key, v)} />}
+                    />
+                  ) : null}
                 </div>
               </section>
             </div>
@@ -794,11 +891,58 @@ function houseHelp(price: number | null, age: number | null, retireAge: number, 
 }
 
 
+/** Where a partner's pay figure comes from, in one line. */
+function PayHelp({
+  own,
+  pay,
+  saveNow,
+  name,
+  onPick,
+}: {
+  own: boolean;
+  pay: number;
+  saveNow: SaveNow | null;
+  name: string;
+  onPick: (v: number | null) => void;
+}) {
+  if (own) {
+    return saveNow != null && saveNow.pay > 0 ? (
+      <button type="button" className="cursor-pointer py-0.5 text-left underline" onClick={() => onPick(null)}>
+        Use half your household&apos;s, <Money value={saveNow.pay / 2} approx />
+      </button>
+    ) : null;
+  }
+  return pay > 0 ? (
+    <>
+      Using half your household&apos;s, <Money value={pay} approx />. Enter {name}&apos;s own.
+    </>
+  ) : (
+    <>Enter {name}&apos;s pay to count the years only one of you works.</>
+  );
+}
+
+/** The household's regular paychecks, each a click away from filling a partner's pay. */
+function PaySources({ saveNow, onPick }: { saveNow: SaveNow | null; onPick: (v: number) => void }) {
+  const sources = (saveNow?.paySources ?? []).slice(0, 4).map((source) => ({ label: source.label, annual: Math.round(source.amount * source.perYear) }));
+  if (sources.length === 0) return null;
+  return (
+    <span className="mt-2 block">
+      Your paychecks, a year:
+      {sources.map((source, i) => (
+        <button key={`${source.label}-${i}`} type="button" className="block cursor-pointer py-0.5 text-left underline" onClick={() => onPick(source.annual)}>
+          {source.label}, <Money value={source.annual} approx />
+        </button>
+      ))}
+    </span>
+  );
+}
+
 function RetireSlider({
   value,
   min,
   max,
   label,
+  ariaLabel = "Retire at",
   note,
   onChange,
 }: {
@@ -806,6 +950,7 @@ function RetireSlider({
   min: number;
   max: number;
   label: string;
+  ariaLabel?: string;
   note: ReactNode;
   onChange: (v: number) => void;
 }) {
@@ -832,7 +977,7 @@ function RetireSlider({
       <input
         type="range"
         className="range mt-2"
-        aria-label="Retire at"
+        aria-label={ariaLabel}
         min={min}
         max={max}
         step={1}
@@ -1305,6 +1450,8 @@ function PlannerChart({
   paceNumber,
   endAge,
   retireAge,
+  retireLabel,
+  firstStop,
   houseAge,
   incomeAge,
   medicare,
@@ -1328,7 +1475,11 @@ function PlannerChart({
   paceNumber: number | null;
   /** Last age drawn: 80 when the money lasts forever, the live-to age when spending it down. */
   endAge: number;
+  /** When the household is fully retired, and what its marker says. */
   retireAge: number;
+  retireLabel: string;
+  /** A partner who stops working before that, when the two retire apart. */
+  firstStop: { age: number; name: string; pay: number } | null;
   houseAge: number | null;
   /** Age other income (Social Security, a pension) starts, when there is any. */
   incomeAge: number | null;
@@ -1370,6 +1521,8 @@ function PlannerChart({
   const toX = (age: number) => (byAge ? age : start.year + (age - start.age));
   const yearToX = (year: number) => (byAge ? start.age + (year - start.year) : year);
   const when = (age: number) => (byAge ? `at ${age}` : `in ${start.year + (age - start.age)}`);
+  /** Partners retiring apart move together, so the pace is how many years sooner (or later) both go. */
+  const sooner = (years: number) => `${Math.abs(years)} ${Math.abs(years) === 1 ? "yr" : "yrs"} ${years >= 0 ? "sooner" : "later"}`;
 
   // Ticks on round numbers: every 5 or 10 years of age (or calendar year), plus where the chart starts.
   const first = rows[0].x;
@@ -1411,7 +1564,8 @@ function PlannerChart({
   const grows = yours != null && (rows[rows.length - 1].yours ?? 0) > (rows.find((r) => r.age === retireAge)?.yours ?? 0) * 1.05;
   const houseAtRetire = houseAge != null && houseAge === retireAge;
   const events = [
-    { age: retireAge, label: houseAtRetire ? "Retire + house" : "Retire", color: "#cbb892" },
+    ...(firstStop && inRange(firstStop.age) ? [{ age: firstStop.age, label: `${firstStop.name} retires`, color: "#cbb892" }] : []),
+    { age: retireAge, label: houseAtRetire ? `${retireLabel} + house` : retireLabel, color: "#cbb892" },
     ...(inRange(houseAge) && !houseAtRetire ? [{ age: houseAge!, label: "House", color: HOUSE }] : []),
     ...(inRange(incomeAge) ? [{ age: incomeAge!, label: "Income starts", color: "#8fa0b8" }] : []),
     ...(inRange(medicare) && medicare !== retireAge ? [{ age: medicare!, label: "Medicare", color: HEALTH }] : []),
@@ -1424,7 +1578,15 @@ function PlannerChart({
           <span className="kicker flex items-center gap-1 text-foreground">
             Your balance over time
             <InfoTip label="How to read this chart">
-              Saving stops when you retire; after that, the balance pays your spending and keeps its investment returns.
+              {firstStop ? (
+                <>
+                  Once {firstStop.name} retires, saving drops by {firstStop.name}&apos;s take-home pay, about <Money value={firstStop.pay} approx /> a year. Saving
+                  stops when you&apos;re both retired;
+                </>
+              ) : (
+                "Saving stops when you retire;"
+              )}{" "}
+              after that, the balance pays your spending and keeps its investment returns.
               {grows ? " Your path keeps growing after retiring because its returns are more than you spend." : ""} Shown in{" "}
               {todayMoney ? "today's dollars" : "the dollars of each year"}.
             </InfoTip>
@@ -1464,11 +1626,11 @@ function PlannerChart({
       <div className="planner-plot relative w-full">
         <div className="absolute inset-0">
         <ResponsiveContainer>
-          <ComposedChart data={rows} margin={{ top: 28, right: narrow ? 12 : CHART_LABEL_MARGIN, left: 0, bottom: 0 }}>
+          <ComposedChart data={rows} margin={{ top: narrow ? Math.max(28, 14 + events.length * 12) : 28, right: narrow ? 12 : CHART_LABEL_MARGIN, left: 0, bottom: 0 }}>
             <CartesianGrid stroke={GRID} vertical={false} />
             <XAxis dataKey="x" type="number" domain={["dataMin", "dataMax"]} ticks={xTicks} tick={AXIS} axisLine={false} tickLine={false} />
             <YAxis allowDataOverflow domain={[0, yTicks[yTicks.length - 1]]} ticks={yTicks} tick={{ ...AXIS, className: "money" }} axisLine={false} tickLine={false} width={64} tickFormatter={(v) => compact(v)} />
-            <Tooltip content={<ChartTip byAge={byAge} yourSaving={yourSaving} retireAge={retireAge} />} />
+            <Tooltip content={<ChartTip byAge={byAge} yourSaving={yourSaving} retireAge={retireAge} firstStop={firstStop} />} />
             {number != null && todayMoney ? (
               <ReferenceLine
                 y={number}
@@ -1483,7 +1645,8 @@ function PlannerChart({
                 x={toX(event.age)}
                 stroke={event.color}
                 strokeDasharray="4 4"
-                label={{ value: event.label, position: "top", offset: 6 + (i % 2) * 12, fill: event.color, fontSize: 11 }}
+                // Wide charts alternate two rows of labels; a phone's markers sit close, so each gets its own row.
+                label={{ value: event.label, position: "top", offset: 6 + (narrow ? i : i % 2) * 12, fill: event.color, fontSize: 11 }}
               />
             ))}
             <Area type="linear" dataKey="range" stroke="none" fill={YOUR_LINE} fillOpacity={0.07} isAnimationActive={false} activeDot={false} />
@@ -1509,9 +1672,11 @@ function PlannerChart({
                 fill={YOUR_LINE}
                 stroke="none"
                 label={{
-                  value: narrow
-                    ? `Retire ${when(paceAge!)}`
-                    : `Could retire ${when(paceAge!)}${paceNumber != null ? ` (needs ${compact(paceNumber * scale(paceAge!))})` : ""}`,
+                  value: firstStop
+                    ? `${narrow ? "Both" : "Could both"} retire ${sooner(retireAge - paceAge!)}`
+                    : narrow
+                      ? `Retire ${when(paceAge!)}`
+                      : `Could retire ${when(paceAge!)}${paceNumber != null ? ` (needs ${compact(paceNumber * scale(paceAge!))})` : ""}`,
                   position: narrow ? "top" : "left",
                   offset: 8,
                   fill: YOUR_LINE,
@@ -1546,12 +1711,14 @@ function ChartTip({
   byAge,
   yourSaving,
   retireAge,
+  firstStop,
 }: {
   active?: boolean;
   payload?: { payload: ChartRow }[];
   byAge: boolean;
   yourSaving: number | null;
   retireAge: number;
+  firstStop: { age: number; name: string } | null;
 }) {
   if (!active || !payload?.length) return null;
   const row = payload[0].payload;
@@ -1561,7 +1728,7 @@ function ChartTip({
       <div className="mb-1 text-muted-foreground">
         {row.year}
         {byAge ? `, age ${row.age}` : ""}
-        {row.age > retireAge ? " · retired" : ""}
+        {row.age > retireAge ? " · retired" : firstStop && row.age > firstStop.age ? ` · ${firstStop.name} retired` : ""}
       </div>
       {row.yours != null && yourSaving != null ? (
         <div className="num">

@@ -50,6 +50,12 @@ export type RetirementPlanInput = {
   tax: number;
   /** Yearly health cover from retiring until 65, when Medicare starts. Optional; zero when left out. */
   healthcareAnnual?: number;
+  /**
+   * When one partner stops working before the household fully retires at `retireAge`: the age (on the same scale as
+   * `ageNow`) they stop, and their yearly take-home pay in today's money. From then until `retireAge`, the household
+   * saves that much less a year, and draws on savings when the rest falls short. Null when both retire together.
+   */
+  earlyStop?: { age: number; pay: number } | null;
 };
 
 /** Age Medicare starts: health cover before it is paid from savings. */
@@ -396,7 +402,9 @@ export function balancePath(input: RetirementPlanInput, saving: number): PathPoi
     let flow: number;
     if (age <= retire) {
       // Kid costs above today's come out of what is saved that year; when a child leaves home, saving rises.
-      const saved = saving - (kidCostIn(year - 1, input) - kidNow);
+      // Once a partner has stopped working, their take-home pay no longer comes in.
+      const lostPay = input.earlyStop && age - 1 >= input.earlyStop.age ? Math.max(0, input.earlyStop.pay) : 0;
+      const saved = saving - (kidCostIn(year - 1, input) - kidNow) - lostPay;
       balance = balance * (1 + rb) + saved;
       contributed += saved;
       flow = saved;
@@ -429,11 +437,16 @@ export function requiredSaving(input: RetirementPlanInput, target: number): numb
   return Math.max(0, (target - base) / perDollar);
 }
 
-/** The earliest retire age, up to `latest`, whose required saving fits within `saving`. Null when none does. */
+/**
+ * The earliest retire age, up to `latest`, whose required saving fits within `saving`. Null when none does. With a partner
+ * stopping first, the age is when the household fully retires, and the partner's stop moves by the same years.
+ */
 export function earliestRetireAge(input: RetirementPlanInput, saving: number, latest = 80): number | null {
+  // Partners who retire apart keep the same years between them, so both move together.
+  const apart = input.earlyStop ? input.retireAge - input.earlyStop.age : 0;
   for (let age = Math.floor(input.ageNow) + 1; age <= latest; age++) {
     if (age >= input.liveTo) return null;
-    const plan = { ...input, retireAge: age };
+    const plan = { ...input, retireAge: age, earlyStop: input.earlyStop ? { ...input.earlyStop, age: age - apart } : null };
     const result = retirementNumber(plan);
     if (result.error != null || result.impossible || result.number == null) continue;
     if (requiredSaving(plan, result.number) <= saving + 0.5) return age;

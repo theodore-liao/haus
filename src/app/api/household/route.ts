@@ -81,6 +81,10 @@ const projectionPrefsSchema = z
     saveOverride: z.number().finite().nullable().optional(),
     healthcareAnnual: z.number().finite().optional(),
     houseAtRetire: z.boolean().optional(),
+    retireAgeA: z.number().finite().optional(),
+    retireAgeB: z.number().finite().optional(),
+    stopPayA: z.number().finite().nullable().optional(),
+    stopPayB: z.number().finite().nullable().optional(),
   })
   .strict();
 

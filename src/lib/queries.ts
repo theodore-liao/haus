@@ -1295,13 +1295,16 @@ export async function getRetirement(filter: OwnerFilter) {
       contributions,
       manual: false as boolean,
       beneficiary: null as string | null,
+      /** When a balance entered by hand was last set. Linked accounts have none. */
+      asOfDate: null as string | null,
+      notes: null as string | null,
     };
   });
 
   const manuals = (await prisma.manualAccount.findMany()).filter(
     (m) =>
       matchesOwner(m.owner, filter) &&
-      (m.hausType === "hsa" || isChildAccountType(m.hausType)),
+      (isRetirementType(m.hausType) || isChildAccountType(m.hausType)),
   );
   for (const m of manuals) {
     rows.push({
@@ -1315,13 +1318,24 @@ export async function getRetirement(filter: OwnerFilter) {
       balance: m.balance,
       contributions: [] as ContributionRow[],
       ytd: 0,
-      limit: m.hausType === "hsa" ? IRS_LIMITS.hsaFamily : m.hausType === "trump" ? IRS_LIMITS.trumpAccount : 0,
+      limit:
+        m.hausType === "hsa"
+          ? IRS_LIMITS.hsaFamily
+          : m.hausType === "401k" || m.hausType === "403b"
+            ? IRS_LIMITS.electiveDeferral
+            : m.hausType === "ira" || m.hausType === "roth"
+              ? IRS_LIMITS.ira
+              : m.hausType === "trump"
+                ? IRS_LIMITS.trumpAccount
+                : 0,
       holdings:
         m.balance >= 10
           ? [{ label: m.name, value: m.balance, symbol: null, name: m.name, kind: "institution" as const }]
           : [],
       manual: true,
       beneficiary: m.beneficiary,
+      asOfDate: dayKey(m.asOfDate),
+      notes: m.notes,
     });
   }
 
@@ -1881,6 +1895,7 @@ export async function getInsights(filter: OwnerFilter) {
           saveNow: estimate?.amount ?? null,
           childBalances,
           householdChildren: names.children.map((c) => ({ id: c.id, name: c.name })),
+          payAnnual: pay.annual,
         })
       : null;
   const roomKeys = new Set<string>();

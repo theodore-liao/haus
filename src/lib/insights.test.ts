@@ -113,6 +113,31 @@ test("retirement card follows the planner's verdict", () => {
   assert.match(ahead!.next, /retire at 52/);
 });
 
+test("retirement card speaks for both when partners retire in different years", () => {
+  const partners = [
+    { key: "A" as const, retireAge: 55, retireYear: 2041 },
+    { key: "B" as const, retireAge: 65, retireYear: 2046 },
+  ];
+  const behind = find(
+    buildInsights(
+      base({
+        retirement: { number: 2_000_000, needed: 60_000, saving: 40_000, retireAge: 60, paceAge: 62, ageKnown: true, retireYear: 2046, partners },
+      }),
+    ),
+    "retirement",
+  );
+  assert.match(behind!.next, /Save \$20,000 more a year to both retire by 2046, or plan on 2 years later/);
+  const ahead = find(
+    buildInsights(
+      base({
+        retirement: { number: 2_000_000, needed: 30_000, saving: 40_000, retireAge: 60, paceAge: 57, ageKnown: true, retireYear: 2046, partners },
+      }),
+    ),
+    "retirement",
+  );
+  assert.match(ahead!.next, /You could both retire 3 years sooner/);
+});
+
 test("ranking puts act before watch before on track", () => {
   const list = rankInsights(
     buildInsights(

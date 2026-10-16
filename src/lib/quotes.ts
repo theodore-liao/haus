@@ -157,8 +157,9 @@ async function fetchGeckoQuotes(ids: string[]): Promise<Map<string, Quote>> {
   for (let i = 0; i < missing.length; i += 40) {
     const chunk = missing.slice(i, i + 40);
     const url = `https://api.coingecko.com/api/v3/simple/price?ids=${encodeURIComponent(chunk.join(","))}&vs_currencies=usd&include_24hr_change=true`;
-    const res = await fetch(url, { cache: "no-store", headers: { accept: "application/json" }, signal: AbortSignal.timeout(8000) });
-    if (!res.ok) continue;
+    // An unreachable price feed leaves these coins on their stored prices rather than failing the caller.
+    const res = await fetch(url, { cache: "no-store", headers: { accept: "application/json" }, signal: AbortSignal.timeout(8000) }).catch(() => null);
+    if (!res?.ok) continue;
     const data = (await res.json()) as Record<string, { usd?: number; usd_24hr_change?: number }>;
     const asOf = new Date();
     for (const [id, row] of Object.entries(data)) {

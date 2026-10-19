@@ -73,10 +73,6 @@ export function equityKindOfCategory(category: string | null | undefined): Equit
   return null;
 }
 
-export function isEquityId(id: string) {
-  return id.startsWith(EQUITY_ID_PREFIX);
-}
-
 /** What a year of one kind of stock pay comes to, with the numbers behind it. */
 export type EquityYear = {
   /** Sum over the window. */

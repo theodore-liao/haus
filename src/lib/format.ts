@@ -151,12 +151,3 @@ export function startOfDay(d = new Date()) {
 export function startOfMonth(d = new Date()) {
   return new Date(d.getFullYear(), d.getMonth(), 1);
 }
-
-export function monthKey(d: Date) {
-  return format(d, "yyyy-MM");
-}
-
-export function parseMonthKey(key: string) {
-  const [y, m] = key.split("-").map(Number);
-  return new Date(y, m - 1, 1);
-}

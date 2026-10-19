@@ -80,13 +80,3 @@ export function lineLabel(line: MerchantLine, title?: string): { name: string; a
   if (line.logo) return { name: line.merchant, mark: line.logo, kind: "institution" };
   return { name: line.merchant, mark: line.merchant, kind: "merchant" };
 }
-
-export function aggregateMerchants(lines: MerchantLine[], category: string | null, extras?: string[]) {
-  const allow = category == null ? null : new Set([category, ...(extras ?? [])]);
-  const map: Record<string, number> = {};
-  for (const l of lines) {
-    if (allow && !allow.has(l.category)) continue;
-    map[l.merchant] = (map[l.merchant] ?? 0) + l.amount;
-  }
-  return Object.entries(map).map(([merchant, amount]) => ({ category: category ?? "All", merchant, amount }));
-}

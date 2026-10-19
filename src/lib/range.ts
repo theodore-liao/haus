@@ -104,11 +104,6 @@ export function defaultTxnWindow(now = new Date()): CalKey {
   return monthChip("current", now);
 }
 
-/** A calendar month is complete once it has ended. The open month is never complete. */
-export function isCompleteMonth(month: string, now = new Date()) {
-  return month < ymKey(now);
-}
-
 /** Institutions typically still return about 90 days, which is three calendar months. */
 export const RECENT_CASHFLOW_MONTHS = 3;
 
@@ -144,29 +139,6 @@ export function cashflowTableMonths(activityMonths: string[], archiveCoversFrom:
     if (floor && floor <= `${month}-01`) keys.add(month);
   }
   return [...keys].filter((m) => m <= current).sort().reverse();
-}
-
-/**
- * Every month from the earliest key through the current month, newest first.
- * Complete months (and the current partial month) are included; future months are not.
- */
-export function monthKeysThroughCurrent(earliest: string | null, now = new Date()) {
-  const current = ymKey(now);
-  const start = earliest && earliest <= current ? earliest : current;
-  const out: string[] = [];
-  const [ys, ms] = start.split("-").map(Number);
-  const [ye, me] = current.split("-").map(Number);
-  let y = ye;
-  let m = me;
-  while (y > ys || (y === ys && m >= ms)) {
-    out.push(`${y}-${String(m).padStart(2, "0")}`);
-    m -= 1;
-    if (m < 1) {
-      m = 12;
-      y -= 1;
-    }
-  }
-  return out;
 }
 
 export function rangeStart(key: RangeKey, now = new Date()): Date | null {

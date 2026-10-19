@@ -69,29 +69,6 @@ export function applyMerchantRefunds(flows: FlowRow[]): FlowRow[] {
   return out;
 }
 
-export function refundPairs(flows: FlowRow[]) {
-  const groups = new Map<string, { merchant: string; spend: number; credit: number }>();
-  for (const f of flows) {
-    if (f.kind === "invest") continue;
-    const key = merchantKey(f.merchant);
-    if (!key) continue;
-    const cur = groups.get(key) ?? { merchant: f.merchant, spend: 0, credit: 0 };
-    if (f.kind === "spend") cur.spend += f.amount;
-    else cur.credit += f.amount;
-    groups.set(key, cur);
-  }
-  return [...groups.values()]
-    .filter((g) => g.spend > 0 && g.credit > 0)
-    .map((g) => ({
-      merchant: g.merchant,
-      spend: g.spend,
-      credit: g.credit,
-      applied: Math.min(g.spend, g.credit),
-      leftover: Math.max(0, g.credit - g.spend),
-    }))
-    .sort((a, b) => b.applied - a.applied);
-}
-
 export function aggregateFlows(rows: FlowRow[]) {
   const spendCats: Record<string, number> = {};
   const incomeCats: Record<string, number> = {};

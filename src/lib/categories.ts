@@ -218,12 +218,3 @@ export function scopeMatches(
   if (rule.nameContains && !blob.includes(rule.nameContains.trim().toLowerCase())) return false;
   return true;
 }
-
-export function bestScope<T extends MerchantScope>(rules: T[], txn: Parameters<typeof scopeMatches>[1]): T | null {
-  let best: T | null = null;
-  for (const rule of rules) {
-    if (!scopeMatches(rule, txn)) continue;
-    if (!best || scopeScore(rule) > scopeScore(best)) best = rule;
-  }
-  return best;
-}

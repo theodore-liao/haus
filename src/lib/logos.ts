@@ -269,19 +269,7 @@ export function merchantDomains(name: string | null | undefined): string[] {
   return out;
 }
 
-export function merchantLogoUrl(name: string | null | undefined) {
-  const domain = merchantDomains(name)[0];
-  return domain ? faviconUrl(domain) : null;
-}
-
 export type BrandKind = "merchant" | "institution" | "security" | "crypto";
-
-export function brandLogoUrl(
-  kind: BrandKind,
-  opts: { name?: string | null; symbol?: string | null; src?: string | null },
-) {
-  return brandLogoCandidates(kind, opts)[0] ?? null;
-}
 
 /** Ordered list of URLs to try; the mark falls through on 404 before showing an initial. */
 export function brandLogoCandidates(

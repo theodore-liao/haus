@@ -767,11 +767,6 @@ export async function getAttention(flows: FlowRow[]) {
   });
 }
 
-export async function getAccountsForFilter(filter: OwnerFilter) {
-  const accounts = await prisma.account.findMany({ include: { item: true } });
-  return accounts.filter((a) => matchesOwner(a.owner, filter));
-}
-
 export async function getCashflow(filter: OwnerFilter, month: Date, includeTransfers: boolean) {
   const start = new Date(month.getFullYear(), month.getMonth(), 1);
   const end = new Date(month.getFullYear(), month.getMonth() + 1, 1);
@@ -1031,24 +1026,6 @@ export async function getInvestments(filter: OwnerFilter) {
     trades,
     hasQuotes: scoped.some((h) => h.quotePrice != null),
   };
-}
-
-/** Cash events from the last 13 months in non-retirement brokerage accounts, for the dividend summary. */
-export async function getDividendTxns(filter: OwnerFilter) {
-  const since = new Date();
-  since.setMonth(since.getMonth() - 13);
-  const rows = await prisma.investmentTxn.findMany({
-    where: { date: { gte: since } },
-    include: { account: true, security: true },
-  });
-  return rows
-    .filter(
-      (t) =>
-        matchesOwner(t.account.owner, filter) &&
-        !isRetirementAccount(t.account) &&
-        !isCryptoHoldingType(t.security?.type),
-    )
-    .map((t) => ({ date: t.date.toISOString(), type: t.type, subtype: t.subtype, name: t.name, amount: t.amount }));
 }
 
 export async function getBrokerageCrypto(filter: OwnerFilter) {
@@ -1373,23 +1350,6 @@ export async function getInsurance(filter: OwnerFilter) {
   const properties = await prisma.property.findMany();
   const vehicles = await prisma.vehicle.findMany({ orderBy: { createdAt: "asc" } });
   return { names, policies, properties, vehicles };
-}
-
-export async function getChildrenView() {
-  const names = await getNames();
-  const accounts = (await prisma.account.findMany({ include: { item: true } })).filter(
-    (a) => isChildAccountType(a.hausType) || a.owner.startsWith("child:"),
-  );
-  const manuals = await prisma.manualAccount.findMany({
-    where: { hausType: { in: ["529", "custodial", "trump"] } },
-  });
-  const contribs = await prisma.investmentTxn.findMany({
-    where: {
-      accountId: { in: accounts.map((a) => a.id) },
-      date: { gte: new Date(IRS_LIMITS_YEAR, 0, 1) },
-    },
-  });
-  return { names, accounts, manuals, contribs };
 }
 
 /**

@@ -36,10 +36,6 @@ export function monthsBetween(from: Date, to: Date) {
   return (to.getFullYear() - from.getFullYear()) * 12 + (to.getMonth() - from.getMonth());
 }
 
-export function remainingFromOrigination(originalTermMonths: number, origination: Date, asOf = new Date()) {
-  return Math.max(0, originalTermMonths - monthsBetween(origination, asOf));
-}
-
 export function monthlyPi(principal: number, aprPct: number, n: number) {
   if (principal <= 0 || n <= 0) return 0;
   const r = monthlyRate(aprPct);
@@ -69,24 +65,6 @@ export function addMonths(d: Date, n: number) {
   const x = new Date(d.getFullYear(), d.getMonth(), 1);
   x.setMonth(x.getMonth() + n);
   return x;
-}
-
-export function isoMonth(d: Date) {
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-01`;
-}
-
-/** Original loan amount from today's remaining balance after `elapsed` payments of an `originalN`-month loan. */
-export function originalPrincipal(remaining: number, aprPct: number, originalN: number, elapsed: number) {
-  if (remaining <= 0) return 0;
-  if (elapsed <= 0) return remaining;
-  const N = Math.max(elapsed + 1, originalN);
-  const r = monthlyRate(aprPct);
-  if (r === 0) return remaining * N / Math.max(1, N - elapsed);
-  const gN = Math.pow(1 + r, N);
-  const gk = Math.pow(1 + r, elapsed);
-  const den = gN - gk;
-  if (den <= 1e-12) return remaining;
-  return remaining * (gN - 1) / den;
 }
 
 export function amortize(opts: {

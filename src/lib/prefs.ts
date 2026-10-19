@@ -50,11 +50,6 @@ export const MONTH_WINDOWS = ["current", "previous"] as const;
 export type MonthWindow = (typeof MONTH_WINDOWS)[number];
 export const DEFAULT_MONTH_WINDOW: MonthWindow = "current";
 
-export function storedMonthWindow(): MonthWindow | null {
-  const raw = read(PREF_MONTH_WINDOW);
-  return raw && (MONTH_WINDOWS as readonly string[]).includes(raw) ? (raw as MonthWindow) : null;
-}
-
 export function monthDefault(raw: string | null | undefined): MonthWindow {
   return raw === "previous" ? "previous" : DEFAULT_MONTH_WINDOW;
 }

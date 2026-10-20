@@ -3,7 +3,7 @@ import { z } from "zod";
 import { requireSession } from "@/lib/auth";
 import { clearCardPaymentCache } from "@/lib/card-payments";
 import { ensureHousehold, prisma } from "@/lib/db";
-import { ownerOptions } from "@/lib/owners";
+import { hasSpouse, ownerOptions } from "@/lib/owners";
 import { syncAllItems } from "@/lib/plaid-sync";
 import {
   backfillSavedTransactions,
@@ -14,7 +14,8 @@ import {
 import { readProjectionPrefs, writeProjectionPrefs } from "@/lib/projection-prefs";
 import { writeShowGoals } from "@/lib/goals";
 import { readJson } from "@/lib/api";
-import { isCalendarDay } from "@/lib/range";
+import { isCalendarDay, localDayKey } from "@/lib/range";
+import { keepRetireYear } from "@/lib/retirement-snapshot";
 
 export const dynamic = "force-dynamic";
 
@@ -84,8 +85,8 @@ const projectionPrefsSchema = z
     saveOverride: z.number().finite().nullable().optional(),
     healthcareAnnual: z.number().finite().optional(),
     houseAtRetire: z.boolean().optional(),
-    retireAgeA: z.number().finite().optional(),
-    retireAgeB: z.number().finite().optional(),
+    retireAgeA: z.number().finite().nullable().optional(),
+    retireAgeB: z.number().finite().nullable().optional(),
     stopPayA: z.number().finite().nullable().optional(),
     stopPayB: z.number().finite().nullable().optional(),
   })
@@ -134,7 +135,14 @@ export async function PATCH(req: Request) {
         data: { ...rest, birthdateA: toDate(birthdateA), birthdateB: toDate(birthdateB) },
       })
     : previous;
-  const projectionPrefs = projectionPatch ? await writeProjectionPrefs(projectionPatch) : await readProjectionPrefs();
+  // A birthdate typed in or cleared (here or in the planner) keeps the retire year the planner showed before it.
+  const people = (h: { nameB: string; birthdateA: Date | null; birthdateB: Date | null }) => [
+    { key: "A" as const, birthdate: h.birthdateA?.toISOString().slice(0, 10) ?? null },
+    ...(hasSpouse(h) ? [{ key: "B" as const, birthdate: h.birthdateB?.toISOString().slice(0, 10) ?? null }] : []),
+  ];
+  const kept = keepRetireYear({ prefs: await readProjectionPrefs(), before: people(previous), after: people(household), today: localDayKey() });
+  const prefsPatch = kept || projectionPatch ? { ...kept, ...projectionPatch } : null;
+  const projectionPrefs = prefsPatch ? await writeProjectionPrefs(prefsPatch) : await readProjectionPrefs();
   const turnedOn = parsed.data.keepTransactions === true && !previous.keepTransactions;
   const pairingChanged =
     parsed.data.pairCardPayments !== undefined && parsed.data.pairCardPayments !== previous.pairCardPayments;

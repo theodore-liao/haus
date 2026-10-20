@@ -4,7 +4,7 @@ import { HeroCard } from "@/components/hero-card";
 import { withBlurredMoney } from "@/components/blur-money";
 import { annualisedPaychecks, annualisedSpend, getConnectionCount, getEquityComp, getOverview, getReports, getRetirement } from "@/lib/queries";
 import { getOwnerFilter } from "@/lib/request";
-import { givenName, hasSpouse } from "@/lib/owners";
+import { givenName, hasSpouse, isPlaceholderName } from "@/lib/owners";
 import { hausTypeLabel, isChildAccountType } from "@/lib/account-types";
 import { readProjectionPrefs } from "@/lib/projection-prefs";
 import { contributionsPriorQuarter, estimateSaving, retirementSnapshot } from "@/lib/retirement-snapshot";
@@ -103,6 +103,8 @@ export default async function RetirementPage() {
   // Partners retiring in different years: the header names both, as the planner does.
   const nameOfKey = (key: "A" | "B") => {
     const full = key === "A" ? data.names.nameA : data.names.nameB;
+    // A primary still on a placeholder name reads as "you", as in the planner.
+    if (key === "A" && isPlaceholderName(full)) return "you";
     return givenName(full) || full;
   };
   const apart =
@@ -231,6 +233,8 @@ export default async function RetirementPage() {
         <Money value={retirement.reduce((sum, row) => sum + row.balance, 0)} />
       </HeroCard>
       <RetirementPlan
+        // A birthdate typed in or cleared changes the saved retire choices on the server; start the planner over from them.
+        key={`${data.names.birthdateA ?? ""}|${hasSpouse(data.names) ? (data.names.birthdateB ?? "") : ""}`}
         accounts={retirement.length > 0 ? <RetirementAccounts rows={retirement} names={data.names} /> : null}
         childAccounts={childAccounts}
         saveNow={saveNow}

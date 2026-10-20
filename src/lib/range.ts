@@ -37,7 +37,7 @@ export function ymKey(d: Date) {
  * Uses the UTC YYYY-MM-DD, not local getFullYear/getMonth/getDate.
  */
 export function dayKey(d: Date) {
-  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}-${String(d.getUTCDate()).padStart(2, "0")}`;
+  return `${String(d.getUTCFullYear()).padStart(4, "0")}-${String(d.getUTCMonth() + 1).padStart(2, "0")}-${String(d.getUTCDate()).padStart(2, "0")}`;
 }
 
 /**

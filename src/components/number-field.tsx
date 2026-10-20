@@ -221,7 +221,8 @@ export function NumberField({
 
 /**
  * A labeled date box, laid out like NumberField. The date applies when you press Enter or leave the box, never while
- * its parts are typed, so a half-typed year is never used. Something unusable says why underneath and is never applied.
+ * its parts are typed, so a half-typed year is never used. Escape puts the box back. Something unusable says why
+ * underneath and is never applied.
  */
 export function DateField({
   label,
@@ -246,12 +247,12 @@ export function DateField({
   const id = useId();
   const [draft, setDraft] = useState(value ?? "");
   const [error, setError] = useState<string | null>(null);
-  const problem = (v: string) => (isCalendarDay(v) ? (check?.(v) ?? null) : "Enter a real date.");
+  const problem = (v: string) => (isCalendarDay(v) ? (check?.(v) ?? null) : "Enter a whole, real date.");
   const apply = (input: HTMLInputElement) => {
     const v = input.value;
     if (!v) {
-      // A date with a part still missing reads as blank, so say what's missing rather than dropping it.
-      setError(input.validity.badInput ? "Enter the whole date." : null);
+      // A date with a part missing, or one that doesn't exist (30 February), reads as blank: say so rather than drop it.
+      setError(input.validity.badInput ? "Enter a whole, real date." : null);
       return;
     }
     const why = problem(v);
@@ -274,8 +275,17 @@ export function DateField({
           max={max}
           enterKeyHint="done"
           aria-invalid={error ? true : undefined}
+          aria-describedby={error || help ? `${id}-note` : undefined}
           data-empty={draft === "" ? "" : undefined}
           value={draft}
+          // Clicking opens the calendar, as every other date box in Haus does.
+          onClick={(e) => {
+            try {
+              e.currentTarget.showPicker?.();
+            } catch {
+              /* unsupported */
+            }
+          }}
           onChange={(e) => {
             setDraft(e.target.value);
             if (error && e.target.value && !problem(e.target.value)) setError(null);
@@ -284,6 +294,11 @@ export function DateField({
             if (e.key === "Enter") {
               e.preventDefault();
               apply(e.currentTarget);
+            } else if (e.key === "Escape") {
+              // Set the box itself too: a half-typed date reads as blank, so React alone would leave its parts showing.
+              e.currentTarget.value = value ?? "";
+              setDraft(value ?? "");
+              setError(null);
             }
           }}
           onBlur={(e) => {
@@ -292,12 +307,15 @@ export function DateField({
           }}
         />
       </div>
+      {/* Read out when it changes: "Saving…", or why the date can't be used. */}
       {error ? (
-        <p className="field-note" data-error="">
+        <p id={`${id}-note`} className="field-note" data-error="" aria-live="polite">
           {error}
         </p>
       ) : help ? (
-        <p className="field-note">{help}</p>
+        <p id={`${id}-note`} className="field-note" aria-live="polite">
+          {help}
+        </p>
       ) : null}
     </div>
   );

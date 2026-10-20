@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { retireTiming, retirementSnapshot } from "./retirement-snapshot";
+import { keepRetireYear, retireTiming, retirementSnapshot } from "./retirement-snapshot";
 
 const TODAY = "2026-10-16";
 // A is 40 this year, B is 45.
@@ -84,4 +84,53 @@ test("moving one partner keeps an older partner pinned past 65 where they were",
   assert.equal(b.retireAge, 68);
   assert.equal(b.retireYear, 2049);
   assert.equal(b.max, 68);
+});
+
+test("typing in the second birthdate keeps the household's retire year, and clears per-partner ages left from before", () => {
+  const today = "2026-10-20";
+  const before = [
+    { key: "A" as const, birthdate: "1990-04-12" },
+    { key: "B" as const, birthdate: null },
+  ];
+  const after = [before[0], { key: "B" as const, birthdate: "1991-09-03" }];
+  // Alex retires at 60 in 2050; 60 and 55 are left over from a time both birthdates were set.
+  const prefs = { holderKey: "B" as const, retireAge: 60, retireAgeA: 60, retireAgeB: 55 };
+  const kept = keepRetireYear({ prefs, before, after, today })!;
+  assert.deepEqual(kept, { retireAgeA: null, retireAgeB: null, holderKey: "A", retireAge: 60 });
+  const now = retireTiming({ prefs: { ...prefs, ...kept }, holders: after, today });
+  assert.equal(now.retireYear, 2050);
+  assert.equal(now.early, null);
+  assert.deepEqual(now.partners?.map((p) => p.retireYear), [2050, 2050]);
+});
+
+test("the first birthdate keeps the year the years slider chose, and clearing it goes back to years", () => {
+  const today = "2026-10-20";
+  const none = [{ key: "A" as const, birthdate: null }];
+  const one = [{ key: "A" as const, birthdate: "1980-05-05" }];
+  const kept = keepRetireYear({ prefs: { yearsFallback: 10 }, before: none, after: one, today })!;
+  assert.equal(kept.retireAge, 56);
+  assert.equal(retireTiming({ prefs: { yearsFallback: 10, ...kept }, holders: one, today }).retireYear, 2036);
+  const back = keepRetireYear({ prefs: { retireAge: 56 }, before: one, after: none, today })!;
+  assert.equal(back.yearsFallback, 10);
+  assert.equal(retireTiming({ prefs: back, holders: none, today }).retireYear, 2036);
+});
+
+test("clearing one partner's birthdate keeps the year the household finishes working", () => {
+  const today = "2026-10-20";
+  const both = [
+    { key: "A" as const, birthdate: "1990-04-12" },
+    { key: "B" as const, birthdate: "1991-09-03" },
+  ];
+  const onlyA = [both[0], { key: "B" as const, birthdate: null }];
+  // Sam retires in 2046 and Alex in 2050: the household is retired in 2050.
+  const prefs = { retireAge: 60, retireAgeA: 60, retireAgeB: 55 };
+  const kept = keepRetireYear({ prefs, before: both, after: onlyA, today })!;
+  assert.equal(retireTiming({ prefs: { ...prefs, ...kept }, holders: onlyA, today }).retireYear, 2050);
+});
+
+test("correcting a birthdate keeps the ages chosen, so nothing is rewritten", () => {
+  const today = "2026-10-20";
+  const before = [{ key: "A" as const, birthdate: "1990-04-12" }];
+  const after = [{ key: "A" as const, birthdate: "1989-04-12" }];
+  assert.equal(keepRetireYear({ prefs: { retireAge: 60 }, before, after, today }), null);
 });

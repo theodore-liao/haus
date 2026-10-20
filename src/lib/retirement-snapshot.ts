@@ -162,6 +162,35 @@ export function retireTiming(input: {
   return { ...base, retireAge: toTimeline(retireYear), retireYear, partners, early };
 }
 
+/**
+ * Saved planner choices that keep the household's retire year when birthdates come or go, so typing one in (or clearing
+ * one) never rewrites the plan. Null while the same people have birthdates: an age someone chose stays theirs, even when
+ * a birthdate is corrected. Per-partner ages left from an earlier time both birthdates were set are cleared, so both
+ * partners start on the household's year again.
+ */
+export function keepRetireYear(input: {
+  prefs: ProjectionPrefs;
+  before: { key: "A" | "B"; birthdate: string | null }[];
+  after: { key: "A" | "B"; birthdate: string | null }[];
+  today: string;
+}): ProjectionPrefs | null {
+  const known = (list: typeof input.before) => list.filter((h): h is { key: "A" | "B"; birthdate: string } => Boolean(h.birthdate));
+  const had = known(input.before).map((h) => h.key).join();
+  const people = known(input.after);
+  if (had === people.map((h) => h.key).join()) return null;
+  const year = retireTiming({ prefs: input.prefs, holders: input.before, today: input.today }).retireYear;
+  const currentYear = Number(input.today.slice(0, 4));
+  const cleared: ProjectionPrefs = { retireAgeA: null, retireAgeB: null };
+  if (!people.length) {
+    const D = PLAN_DEFAULTS;
+    return { ...cleared, yearsFallback: Math.min(D.retireMax - D.assumedAge, Math.max(1, year - currentYear)) };
+  }
+  // The timeline stays on the same person when they still have a birthdate, so the single slider means what it did.
+  const wasHolder = retireTiming({ prefs: input.prefs, holders: input.before, today: input.today }).holderKey;
+  const holder = people.find((h) => h.key === wasHolder) ?? people[0];
+  return { ...cleared, holderKey: holder.key, retireAge: Math.floor(holderAge(holder.birthdate, input.today)) + (year - currentYear) };
+}
+
 export type RetirementSnapshot = {
   retireAge: number;
   /** False when no birthdate is set and the plan counts years from an assumed age. */

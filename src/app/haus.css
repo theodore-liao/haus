@@ -910,7 +910,7 @@ body *:hover,
 }
 
 /* An empty date box's mm/dd/yyyy guide is as faint as other boxes' placeholders until you type in it. */
-.field-box input[type="date"][data-empty]:not(:focus) {
+input[type="date"][data-empty]:not(:focus) {
   color: color-mix(in srgb, var(--muted-foreground) 60%, transparent);
 }
 

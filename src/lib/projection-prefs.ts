@@ -44,9 +44,9 @@ export type ProjectionPrefs = {
   healthcareAnnual?: number;
   /** Buy the house the year of retiring (the default), rather than at `houseAge`. */
   houseAtRetire?: boolean;
-  /** Each partner's own retire age, on their own age. Unset follows `retireAge`, so both retire the same year. */
-  retireAgeA?: number;
-  retireAgeB?: number;
+  /** Each partner's own retire age, on their own age. Unset follows `retireAge`, so both retire the same year; null clears it. */
+  retireAgeA?: number | null;
+  retireAgeB?: number | null;
   /** A partner's yearly take-home pay, which stops when they retire before the other. Null uses half the household's. */
   stopPayA?: number | null;
   stopPayB?: number | null;

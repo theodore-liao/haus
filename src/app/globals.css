@@ -82,10 +82,10 @@ input[type="month"] {
   cursor: pointer;
 }
 
+/* The dark color scheme already draws the calendar button light; inverting it again made it near-black on black. */
 input[type="date"]::-webkit-calendar-picker-indicator {
   cursor: pointer;
   opacity: 1;
-  filter: invert(0.85);
 }
 
 button:not(:disabled),

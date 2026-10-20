@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { format } from "date-fns";
 import { toast } from "sonner";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -20,13 +20,14 @@ import { TransactionsTable } from "../transactions/table";
 import { TxnExport } from "@/components/txn-export";
 import type { PlanChildPref } from "@/lib/projection-prefs";
 import type { MonthWindow } from "@/lib/prefs";
-import { hasSpouse, isPlaceholderName } from "@/lib/owners";
+import { givenName, hasSpouse, isPlaceholderName } from "@/lib/owners";
 import { isCalendarDay, localDayKey } from "@/lib/range";
 
 type ChildRow = { id: string; name: string };
 
+/** "Sam's birthdate", as the Retirement planner says it; "Your" or "Partner's" while the name is blank or a placeholder. */
 function birthdateLabel(name: string, fallback: string) {
-  return isPlaceholderName(name) ? `${fallback} birthdate` : `${name.trim()} birthdate`;
+  return isPlaceholderName(name) ? `${fallback} birthdate` : `${givenName(name)}'s birthdate`;
 }
 
 export function SettingsClient({
@@ -83,8 +84,13 @@ export function SettingsClient({
   const todayKey = localDayKey();
   const dobProblem = (v: string) =>
     !v ? null : !isCalendarDay(v) ? "Enter a real date." : v > todayKey ? "Enter a date in the past." : v < "1900-01-01" ? "Enter a year from 1900 on." : null;
-  const badDobA = dobProblem(dobA);
-  const badDobB = hasSpouse({ nameB: j }) ? dobProblem(dobB) : null;
+  // A date with a part missing, or one that doesn't exist, reads as blank; the box itself knows, so ask it on Save.
+  const dobARef = useRef<HTMLInputElement>(null);
+  const dobBRef = useRef<HTMLInputElement>(null);
+  const [dobHalf, setDobHalf] = useState({ a: false, b: false });
+  const half = "Enter a whole, real date.";
+  const badDobA = dobHalf.a ? half : dobProblem(dobA);
+  const badDobB = hasSpouse({ nameB: j }) ? (dobHalf.b ? half : dobProblem(dobB)) : null;
   const [busy, setBusy] = useState(false);
   const [pairCards, setPairCards] = useState(pairCardPayments);
   const [keepTxns, setKeepTxns] = useState(keepTransactions);
@@ -98,7 +104,9 @@ export function SettingsClient({
 
   async function saveNames() {
     setBirthChecked(true);
-    if (badBirth || badDobA || badDobB) return;
+    const halfNow = { a: Boolean(dobARef.current?.validity.badInput), b: hasSpouse({ nameB: j }) && Boolean(dobBRef.current?.validity.badInput) };
+    setDobHalf(halfNow);
+    if (badBirth || badDobA || badDobB || halfNow.a || halfNow.b) return;
     setBusy(true);
     try {
       const res = await fetch("/api/household", {
@@ -291,7 +299,7 @@ export function SettingsClient({
         <CardHeader>
           <CardTitle>Household</CardTitle>
         </CardHeader>
-        <CardContent className="grid items-end gap-4 sm:grid-cols-2">
+        <CardContent className="grid items-start gap-4 sm:grid-cols-2">
           <div>
             <Label>Primary</Label>
             <Input className="mt-1.5" value={t} onChange={(e) => setT(e.target.value)} />
@@ -303,13 +311,18 @@ export function SettingsClient({
           <div>
             <Label>{birthdateLabel(t, "Your")}</Label>
             <Input
+              ref={dobARef}
               type="date"
               className="mt-1.5"
               min="1900-01-01"
               max={todayKey}
               value={dobA}
+              data-empty={dobA ? undefined : ""}
               aria-invalid={birthChecked && badDobA ? true : undefined}
-              onChange={(e) => setDobA(e.target.value)}
+              onChange={(e) => {
+                setDobA(e.target.value);
+                setDobHalf((cur) => ({ ...cur, a: e.target.validity.badInput }));
+              }}
             />
             {birthChecked && badDobA ? <p className="field-note mt-1" data-error="">{badDobA}</p> : null}
           </div>
@@ -317,13 +330,18 @@ export function SettingsClient({
             <div>
               <Label>{birthdateLabel(j, "Partner's")}</Label>
               <Input
+                ref={dobBRef}
                 type="date"
                 className="mt-1.5"
                 min="1900-01-01"
                 max={todayKey}
                 value={dobB}
+                data-empty={dobB ? undefined : ""}
                 aria-invalid={birthChecked && badDobB ? true : undefined}
-                onChange={(e) => setDobB(e.target.value)}
+                onChange={(e) => {
+                  setDobB(e.target.value);
+                  setDobHalf((cur) => ({ ...cur, b: e.target.validity.badInput }));
+                }}
               />
               {birthChecked && badDobB ? <p className="field-note mt-1" data-error="">{badDobB}</p> : null}
             </div>

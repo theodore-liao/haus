@@ -118,12 +118,13 @@ const SAVE_TOAST = "planner-save";
 function usePersist() {
   const pending = useRef<ProjectionPrefs>({});
   const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
-  const flush = useCallback(() => {
+  /** Sends what is waiting now; the promise settles once the server has answered. */
+  const flush = useCallback(async () => {
     clearTimeout(timer.current);
     const body = pending.current;
     if (Object.keys(body).length === 0) return;
     pending.current = {};
-    fetch("/api/household", {
+    await fetch("/api/household", {
       method: "PATCH",
       keepalive: true,
       headers: { "Content-Type": "application/json" },
@@ -133,10 +134,11 @@ function usePersist() {
       .catch(saveFailed);
   }, []);
   useEffect(() => {
-    window.addEventListener("pagehide", flush);
+    const leave = () => void flush();
+    window.addEventListener("pagehide", leave);
     return () => {
-      window.removeEventListener("pagehide", flush);
-      flush();
+      window.removeEventListener("pagehide", leave);
+      void flush();
     };
   }, [flush]);
   const persist = useCallback(
@@ -147,7 +149,7 @@ function usePersist() {
     },
     [flush],
   );
-  return persist;
+  return { persist, flush };
 }
 
 function saveFailed() {
@@ -220,7 +222,7 @@ export function RetirementPlan({
   childBalances: number;
   householdChildren: { id: string; name: string }[];
 }) {
-  const persist = usePersist();
+  const { persist, flush: flushPrefs } = usePersist();
   useFreshOnBack();
   const withDob = holders.filter((holder) => holder.birthdate);
   const [holderKey, setHolderKey] = useState<"A" | "B">(
@@ -255,8 +257,8 @@ export function RetirementPlan({
   const [todayMoney, setTodayMoney] = useState(saved.todayMoney !== false);
   const [saveOverride, setSaveOverride] = useState<number | null>(saved.saveOverride ?? null);
   const [healthcareAnnual, setHealthcareAnnual] = useState<number>(saved.healthcareAnnual ?? PLAN_DEFAULTS.healthcareAnnual);
-  const [retireAgeA, setRetireAgeA] = useState<number | undefined>(saved.retireAgeA);
-  const [retireAgeB, setRetireAgeB] = useState<number | undefined>(saved.retireAgeB);
+  const [retireAgeA, setRetireAgeA] = useState<number | undefined>(saved.retireAgeA ?? undefined);
+  const [retireAgeB, setRetireAgeB] = useState<number | undefined>(saved.retireAgeB ?? undefined);
   const [stopPayA, setStopPayA] = useState<number | null>(saved.stopPayA ?? null);
   const [stopPayB, setStopPayB] = useState<number | null>(saved.stopPayB ?? null);
 
@@ -278,25 +280,34 @@ export function RetirementPlan({
   const { ageNow, currentYear, minRetire, maxRetire, retireAge, retireYear, planAge, partners, early } = timing;
   // Whose age the axis uses, as the timing settled it: a saved choice whose birthdate is gone falls back to the other.
   const holder = holders.find((item) => item.key === timing.holderKey) ?? holders[0];
-  // First names, as the sidebar shows them: these labels sit in narrow places.
+  // First names, as the sidebar shows them: these labels sit in narrow places. While Settings still holds a placeholder
+  // for the primary ("New User"), the planner says "you" instead. A spouse always has a real name, or there is none.
+  const isYou = (key: "A" | "B") => key === "A" && isPlaceholderName(holders.find((item) => item.key === key)?.name);
   const nameOf = (key: "A" | "B") => {
+    if (isYou(key)) return "you";
     const full = holders.find((item) => item.key === key)?.name ?? "";
-    return givenName(full) || full || (key === "A" ? "Partner 1" : "Partner 2");
+    return givenName(full) || full || "Partner 2";
   };
+  const capital = (text: string) => text.charAt(0).toUpperCase() + text.slice(1);
+  /** "Sam retires", "You retire". */
+  const retires = (key: "A" | "B") => `${capital(nameOf(key))} ${isYou(key) ? "retire" : "retires"}`;
+  /** "Sam's", "your". */
+  const whose = (key: "A" | "B") => (isYou(key) ? "your" : `${nameOf(key)}'s`);
   /** Where a partner's retire slider goes until their birthdate is known. */
-  const birthdateBox = (person: Holder) => {
-    const placeholder = isPlaceholderName(person.name);
-    const name = nameOf(person.key);
-    return (
-      <BirthdateBox
-        key={person.key}
-        who={person.key}
-        label={placeholder ? (person.key === "A" ? "Your birthdate" : "Partner's birthdate") : `${name}'s birthdate`}
-        help={holders.length > 1 ? `Add it to choose when ${placeholder ? "they retire" : `${name} retires`}.` : "Add it to use your real age."}
-        today={today}
-      />
-    );
-  };
+  const birthdateBox = (person: Holder) => (
+    <BirthdateBox
+      key={person.key}
+      who={person.key}
+      label={`${capital(whose(person.key))} birthdate`}
+      help={
+        holders.length > 1
+          ? `Add it to choose when ${isYou(person.key) ? "you retire" : `${nameOf(person.key)} retires`}.`
+          : "Add it to use your real age."
+      }
+      today={today}
+      beforeSave={flushPrefs}
+    />
+  );
   const lastKey = early ? (early.key === "A" ? "B" : "A") : null;
   /** Moving one partner's slider pins both ages, so neither shifts when the other moves. */
   function setPartnerAge(key: "A" | "B", age: number) {
@@ -424,7 +435,7 @@ export function RetirementPlan({
                   label="Whose age"
                   value={timing.holderKey}
                   onChange={bind("holderKey", setHolderKey)}
-                  options={withDob.map((person) => ({ value: person.key, label: person.name }))}
+                  options={withDob.map((person) => ({ value: person.key, label: capital(nameOf(person.key)) }))}
                 />
               </div>
             ) : null}
@@ -488,16 +499,23 @@ export function RetirementPlan({
                       value={p.retireAge}
                       min={p.min}
                       max={p.max}
-                      label={`${nameOf(p.key)} retires at ${p.retireAge}`}
-                      ariaLabel={`${nameOf(p.key)} retires at`}
+                      label={`${retires(p.key)} at ${p.retireAge}`}
+                      ariaLabel={`${retires(p.key)} at`}
                       note={String(p.retireYear)}
                       onChange={(v) => setPartnerAge(p.key, v)}
                     />
                   ))}
                   {early && lastKey ? (
-                    <p className="footnote planner-sliders-note">
-                      From {early.year} to {retireYear} only {nameOf(lastKey)} works, so you save about <Money value={early.pay} approx /> a year less (
-                      {nameOf(early.key)}&apos;s take-home pay, under Assumptions).
+                    <p className="footnote prose-num planner-sliders-note">
+                      From {early.year} to {retireYear} only {isYou(lastKey) ? "you work" : `${nameOf(lastKey)} works`}
+                      {early.pay > 0 ? (
+                        <>
+                          , so you save about <Money value={early.pay} approx /> a year less ({whose(early.key)} take-home pay, under Assumptions).
+                        </>
+                      ) : (
+                        // No paychecks to take half of: say which box counts those years rather than "$0 less".
+                        `. Enter ${whose(early.key)} take-home pay under Assumptions to count those years.`
+                      )}
                     </p>
                   ) : null}
                 </div>
@@ -511,9 +529,10 @@ export function RetirementPlan({
                         value={retireAge}
                         min={minRetire}
                         max={maxRetire}
-                        label={`${nameOf(person.key)} retires at ${retireAge}`}
-                        ariaLabel={`${nameOf(person.key)} retires at`}
-                        note={String(retireYear)}
+                        label={`${retires(person.key)} at ${retireAge}`}
+                        ariaLabel={`${retires(person.key)} at`}
+                        // The partner without a birthdate retires the same year until theirs is in.
+                        note={`${retireYear}, ${nameOf(person.key === "A" ? "B" : "A")} too`}
                         onChange={bind("retireAge", setRetireAge)}
                       />
                     ) : (
@@ -527,7 +546,7 @@ export function RetirementPlan({
                   min={minRetire}
                   max={maxRetire}
                   label={`Retire at ${retireAge}`}
-                  note={`${retireYear}, when ${nameOf(holder.key)} is ${retireAge}`}
+                  note={`${retireYear}, when ${isYou(holder.key) ? "you're" : `${nameOf(holder.key)} is`} ${retireAge}`}
                   onChange={bind("retireAge", setRetireAge)}
                 />
               ) : (
@@ -559,8 +578,8 @@ export function RetirementPlan({
                 incomeAge={otherIncome > 0 ? otherIncomeAge : null}
                 medicare={healthcareAnnual > 0 && retireAge < MEDICARE_AGE ? MEDICARE_AGE : null}
                 retireAge={retireAge}
-                retireLabel={early && lastKey ? `${nameOf(lastKey)} retires` : "Retire"}
-                firstStop={early && lastKey ? { age: early.age, name: nameOf(early.key), pay: early.pay } : null}
+                retireLabel={early && lastKey ? retires(lastKey) : "Retire"}
+                firstStop={early && lastKey ? { age: early.age, name: nameOf(early.key), you: isYou(early.key), pay: early.pay } : null}
                 houseAge={housePrice != null && houseAge != null && houseAge > planAge ? houseAge : null}
                 kids={kids
                   .filter((kid): kid is PlanChildPref & { birthYear: number } => kid.birthYear != null)
@@ -831,7 +850,7 @@ export function RetirementPlan({
                   />
                   {early && lastKey ? (
                     <NumberField
-                      label={`${nameOf(early.key)}'s take-home pay`}
+                      label={`${capital(whose(early.key))} take-home pay`}
                       prefix="$"
                       money
                       allowBlank
@@ -842,13 +861,13 @@ export function RetirementPlan({
                       onValue={(v) => setStopPay(early.key, v)}
                       info={
                         <>
-                          {nameOf(early.key)}&apos;s yearly pay after tax, in today&apos;s prices. It stops in {early.year}, when {nameOf(early.key)} retires; until{" "}
-                          {nameOf(lastKey)} retires in {retireYear}, you save that much less a year, and draw on savings if spending is more than{" "}
-                          {nameOf(lastKey)}&apos;s pay covers.
+                          {capital(whose(early.key))} yearly pay after tax, in today&apos;s prices. It stops in {early.year}, when{" "}
+                          {isYou(early.key) ? "you retire" : `${nameOf(early.key)} retires`}; until {isYou(lastKey) ? "you retire" : `${nameOf(lastKey)} retires`} in{" "}
+                          {retireYear}, you save that much less a year, and draw on savings if spending is more than {whose(lastKey)} pay covers.
                           <PaySources saveNow={saveNow} onPick={(v) => setStopPay(early.key, v)} />
                         </>
                       }
-                      help={<PayHelp own={early.payOwn} pay={early.pay} saveNow={saveNow} name={nameOf(early.key)} onPick={(v) => setStopPay(early.key, v)} />}
+                      help={<PayHelp own={early.payOwn} pay={early.pay} saveNow={saveNow} whose={whose(early.key)} onPick={(v) => setStopPay(early.key, v)} />}
                     />
                   ) : null}
                 </div>
@@ -926,13 +945,14 @@ function PayHelp({
   own,
   pay,
   saveNow,
-  name,
+  whose,
   onPick,
 }: {
   own: boolean;
   pay: number;
   saveNow: SaveNow | null;
-  name: string;
+  /** "Sam's", or "your". */
+  whose: string;
   onPick: (v: number | null) => void;
 }) {
   if (own) {
@@ -944,10 +964,10 @@ function PayHelp({
   }
   return pay > 0 ? (
     <>
-      Using half your household&apos;s, <Money value={pay} approx />. Enter {name}&apos;s own.
+      Using half your household&apos;s, <Money value={pay} approx />. Enter {whose} own.
     </>
   ) : (
-    <>Enter {name}&apos;s pay to count the years only one of you works.</>
+    <>Enter {whose} pay to count the years only one of you works.</>
   );
 }
 
@@ -971,13 +991,27 @@ function PaySources({ saveNow, onPick }: { saveNow: SaveNow | null; onPick: (v: 
  * A partner's birthdate, asked for where their retire slider goes. It saves to the household, as Settings does, and the
  * page comes back with the slider in its place.
  */
-function BirthdateBox({ who, label, help, today }: { who: "A" | "B"; label: string; help: string; today: string }) {
+function BirthdateBox({
+  who,
+  label,
+  help,
+  today,
+  beforeSave,
+}: {
+  who: "A" | "B";
+  label: string;
+  help: string;
+  today: string;
+  /** Sends planner changes still waiting to save, so the retire year the server keeps is the one on screen. */
+  beforeSave: () => Promise<void>;
+}) {
   const router = useRouter();
   const [saving, setSaving] = useState(false);
   const [refreshing, startRefresh] = useTransition();
   async function save(day: string) {
     setSaving(true);
     try {
+      await beforeSave();
       const res = await fetch("/api/household", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
@@ -1546,7 +1580,7 @@ function PlannerChart({
   retireAge: number;
   retireLabel: string;
   /** A partner who stops working before that, when the two retire apart. */
-  firstStop: { age: number; name: string; pay: number } | null;
+  firstStop: { age: number; name: string; you: boolean; pay: number } | null;
   houseAge: number | null;
   /** Age other income (Social Security, a pension) starts, when there is any. */
   incomeAge: number | null;
@@ -1631,7 +1665,9 @@ function PlannerChart({
   const grows = yours != null && (rows[rows.length - 1].yours ?? 0) > (rows.find((r) => r.age === retireAge)?.yours ?? 0) * 1.05;
   const houseAtRetire = houseAge != null && houseAge === retireAge;
   const events = [
-    ...(firstStop && inRange(firstStop.age) ? [{ age: firstStop.age, label: `${firstStop.name} retires`, color: "#cbb892" }] : []),
+    ...(firstStop && inRange(firstStop.age)
+      ? [{ age: firstStop.age, label: firstStop.you ? "You retire" : `${firstStop.name} retires`, color: "#cbb892" }]
+      : []),
     { age: retireAge, label: houseAtRetire ? `${retireLabel} + house` : retireLabel, color: "#cbb892" },
     ...(inRange(houseAge) && !houseAtRetire ? [{ age: houseAge!, label: "House", color: HOUSE }] : []),
     ...(inRange(incomeAge) ? [{ age: incomeAge!, label: "Income starts", color: "#8fa0b8" }] : []),
@@ -1647,8 +1683,15 @@ function PlannerChart({
             <InfoTip label="How to read this chart">
               {firstStop ? (
                 <>
-                  Once {firstStop.name} retires, saving drops by {firstStop.name}&apos;s take-home pay, about <Money value={firstStop.pay} approx /> a year. Saving
-                  stops when you&apos;re both retired;
+                  Once {firstStop.you ? "you retire" : `${firstStop.name} retires`}, saving drops by {firstStop.you ? "your" : `${firstStop.name}'s`} take-home
+                  pay{firstStop.pay > 0 ? (
+                    <>
+                      , about <Money value={firstStop.pay} approx /> a year
+                    </>
+                  ) : (
+                    " (enter it under Assumptions)"
+                  )}
+                  . Saving stops when you&apos;re both retired;
                 </>
               ) : (
                 "Saving stops when you retire;"
@@ -1785,7 +1828,7 @@ function ChartTip({
   byAge: boolean;
   yourSaving: number | null;
   retireAge: number;
-  firstStop: { age: number; name: string } | null;
+  firstStop: { age: number; name: string; you: boolean } | null;
 }) {
   if (!active || !payload?.length) return null;
   const row = payload[0].payload;
@@ -1795,7 +1838,7 @@ function ChartTip({
       <div className="mb-1 text-muted-foreground">
         {row.year}
         {byAge ? `, age ${row.age}` : ""}
-        {row.age > retireAge ? " · retired" : firstStop && row.age > firstStop.age ? ` · ${firstStop.name} retired` : ""}
+        {row.age > retireAge ? " · retired" : firstStop && row.age > firstStop.age ? (firstStop.you ? " · you're retired" : ` · ${firstStop.name} retired`) : ""}
       </div>
       {row.yours != null && yourSaving != null ? (
         <div className="num">

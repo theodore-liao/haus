@@ -3,6 +3,7 @@ import { z } from "zod";
 import { requireSession } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { snapshotNetWorth } from "@/lib/plaid-sync";
+import { bodyId, calendarDay, readJson, updateOrGone } from "@/lib/api";
 
 export const dynamic = "force-dynamic";
 
@@ -14,7 +15,7 @@ const schema = z.object({
   model: z.string().optional(),
   vin: z.string().optional(),
   estimate: z.coerce.number(),
-  asOfDate: z.string(),
+  asOfDate: calendarDay,
   owner: z.string(),
   loanAccountId: z.string().nullable().optional(),
   loanBalance: z.coerce.number().nullable().optional(),
@@ -23,7 +24,7 @@ const schema = z.object({
 
 export async function POST(req: Request) {
   await requireSession();
-  const parsed = schema.safeParse(await req.json());
+  const parsed = schema.safeParse(await readJson(req));
   if (!parsed.success) return NextResponse.json({ error: "Invalid payload." }, { status: 400 });
   const d = parsed.data;
   const data = {
@@ -39,18 +40,21 @@ export async function POST(req: Request) {
     loanBalance: d.loanBalance ?? null,
     notes: d.notes,
   };
-  const row = d.id
-    ? await prisma.vehicle.update({ where: { id: d.id }, data })
+  const id = d.id;
+  const row = id
+    ? await updateOrGone(() => prisma.vehicle.update({ where: { id }, data }))
     : await prisma.vehicle.create({ data });
+  if (row instanceof Response) return row;
   await snapshotNetWorth();
   return NextResponse.json({ ok: true, row });
 }
 
 export async function DELETE(req: Request) {
   await requireSession();
-  const { id } = (await req.json()) as { id?: string };
+  const id = bodyId(await readJson(req));
   if (!id) return NextResponse.json({ error: "id required" }, { status: 400 });
-  await prisma.vehicle.delete({ where: { id } });
+  // Already gone (removed on another device, or a second click) counts as done.
+  await prisma.vehicle.deleteMany({ where: { id } });
   await snapshotNetWorth();
   return NextResponse.json({ ok: true });
 }

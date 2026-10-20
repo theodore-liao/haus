@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { requireSession } from "@/lib/auth";
 import { deleteBudget, setBudget } from "@/lib/budgets";
+import { readJson } from "@/lib/api";
 
 export const dynamic = "force-dynamic";
 
@@ -12,7 +13,7 @@ const payload = z.object({
 
 export async function POST(req: Request) {
   await requireSession();
-  const parsed = payload.safeParse(await req.json());
+  const parsed = payload.safeParse(await readJson(req));
   if (!parsed.success) return NextResponse.json({ error: "Invalid budget." }, { status: 400 });
   try {
     const row = await setBudget(parsed.data.category, parsed.data.monthly);
@@ -24,7 +25,7 @@ export async function POST(req: Request) {
 
 export async function PATCH(req: Request) {
   await requireSession();
-  const parsed = payload.safeParse(await req.json());
+  const parsed = payload.safeParse(await readJson(req));
   if (!parsed.success) return NextResponse.json({ error: "Invalid budget." }, { status: 400 });
   try {
     const row = await setBudget(parsed.data.category, parsed.data.monthly);
@@ -36,7 +37,7 @@ export async function PATCH(req: Request) {
 
 export async function DELETE(req: Request) {
   await requireSession();
-  const parsed = z.object({ category: z.string().trim().min(1).max(80) }).safeParse(await req.json());
+  const parsed = z.object({ category: z.string().trim().min(1).max(80) }).safeParse(await readJson(req));
   if (!parsed.success) return NextResponse.json({ error: "Invalid budget." }, { status: 400 });
   await deleteBudget(parsed.data.category);
   return NextResponse.json({ ok: true });

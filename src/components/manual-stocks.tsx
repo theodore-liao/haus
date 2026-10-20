@@ -156,7 +156,7 @@ export function ManualStockBox({
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify(body),
               });
-              const data = await res.json();
+              const data = await res.json().catch(() => ({}));
               if (!res.ok) toast.error(data.error ?? "Could not save.");
               else {
                 toast.success("Manual holding added.");
@@ -371,7 +371,7 @@ export function ManualStockFormDialog({
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify(body),
               });
-              const data = await res.json();
+              const data = await res.json().catch(() => ({}));
               if (!res.ok) toast.error(data.error ?? "Could not save.");
               else {
                 toast.success(existing ? "Manual holding updated." : "Manual holding added.");

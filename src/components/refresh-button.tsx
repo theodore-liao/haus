@@ -6,6 +6,9 @@ import { RefreshCw } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "./ui/button";
 
+// One automatic refresh per page load, even when React mounts the shell twice in development.
+let autoStarted = false;
+
 export function RefreshButton({
   lastSynced,
   iconOnly,
@@ -19,7 +22,8 @@ export function RefreshButton({
   const router = useRouter();
   const [busy, setBusy] = useState(false);
 
-  async function refresh(force = true) {
+  /** `quiet`: the automatic refresh on opening Haus says nothing when it works; only a press of the button does. */
+  async function refresh(force = true, quiet = false) {
     setBusy(true);
     try {
       const res = await fetch("/api/refresh", {
@@ -34,7 +38,7 @@ export function RefreshButton({
         return;
       }
       if (data.skipped) return;
-      toast.success(data.message ?? "Ledger refreshed.");
+      if (!quiet) toast.success(data.message ?? "Ledger refreshed.");
       router.refresh();
     } catch {
       toast.error("Refresh failed. Check your connection and try again.");
@@ -44,10 +48,12 @@ export function RefreshButton({
   }
 
   useEffect(() => {
-    if (!autoSync) return;
+    if (!autoSync || autoStarted) return;
     const stale =
       !lastSynced || Date.now() - new Date(lastSynced).getTime() > 4 * 60 * 60 * 1000;
-    if (stale) refresh(false);
+    if (!stale) return;
+    autoStarted = true;
+    refresh(false, true);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 

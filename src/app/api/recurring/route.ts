@@ -7,6 +7,7 @@ import { getReports } from "@/lib/queries";
 import { getOwnerFilter } from "@/lib/request";
 import { billKey } from "@/lib/recurring";
 import { readRecurringMarks, writeRecurringMarks } from "@/lib/recurring-marks";
+import { readJson } from "@/lib/api";
 
 export const dynamic = "force-dynamic";
 
@@ -35,7 +36,7 @@ export async function GET(req: Request) {
 /** List a merchant under a kind and cadence, or take it off the list. */
 export async function POST(req: Request) {
   await requireSession();
-  const parsed = schema.safeParse(await req.json());
+  const parsed = schema.safeParse(await readJson(req));
   if (!parsed.success) return NextResponse.json({ error: "Invalid payload." }, { status: 400 });
   const { merchant, kind, cadence } = parsed.data;
   const key = billKey(merchant);

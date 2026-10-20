@@ -67,3 +67,6 @@ export function shownPolicies<T extends SlotPolicy>(policies: T[], memberIds: st
   add(policies.find((p) => p.type === "home" && !p.vehicleId));
   return [...shown.values()];
 }
+
+/** The largest card image or PDF an upload takes. next.config.ts lets request bodies this big through the sign-in proxy. */
+export const CARD_UPLOAD_MAX_MB = 25;

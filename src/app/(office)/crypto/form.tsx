@@ -58,7 +58,7 @@ export function AddWallet({
                     owner: fd.get("owner"),
                   }),
                 });
-                const data = await res.json();
+                const data = await res.json().catch(() => ({}));
                 if (!res.ok) {
                   const msg = data.error ?? "Could not add wallet.";
                   setError(msg);
@@ -144,7 +144,7 @@ export function RenameWallet({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action: "rename", id, label: next || null }),
       });
-      const data = await res.json();
+      const data = await res.json().catch(() => ({}));
       if (!res.ok) toast.error(data.error ?? "Could not rename wallet.");
       else {
         setEditing(false);
@@ -218,7 +218,7 @@ export function WalletActions({ id }: { id: string }) {
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify({ action: "sync", id }),
             });
-            const data = await res.json();
+            const data = await res.json().catch(() => ({}));
             if (!res.ok) toast.error(data.error ?? "Sync failed.");
             else {
               toast.success("Wallet synced.");
@@ -274,7 +274,7 @@ export function SyncAllWallets() {
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ action: "sync" }),
           });
-          const data = await res.json();
+          const data = await res.json().catch(() => ({}));
           if (!res.ok) toast.error(data.error ?? "Sync failed.");
           else {
             toast.success("Wallets synced.");

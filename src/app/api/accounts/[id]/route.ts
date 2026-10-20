@@ -4,6 +4,7 @@ import { requireSession } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { isRetirementType } from "@/lib/account-types";
 import { retargetSavedTxnOwner } from "@/lib/saved-txns";
+import { readJson, updateOrGone } from "@/lib/api";
 
 export const dynamic = "force-dynamic";
 
@@ -17,18 +18,21 @@ const schema = z.object({
 export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }> }) {
   await requireSession();
   const { id } = await ctx.params;
-  const parsed = schema.safeParse(await req.json());
+  const parsed = schema.safeParse(await readJson(req));
   if (!parsed.success) return NextResponse.json({ error: "Invalid payload." }, { status: 400 });
   const d = parsed.data;
-  const row = await prisma.account.update({
-    where: { id },
-    data: {
-      owner: d.owner,
-      isRetirement: d.isRetirement ?? (d.retirementKind ? true : undefined),
-      retirementKind: d.retirementKind,
-      hausType: d.hausType,
-    },
-  });
+  const row = await updateOrGone(() =>
+    prisma.account.update({
+      where: { id },
+      data: {
+        owner: d.owner,
+        isRetirement: d.isRetirement ?? (d.retirementKind ? true : undefined),
+        retirementKind: d.retirementKind,
+        hausType: d.hausType,
+      },
+    }),
+  );
+  if (row instanceof Response) return row;
   if (d.hausType && isRetirementType(d.hausType) && d.isRetirement === undefined) {
     await prisma.account.update({
       where: { id },

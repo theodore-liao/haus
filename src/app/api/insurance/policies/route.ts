@@ -4,6 +4,7 @@ import path from "path";
 import { z } from "zod";
 import { requireSession } from "@/lib/auth";
 import { prisma } from "@/lib/db";
+import { calendarDay, readJson, updateOrGone } from "@/lib/api";
 
 export const dynamic = "force-dynamic";
 
@@ -17,17 +18,21 @@ const schema = z.object({
   coverage: z.record(z.string(), z.unknown()).optional(),
   premium: z.number().nullable().optional(),
   billingFrequency: z.string().nullable().optional(),
-  effectiveDate: z.string().nullable().optional(),
-  renewalDate: z.string().nullable().optional(),
+  effectiveDate: calendarDay.nullable().optional(),
+  renewalDate: calendarDay.nullable().optional(),
   propertyId: z.string().nullable().optional(),
   vehicleId: z.string().nullable().optional(),
   hsaEligible: z.boolean().optional(),
   coveredMembers: z.array(z.string()).optional(),
   notes: z.string().optional(),
-  tempId: z.string().optional(),
-  filename: z.string().optional(),
-  mimeType: z.string().optional(),
-  ext: z.string().optional(),
+  // The upload's own name for the file it just stored, so nothing outside its folder can be named.
+  tempId: z.uuid().optional(),
+  filename: z.string().max(255).optional(),
+  mimeType: z.string().max(255).optional(),
+  ext: z
+    .string()
+    .regex(/^\.[A-Za-z0-9]{1,8}$/)
+    .optional(),
   ocrText: z.string().optional(),
   /** Keep images already on this card. Medical, vision, and dental replace the image. */
   append: z.boolean().optional(),
@@ -35,7 +40,7 @@ const schema = z.object({
 
 export async function POST(req: Request) {
   await requireSession();
-  const parsed = schema.safeParse(await req.json());
+  const parsed = schema.safeParse(await readJson(req));
   if (!parsed.success) return NextResponse.json({ error: "Invalid payload." }, { status: 400 });
   const d = parsed.data;
   const data = {
@@ -55,9 +60,11 @@ export async function POST(req: Request) {
     coveredMembers: JSON.stringify(d.coveredMembers ?? []),
     notes: d.notes,
   };
-  const policy = d.id
-    ? await prisma.insurancePolicy.update({ where: { id: d.id }, data })
+  const id = d.id;
+  const policy = id
+    ? await updateOrGone(() => prisma.insurancePolicy.update({ where: { id }, data }))
     : await prisma.insurancePolicy.create({ data });
+  if (policy instanceof Response) return policy;
 
   if (d.tempId) {
     const tmp = path.join(process.cwd(), "data", "insurance", "tmp", `${d.tempId}${d.ext ?? ""}`);
@@ -99,10 +106,11 @@ const premiumSchema = z.object({
 /** A card's premium is optional and saves on its own, without resending the card. */
 export async function PATCH(req: Request) {
   await requireSession();
-  const parsed = premiumSchema.safeParse(await req.json().catch(() => null));
+  const parsed = premiumSchema.safeParse(await readJson(req));
   if (!parsed.success) return NextResponse.json({ error: "Invalid payload." }, { status: 400 });
   const { id, premium, billingFrequency } = parsed.data;
-  const policy = await prisma.insurancePolicy.update({ where: { id }, data: { premium, billingFrequency } });
+  const policy = await updateOrGone(() => prisma.insurancePolicy.update({ where: { id }, data: { premium, billingFrequency } }));
+  if (policy instanceof Response) return policy;
   return NextResponse.json({ ok: true, policy });
 }
 
@@ -113,7 +121,7 @@ const deleteSchema = z.object({
 
 export async function DELETE(req: Request) {
   await requireSession();
-  const parsed = deleteSchema.safeParse(await req.json().catch(() => null));
+  const parsed = deleteSchema.safeParse(await readJson(req));
   if (!parsed.success) return NextResponse.json({ error: "id required" }, { status: 400 });
   const { id, documentId } = parsed.data;
   if (documentId) {
@@ -123,6 +131,10 @@ export async function DELETE(req: Request) {
     await prisma.insuranceDocument.delete({ where: { id: doc.id } });
     return NextResponse.json({ ok: true });
   }
-  await prisma.insurancePolicy.delete({ where: { id } });
+  // The card's images go with it: they are ID cards, and nothing else points at them.
+  const docs = await prisma.insuranceDocument.findMany({ where: { policyId: id }, select: { path: true } });
+  for (const doc of docs) await rm(doc.path, { force: true }).catch(() => null);
+  // Already gone (removed on another device, or a second click) counts as done.
+  await prisma.insurancePolicy.deleteMany({ where: { id } });
   return NextResponse.json({ ok: true });
 }

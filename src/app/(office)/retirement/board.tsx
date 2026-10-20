@@ -5,6 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { CategoryTrendChart } from "@/components/category-trend";
 import { formatDate } from "@/lib/format";
+import { localDayKey } from "@/lib/range";
 import { holdingLabel } from "@/lib/holding-label";
 import type { ContributionRow } from "@/lib/queries";
 import type { TrendPoint } from "@/lib/spend-compare";
@@ -59,7 +60,7 @@ function manualOf(r: RetirementCard) {
     name: r.name,
     owner: r.owner,
     balance: r.balance,
-    asOfDate: r.asOfDate ?? new Date().toISOString().slice(0, 10),
+    asOfDate: r.asOfDate ?? localDayKey(),
     notes: r.notes ?? null,
   };
 }

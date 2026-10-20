@@ -6,6 +6,7 @@ import { snapshotNetWorth } from "@/lib/plaid-sync";
 import { resolveCrypto } from "@/lib/crypto-assets";
 import { enrichCryptoQuotes } from "@/lib/quotes";
 import { fetchSpotUsd } from "@/lib/token-prices";
+import { bodyId, readJson, updateOrGone } from "@/lib/api";
 
 export const dynamic = "force-dynamic";
 
@@ -20,7 +21,7 @@ const schema = z.object({
 
 export async function POST(req: Request) {
   await requireSession();
-  const parsed = schema.safeParse(await req.json());
+  const parsed = schema.safeParse(await readJson(req));
   if (!parsed.success) return NextResponse.json({ error: "Invalid payload." }, { status: 400 });
   const d = parsed.data;
   const resolved = await resolveCrypto(d.symbol);
@@ -43,9 +44,11 @@ export async function POST(req: Request) {
     quoteAsOf: spot ? new Date() : undefined,
     editedAt: new Date(),
   };
-  const row = d.id
-    ? await prisma.manualHolding.update({ where: { id: d.id }, data })
+  const id = d.id;
+  const row = id
+    ? await updateOrGone(() => prisma.manualHolding.update({ where: { id }, data }))
     : await prisma.manualHolding.create({ data });
+  if (row instanceof Response) return row;
   await enrichCryptoQuotes().catch(() => null);
   await snapshotNetWorth();
   return NextResponse.json({ ok: true, row });
@@ -53,9 +56,10 @@ export async function POST(req: Request) {
 
 export async function DELETE(req: Request) {
   await requireSession();
-  const { id } = (await req.json()) as { id?: string };
+  const id = bodyId(await readJson(req));
   if (!id) return NextResponse.json({ error: "id required" }, { status: 400 });
-  await prisma.manualHolding.delete({ where: { id } });
+  // Already gone (removed on another device, or a second click) counts as done.
+  await prisma.manualHolding.deleteMany({ where: { id } });
   await snapshotNetWorth();
   return NextResponse.json({ ok: true });
 }

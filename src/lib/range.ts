@@ -40,6 +40,21 @@ export function dayKey(d: Date) {
   return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}-${String(d.getUTCDate()).padStart(2, "0")}`;
 }
 
+/**
+ * Today as YYYY-MM-DD on the clock where this runs: the household's own computer, or the browser. Not the UTC day, which
+ * in the Americas turns over in the evening.
+ */
+export function localDayKey(d = new Date()) {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
+/** True for a real calendar day as YYYY-MM-DD. "2026-02-30" has the right shape but is not one. */
+export function isCalendarDay(s: string): boolean {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) return false;
+  const d = new Date(`${s}T00:00:00Z`);
+  return !Number.isNaN(d.getTime()) && dayKey(d) === s;
+}
+
 /** The `count` complete months before the current one, oldest first, as YYYY-MM. */
 export function priorMonths(now: Date, count = 3) {
   const months: string[] = [];

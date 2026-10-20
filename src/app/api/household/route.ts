@@ -13,6 +13,8 @@ import {
 } from "@/lib/saved-txns";
 import { readProjectionPrefs, writeProjectionPrefs } from "@/lib/projection-prefs";
 import { writeShowGoals } from "@/lib/goals";
+import { readJson } from "@/lib/api";
+import { isCalendarDay } from "@/lib/range";
 
 export const dynamic = "force-dynamic";
 
@@ -33,11 +35,12 @@ export async function GET() {
   });
 }
 
-// Birthdates arrive as "YYYY-MM-DD" (or null to clear) and are stored at UTC midnight.
+// Birthdates arrive as "YYYY-MM-DD" (or null to clear) and are stored at UTC midnight. A real day from 1900 up to
+// tomorrow (a browser ahead of the server's clock); a year typed wrong, like 2090, would make a negative age.
 const isoDay = z
   .string()
-  .regex(/^\d{4}-\d{2}-\d{2}$/)
-  .refine((s) => !Number.isNaN(Date.parse(`${s}T00:00:00Z`)), "Invalid date")
+  .refine(isCalendarDay, "Invalid date")
+  .refine((s) => s >= "1900-01-01" && s <= new Date(Date.now() + 86_400_000).toISOString().slice(0, 10), "Out of range")
   .nullable()
   .optional();
 
@@ -112,7 +115,7 @@ function toDate(s: string | null | undefined) {
 
 export async function PATCH(req: Request) {
   await requireSession();
-  const parsed = patchSchema.safeParse(await req.json());
+  const parsed = patchSchema.safeParse(await readJson(req));
   if (!parsed.success) return NextResponse.json({ error: "Invalid payload." }, { status: 400 });
   const previous = await ensureHousehold();
   // Goals keeps its switch in the settings table, so it needs no new column.
@@ -166,9 +169,11 @@ export async function PATCH(req: Request) {
   const transactionsStoredSince = turnedOn ? await markTransactionsStoredSince() : await readTransactionsStoredSince();
 
   // Keep stays on when the copy succeeded, even if one institution failed to sync.
+  // The quote key stays on the server, as GET keeps it: the page only needs to know one is set.
+  const { quoteApiKey, ...shown } = household;
   return NextResponse.json({
     ok: true,
-    household,
+    household: { ...shown, quoteApiKeySet: Boolean(quoteApiKey) },
     transactionsStoredSince,
     projectionPrefs,
     ...(syncError ? { syncError } : {}),

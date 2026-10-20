@@ -9,6 +9,7 @@ import {
   kidCostIn,
   affordableSpend,
   bridgeCost,
+  holderAge,
   moneyBecomes,
   realReturn,
   retirementNumber,
@@ -323,4 +324,17 @@ test("the earliest retire age keeps partners the same years apart", () => {
   };
   assert.ok(fits(pace));
   if (pace > Math.floor(base.ageNow) + 1) assert.ok(!fits(pace - 1));
+});
+
+test("an age turns over on the birthday itself, whatever the leap years in between", () => {
+  assert.equal(Math.floor(holderAge("1989-03-01", "2026-03-01")), 37);
+  assert.equal(Math.floor(holderAge("1989-03-01", "2026-02-28")), 36);
+  assert.equal(Math.floor(holderAge("2000-03-01", "2003-03-01")), 3);
+  assert.equal(holderAge("1990-04-12", "2026-04-12"), 36);
+  // Halfway through a year of age reads as about half.
+  assert.ok(Math.abs(holderAge("1990-01-01", "2026-07-02") - 36.5) < 0.01);
+  // A 29 February birthday turns over on 1 March in other years.
+  assert.equal(Math.floor(holderAge("1996-02-29", "2026-02-28")), 29);
+  assert.equal(Math.floor(holderAge("1996-02-29", "2026-03-01")), 30);
+  assert.equal(Math.floor(holderAge("1996-02-29", "2028-02-29")), 32);
 });

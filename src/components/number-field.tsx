@@ -2,6 +2,7 @@
 
 import { useId, useState, type ReactNode } from "react";
 import { InfoTip } from "@/components/info-tip";
+import { isCalendarDay } from "@/lib/range";
 import { cn } from "@/lib/utils";
 
 type Parsed = { ok: true; value: number | null } | { ok: false; error: string };
@@ -206,6 +207,90 @@ export function NumberField({
           }}
         />
         {suffix ? <span className="field-affix">{suffix}</span> : null}
+      </div>
+      {error ? (
+        <p className="field-note" data-error="">
+          {error}
+        </p>
+      ) : help ? (
+        <p className="field-note">{help}</p>
+      ) : null}
+    </div>
+  );
+}
+
+/**
+ * A labeled date box, laid out like NumberField. The date applies when you press Enter or leave the box, never while
+ * its parts are typed, so a half-typed year is never used. Something unusable says why underneath and is never applied.
+ */
+export function DateField({
+  label,
+  value,
+  onValue,
+  min,
+  max,
+  check,
+  help,
+  className,
+}: {
+  label: string;
+  value: string | null;
+  onValue: (value: string) => void;
+  min?: string;
+  max?: string;
+  /** Why a whole date can't be used here, or null when it can. */
+  check?: (value: string) => string | null;
+  help?: ReactNode;
+  className?: string;
+}) {
+  const id = useId();
+  const [draft, setDraft] = useState(value ?? "");
+  const [error, setError] = useState<string | null>(null);
+  const problem = (v: string) => (isCalendarDay(v) ? (check?.(v) ?? null) : "Enter a real date.");
+  const apply = (input: HTMLInputElement) => {
+    const v = input.value;
+    if (!v) {
+      // A date with a part still missing reads as blank, so say what's missing rather than dropping it.
+      setError(input.validity.badInput ? "Enter the whole date." : null);
+      return;
+    }
+    const why = problem(v);
+    setError(why);
+    if (!why && v !== value) onValue(v);
+  };
+
+  return (
+    <div className={cn("field", className)}>
+      <div className="flex min-h-6 items-center gap-1">
+        <label htmlFor={id} className="kicker">
+          {label}
+        </label>
+      </div>
+      <div className="field-box" data-invalid={error ? "" : undefined}>
+        <input
+          id={id}
+          type="date"
+          min={min}
+          max={max}
+          enterKeyHint="done"
+          aria-invalid={error ? true : undefined}
+          data-empty={draft === "" ? "" : undefined}
+          value={draft}
+          onChange={(e) => {
+            setDraft(e.target.value);
+            if (error && e.target.value && !problem(e.target.value)) setError(null);
+          }}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              e.preventDefault();
+              apply(e.currentTarget);
+            }
+          }}
+          onBlur={(e) => {
+            const input = e.currentTarget;
+            afterClick(() => apply(input));
+          }}
+        />
       </div>
       {error ? (
         <p className="field-note" data-error="">

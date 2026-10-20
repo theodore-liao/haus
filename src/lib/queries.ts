@@ -1,5 +1,5 @@
 import { prisma, ensureHousehold } from "./db";
-import { childLabelFor, matchesOwner, ownerLabel, withHolder, type OwnerFilter } from "./owners";
+import { childLabelFor, hasSpouse, matchesOwner, ownerLabel, withHolder, type OwnerFilter } from "./owners";
 import {
   allocationBucket,
   isCashType,
@@ -23,7 +23,7 @@ import { REFUNDS } from "./flow-labels";
 import { readBudgetExcluded } from "./budget-excluded";
 import { loadCardPaymentFlags } from "./card-payments";
 import { effectiveCategory, isInternalMove, isInvestFunding, isTransferCategory, recurringMerchantKey, txnMerchantKey } from "./categories";
-import { dayKey, priorMonths, ymKey } from "./range";
+import { dayKey, localDayKey, priorMonths, ymKey } from "./range";
 import { plaidIdsOnLedger, savedChargeCounted, savedOwnerNow } from "./report-archive";
 
 async function hiddenMerchantKeys() {
@@ -1726,7 +1726,8 @@ const BOND_NAME = /\b(bond|treasur|fixed income|t-bill|municipal|aggregate)/i;
 /** A planner's checkup of the household, each measure against a common rule of thumb. */
 export async function getInsights(filter: OwnerFilter) {
   const now = new Date();
-  const today = now.toISOString().slice(0, 10);
+  // The same day the Retirement page uses, so the two verdicts agree.
+  const today = localDayKey(now);
   const [cashflow, overview, reports, equity, accounts, names, prefs, retirementData, holdings, manualStocks, snapshots, properties] =
     await Promise.all([
       getCashflow(filter, now, false),
@@ -1845,9 +1846,10 @@ export async function getInsights(filter: OwnerFilter) {
     names.tabs.retirement
       ? retirementSnapshot({
           prefs,
+          // The same people as the planner: a spouse's birthdate counts only while there is a spouse.
           holders: [
             { key: "A", birthdate: names.birthdateA },
-            { key: "B", birthdate: names.birthdateB },
+            ...(hasSpouse(names) ? [{ key: "B" as const, birthdate: names.birthdateB }] : []),
           ],
           today,
           investedDefault: overview.tiles.cash + overview.tiles.investments - childBalances,

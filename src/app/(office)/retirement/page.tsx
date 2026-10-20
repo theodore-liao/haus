@@ -10,6 +10,7 @@ import { readProjectionPrefs } from "@/lib/projection-prefs";
 import { contributionsPriorQuarter, estimateSaving, retirementSnapshot } from "@/lib/retirement-snapshot";
 import { Pill, Pills } from "@/components/pills";
 import { formatApprox } from "@/lib/format";
+import { localDayKey } from "@/lib/range";
 import { RetirementPlan, type SaveNow } from "./plan";
 import { RetirementAccounts } from "./board";
 import { RetirementAccountForm } from "./account-form";
@@ -30,7 +31,8 @@ export default async function RetirementPage() {
     getEquityComp(owner),
   ]);
   const now = new Date();
-  const today = now.toISOString().slice(0, 10);
+  // The household's own day, so ages and the current year don't turn over in the evening.
+  const today = localDayKey(now);
   const custodial = data.rows.filter((r) => isChildAccountType(r.kind));
   const retirement = data.rows.filter((r) => !isChildAccountType(r.kind));
   const noLedger = !connections && data.rows.length === 0;
@@ -85,9 +87,10 @@ export default async function RetirementPage() {
   ].filter((g) => Math.abs(g.value) >= 1);
   const verdict = retirementSnapshot({
     prefs: projectionPrefs,
+    // The same people as the planner below: a spouse's birthdate counts only while there is a spouse.
     holders: [
       { key: "A", birthdate: data.names.birthdateA },
-      { key: "B", birthdate: data.names.birthdateB },
+      ...(hasSpouse(data.names) ? [{ key: "B" as const, birthdate: data.names.birthdateB }] : []),
     ],
     today,
     investedDefault: overview.tiles.cash + overview.tiles.investments - custodial.reduce((sum, row) => sum + row.balance, 0),
@@ -155,7 +158,7 @@ export default async function RetirementPage() {
                           owner: m.owner,
                           beneficiary: m.beneficiary ?? "",
                           balance: m.balance,
-                          asOfDate: new Date().toISOString().slice(0, 10),
+                          asOfDate: m.asOfDate ?? today,
                         }}
                       />
                     ) : null}

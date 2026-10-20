@@ -20,14 +20,13 @@ import { TransactionsTable } from "../transactions/table";
 import { TxnExport } from "@/components/txn-export";
 import type { PlanChildPref } from "@/lib/projection-prefs";
 import type { MonthWindow } from "@/lib/prefs";
-import { hasSpouse } from "@/lib/owners";
+import { hasSpouse, isPlaceholderName } from "@/lib/owners";
+import { isCalendarDay, localDayKey } from "@/lib/range";
 
 type ChildRow = { id: string; name: string };
 
-const PLACEHOLDER_NAMES = ["new user", "one", "two"];
 function birthdateLabel(name: string, fallback: string) {
-  const n = name.trim();
-  return PLACEHOLDER_NAMES.includes(n.toLowerCase()) || !n ? `${fallback} birthdate` : `${n} birthdate`;
+  return isPlaceholderName(name) ? `${fallback} birthdate` : `${name.trim()} birthdate`;
 }
 
 export function SettingsClient({
@@ -80,6 +79,12 @@ export function SettingsClient({
     // Same bounds as the Retirement planner, which also holds planned children.
     return !Number.isInteger(n) || n < 1900 || n > thisYear + 40;
   });
+  // Birthdates: a real day, from 1900 up to today, so the planner never gets a negative age.
+  const todayKey = localDayKey();
+  const dobProblem = (v: string) =>
+    !v ? null : !isCalendarDay(v) ? "Enter a real date." : v > todayKey ? "Enter a date in the past." : v < "1900-01-01" ? "Enter a year from 1900 on." : null;
+  const badDobA = dobProblem(dobA);
+  const badDobB = hasSpouse({ nameB: j }) ? dobProblem(dobB) : null;
   const [busy, setBusy] = useState(false);
   const [pairCards, setPairCards] = useState(pairCardPayments);
   const [keepTxns, setKeepTxns] = useState(keepTransactions);
@@ -93,7 +98,7 @@ export function SettingsClient({
 
   async function saveNames() {
     setBirthChecked(true);
-    if (badBirth) return;
+    if (badBirth || badDobA || badDobB) return;
     setBusy(true);
     try {
       const res = await fetch("/api/household", {
@@ -297,12 +302,30 @@ export function SettingsClient({
           </div>
           <div>
             <Label>{birthdateLabel(t, "Your")}</Label>
-            <Input type="date" className="mt-1.5" value={dobA} onChange={(e) => setDobA(e.target.value)} />
+            <Input
+              type="date"
+              className="mt-1.5"
+              min="1900-01-01"
+              max={todayKey}
+              value={dobA}
+              aria-invalid={birthChecked && badDobA ? true : undefined}
+              onChange={(e) => setDobA(e.target.value)}
+            />
+            {birthChecked && badDobA ? <p className="field-note mt-1" data-error="">{badDobA}</p> : null}
           </div>
           {hasSpouse({ nameB: j }) ? (
             <div>
               <Label>{birthdateLabel(j, "Partner's")}</Label>
-              <Input type="date" className="mt-1.5" value={dobB} onChange={(e) => setDobB(e.target.value)} />
+              <Input
+                type="date"
+                className="mt-1.5"
+                min="1900-01-01"
+                max={todayKey}
+                value={dobB}
+                aria-invalid={birthChecked && badDobB ? true : undefined}
+                onChange={(e) => setDobB(e.target.value)}
+              />
+              {birthChecked && badDobB ? <p className="field-note mt-1" data-error="">{badDobB}</p> : null}
             </div>
           ) : null}
           <p className="footnote sm:col-span-2">Birthdates set ages in the retirement planner.</p>

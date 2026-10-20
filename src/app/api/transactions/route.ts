@@ -5,6 +5,7 @@ import { prisma } from "@/lib/db";
 import { loadCardPaymentFlags } from "@/lib/card-payments";
 import { merchantKey, ruleKeyFor, scopeMatches } from "@/lib/categories";
 import { archiveTransactions } from "@/lib/saved-txns";
+import { readJson, updateOrGone } from "@/lib/api";
 
 export const dynamic = "force-dynamic";
 
@@ -22,19 +23,23 @@ const schema = z.object({
 
 export async function PATCH(req: Request) {
   await requireSession();
-  const parsed = schema.safeParse(await req.json());
+  const parsed = schema.safeParse(await readJson(req));
   if (!parsed.success) return NextResponse.json({ error: "Invalid payload." }, { status: 400 });
   const touched = new Set<string>([parsed.data.id]);
-  const txn = await prisma.txn.update({
-    where: { id: parsed.data.id },
-    data: {
-      userCategory: parsed.data.userCategory,
-      userMerchant: parsed.data.userMerchant,
-      ...(parsed.data.memo !== undefined
-        ? { memo: parsed.data.memo?.trim() ? parsed.data.memo.trim() : null }
-        : {}),
-    },
-  });
+  // A transaction the bank replaced since the page loaded (a pending one posting) is gone, not a server error.
+  const txn = await updateOrGone(() =>
+    prisma.txn.update({
+      where: { id: parsed.data.id },
+      data: {
+        userCategory: parsed.data.userCategory,
+        userMerchant: parsed.data.userMerchant,
+        ...(parsed.data.memo !== undefined
+          ? { memo: parsed.data.memo?.trim() ? parsed.data.memo.trim() : null }
+          : {}),
+      },
+    }),
+  );
+  if (txn instanceof Response) return txn;
   if (parsed.data.applyToMerchant) {
     const nameContains = (parsed.data.nameContains ?? "").trim().toLowerCase();
     const accountId = parsed.data.onlyAccount ? txn.accountId : "";
@@ -131,8 +136,9 @@ export async function PATCH(req: Request) {
 
 export async function DELETE(req: Request) {
   await requireSession();
-  const body = (await req.json().catch(() => ({}))) as { merchant?: string; rawMerchant?: string | null; name?: string };
-  const keys = [...new Set([merchantKey(body.merchant), merchantKey(body.rawMerchant), merchantKey(body.name)].filter(Boolean))];
+  const body = ((await readJson(req)) ?? {}) as { merchant?: unknown; rawMerchant?: unknown; name?: unknown };
+  const text = (v: unknown) => (typeof v === "string" ? v : null);
+  const keys = [...new Set([merchantKey(text(body.merchant)), merchantKey(text(body.rawMerchant)), merchantKey(text(body.name))].filter(Boolean))];
   if (!keys.length) return NextResponse.json({ error: "Merchant required." }, { status: 400 });
   for (const key of keys) {
     await prisma.merchantRule.upsert({

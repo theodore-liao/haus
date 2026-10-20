@@ -305,7 +305,8 @@ async function layoutProblems(page, phone) {
       for (const el of main.querySelectorAll("*")) {
         if (!visible(el) || el.children.length) continue;
         const s = getComputedStyle(el);
-        if (s.overflow === "visible" || s.textOverflow === "ellipsis" || el.matches("input, textarea, svg *")) continue;
+        // Screen-reader text (.sr-only) is clipped on purpose: it is never seen, so it can't be cut off.
+        if (s.overflow === "visible" || s.textOverflow === "ellipsis" || el.matches("input, textarea, svg *, .sr-only")) continue;
         if (el.scrollWidth > el.clientWidth + 2) clipped++;
       }
       if (clipped) out.push(`${clipped} piece(s) of text are cut off without "…"`);
@@ -384,7 +385,9 @@ async function probeInput(page, input, mainText) {
     return text.trim().slice(0, 40) || `input #${[...document.querySelectorAll("main input")].indexOf(el) + 1}`;
   });
   const original = await input.inputValue();
-  const numeric = original.replace(/[$,%\s]/g, "");
+  // An empty box that shows its default as the placeholder gets a different number, since typing the default changes nothing.
+  const shown = original || (await input.getAttribute("placeholder")) || "";
+  const numeric = shown.replace(/[$,%\s]/g, "");
   const wantsNumber = await input.evaluate((el) => el.type === "number" || ["decimal", "numeric"].includes(el.inputMode));
   const next =
     numeric && Number.isFinite(Number(numeric))

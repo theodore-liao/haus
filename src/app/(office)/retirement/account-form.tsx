@@ -10,6 +10,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { ownerOptions } from "@/lib/owners";
+import { localDayKey } from "@/lib/range";
 
 /** Commas and at most two decimals, as every amount box shows. */
 function withCommas(n: number) {
@@ -60,7 +61,7 @@ export function RetirementAccountForm({
   onDone?: () => void;
 }) {
   const router = useRouter();
-  const today = new Date().toISOString().slice(0, 10);
+  const today = localDayKey();
   // A retirement account belongs to one person. An older entry saved as Joint keeps that choice.
   const holders = ownerOptions(names, existing?.owner).filter((o) => o.value === "a" || o.value === "b" || o.value === existing?.owner);
   const blank = () => ({

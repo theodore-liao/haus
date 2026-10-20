@@ -28,6 +28,14 @@ export function givenName(name: string | null | undefined): string {
   return t.split(/\s+/)[0] ?? t;
 }
 
+/** Names the app writes itself before anyone is named. They are not a person. */
+const PLACEHOLDER_NAMES = ["new user", "one", "two"];
+
+export function isPlaceholderName(name: string | null | undefined): boolean {
+  const n = (name ?? "").trim().toLowerCase();
+  return n === "" || PLACEHOLDER_NAMES.includes(n);
+}
+
 /** Names the app writes itself when no spouse was entered. They are not a person. */
 const PLACEHOLDER_SPOUSE = ["two", "new user"];
 

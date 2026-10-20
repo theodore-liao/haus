@@ -5,6 +5,7 @@ import { prisma } from "@/lib/db";
 import { snapshotNetWorth } from "@/lib/plaid-sync";
 import { FIXED_USD_ID } from "@/lib/constants";
 import { fetchEquitySpot } from "@/lib/quotes";
+import { readJson, updateOrGone } from "@/lib/api";
 
 export const dynamic = "force-dynamic";
 
@@ -43,7 +44,7 @@ function slugSymbol(name: string) {
 
 export async function POST(req: Request) {
   await requireSession();
-  const parsed = schema.safeParse(await req.json());
+  const parsed = schema.safeParse(await readJson(req));
   if (!parsed.success) return NextResponse.json({ error: "Invalid payload." }, { status: 400 });
   const d = parsed.data;
 
@@ -72,8 +73,11 @@ export async function POST(req: Request) {
       assetClass: d.assetClass,
       accountName: d.accountName.trim(),
     };
-    if (d.id) await prisma.manualHolding.update({ where: { id: d.id }, data: payload });
-    else await prisma.manualHolding.create({ data: payload });
+    const id = d.id;
+    const saved = id
+      ? await updateOrGone(() => prisma.manualHolding.update({ where: { id }, data: payload }))
+      : await prisma.manualHolding.create({ data: payload });
+    if (saved instanceof Response) return saved;
     await snapshotNetWorth().catch(() => null);
     return NextResponse.json({ ok: true });
   }
@@ -95,8 +99,11 @@ export async function POST(req: Request) {
     assetClass: d.assetClass,
     accountName: d.accountName.trim(),
   };
-  if (d.id) await prisma.manualHolding.update({ where: { id: d.id }, data: payload });
-  else await prisma.manualHolding.create({ data: payload });
+  const id = d.id;
+  const saved = id
+    ? await updateOrGone(() => prisma.manualHolding.update({ where: { id }, data: payload }))
+    : await prisma.manualHolding.create({ data: payload });
+  if (saved instanceof Response) return saved;
   await snapshotNetWorth().catch(() => null);
   return NextResponse.json({ ok: true });
 }

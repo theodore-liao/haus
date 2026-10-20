@@ -4,6 +4,7 @@ import { requireSession } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { merchantKey, recurringMerchantKey } from "@/lib/categories";
 import { archiveTransactions } from "@/lib/saved-txns";
+import { readJson } from "@/lib/api";
 
 export const dynamic = "force-dynamic";
 
@@ -23,7 +24,7 @@ export async function DELETE() {
 
 export async function POST(req: Request) {
   await requireSession();
-  const parsed = schema.safeParse(await req.json());
+  const parsed = schema.safeParse(await readJson(req));
   if (!parsed.success) return NextResponse.json({ error: "Invalid payload." }, { status: 400 });
 
   if (parsed.data.ignoreRecurring) {

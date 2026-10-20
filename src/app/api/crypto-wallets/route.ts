@@ -4,6 +4,7 @@ import { requireSession } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { snapshotNetWorth } from "@/lib/plaid-sync";
 import { addWallet, syncAllWallets, syncWalletById } from "@/lib/crypto-wallets";
+import { bodyId, readJson, updateOrGone } from "@/lib/api";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -16,7 +17,7 @@ const schema = z.object({
 
 export async function POST(req: Request) {
   await requireSession();
-  const body = await req.json().catch(() => ({}));
+  const body = (await readJson(req)) ?? {};
   const action = (body as { action?: string }).action;
 
   if (action === "sync") {
@@ -39,10 +40,13 @@ export async function POST(req: Request) {
     const label = (body as { label?: string | null }).label;
     if (!id) return NextResponse.json({ error: "id required" }, { status: 400 });
     const trimmed = typeof label === "string" ? label.trim() : "";
-    const row = await prisma.cryptoWallet.update({
-      where: { id },
-      data: { label: trimmed || null },
-    });
+    const row = await updateOrGone(() =>
+      prisma.cryptoWallet.update({
+        where: { id },
+        data: { label: trimmed || null },
+      }),
+    );
+    if (row instanceof Response) return row;
     return NextResponse.json({ ok: true, row });
   }
 
@@ -59,9 +63,10 @@ export async function POST(req: Request) {
 
 export async function DELETE(req: Request) {
   await requireSession();
-  const { id } = (await req.json()) as { id?: string };
+  const id = bodyId(await readJson(req));
   if (!id) return NextResponse.json({ error: "id required" }, { status: 400 });
-  await prisma.cryptoWallet.delete({ where: { id } });
+  // Already gone (removed on another device, or a second click) counts as done.
+  await prisma.cryptoWallet.deleteMany({ where: { id } });
   await snapshotNetWorth();
   return NextResponse.json({ ok: true });
 }

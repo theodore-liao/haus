@@ -1,12 +1,23 @@
 "use client";
 
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type CSSProperties, type ReactNode } from "react";
-import Link from "next/link";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  useSyncExternalStore,
+  useTransition,
+  type CSSProperties,
+  type ReactNode,
+} from "react";
+import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { Area, CartesianGrid, ComposedChart, Line, ReferenceDot, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { CircleHelp, Plus, X } from "lucide-react";
 import { Money } from "@/components/money";
-import { NumberField, Segmented } from "@/components/number-field";
+import { DateField, NumberField, Segmented } from "@/components/number-field";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -16,7 +27,7 @@ import { Callout } from "@/components/callout";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { clientId } from "@/lib/client-id";
 import { formatApprox, formatPct, formatWhole, roundApprox } from "@/lib/format";
-import { givenName } from "@/lib/owners";
+import { givenName, isPlaceholderName } from "@/lib/owners";
 import type { PlanChildPref, ProjectionPrefs } from "@/lib/projection-prefs";
 import { PLAN_DEFAULTS, mergeChildren, retireTiming } from "@/lib/retirement-snapshot";
 import type { EquityEvent, EquityYear } from "@/lib/equity-comp";
@@ -257,7 +268,6 @@ export function RetirementPlan({
     };
   }
 
-  const holder = holders.find((item) => item.key === holderKey) ?? holders[0];
   // When each partner retires: one shared answer with the page header and Insights, so they never disagree.
   const timing = retireTiming({
     prefs: { holderKey, retireAge: retireAgeSaved, yearsFallback, retireAgeA, retireAgeB, stopPayA, stopPayB },
@@ -266,10 +276,26 @@ export function RetirementPlan({
     payAnnual: saveNow?.pay ?? null,
   });
   const { ageNow, currentYear, minRetire, maxRetire, retireAge, retireYear, planAge, partners, early } = timing;
+  // Whose age the axis uses, as the timing settled it: a saved choice whose birthdate is gone falls back to the other.
+  const holder = holders.find((item) => item.key === timing.holderKey) ?? holders[0];
   // First names, as the sidebar shows them: these labels sit in narrow places.
   const nameOf = (key: "A" | "B") => {
     const full = holders.find((item) => item.key === key)?.name ?? "";
     return givenName(full) || full || (key === "A" ? "Partner 1" : "Partner 2");
+  };
+  /** Where a partner's retire slider goes until their birthdate is known. */
+  const birthdateBox = (person: Holder) => {
+    const placeholder = isPlaceholderName(person.name);
+    const name = nameOf(person.key);
+    return (
+      <BirthdateBox
+        key={person.key}
+        who={person.key}
+        label={placeholder ? (person.key === "A" ? "Your birthdate" : "Partner's birthdate") : `${name}'s birthdate`}
+        help={holders.length > 1 ? `Add it to choose when ${placeholder ? "they retire" : `${name} retires`}.` : "Add it to use your real age."}
+        today={today}
+      />
+    );
   };
   const lastKey = early ? (early.key === "A" ? "B" : "A") : null;
   /** Moving one partner's slider pins both ages, so neither shifts when the other moves. */
@@ -396,7 +422,7 @@ export function RetirementPlan({
                 <span className="kicker">Ages are</span>
                 <Segmented
                   label="Whose age"
-                  value={holderKey}
+                  value={timing.holderKey}
                   onChange={bind("holderKey", setHolderKey)}
                   options={withDob.map((person) => ({ value: person.key, label: person.name }))}
                 />
@@ -475,44 +501,47 @@ export function RetirementPlan({
                     </p>
                   ) : null}
                 </div>
+              ) : ageNow != null && holders.length > 1 ? (
+                // One birthdate: that partner's slider moves the household, and the other partner's slot asks for theirs.
+                <div className="planner-sliders">
+                  {holders.map((person) =>
+                    person.key === holder.key ? (
+                      <RetireSlider
+                        key={person.key}
+                        value={retireAge}
+                        min={minRetire}
+                        max={maxRetire}
+                        label={`${nameOf(person.key)} retires at ${retireAge}`}
+                        ariaLabel={`${nameOf(person.key)} retires at`}
+                        note={String(retireYear)}
+                        onChange={bind("retireAge", setRetireAge)}
+                      />
+                    ) : (
+                      birthdateBox(person)
+                    ),
+                  )}
+                </div>
               ) : ageNow != null ? (
                 <RetireSlider
                   value={retireAge}
                   min={minRetire}
                   max={maxRetire}
                   label={`Retire at ${retireAge}`}
-                  note={
-                    holders.length > 1 && holders.some((h) => !h.birthdate) ? (
-                      <>
-                        {retireYear}, when {holder.name} is {retireAge}. Add both birthdates in{" "}
-                        <Link href="/settings" className="underline">
-                          Settings
-                        </Link>{" "}
-                        to retire on different years.
-                      </>
-                    ) : (
-                      `${retireYear}, when ${holder.name} is ${retireAge}`
-                    )
-                  }
+                  note={`${retireYear}, when ${nameOf(holder.key)} is ${retireAge}`}
                   onChange={bind("retireAge", setRetireAge)}
                 />
               ) : (
-                <RetireSlider
-                  value={yearsFallback}
-                  min={1}
-                  max={RETIRE_MAX - ASSUMED_AGE}
-                  label={`Retire in ${yearsFallback} ${yearsFallback === 1 ? "year" : "years"}`}
-                  note={
-                    <>
-                      In {retireYear}. Ages assume you are {Math.floor(planAge)} today; add birthdates in{" "}
-                      <Link href="/settings" className="underline">
-                        Settings
-                      </Link>{" "}
-                      to use real ones.
-                    </>
-                  }
-                  onChange={bind("yearsFallback", setYearsFallback)}
-                />
+                <>
+                  <RetireSlider
+                    value={yearsFallback}
+                    min={1}
+                    max={RETIRE_MAX - ASSUMED_AGE}
+                    label={`Retire in ${yearsFallback} ${yearsFallback === 1 ? "year" : "years"}`}
+                    note={`In ${retireYear}. Ages assume you are ${Math.floor(planAge)} today.`}
+                    onChange={bind("yearsFallback", setYearsFallback)}
+                  />
+                  <div className="planner-sliders mt-3">{holders.map(birthdateBox)}</div>
+                </>
               )}
             </div>
             {planPath ? (
@@ -797,7 +826,8 @@ export function RetirementPlan({
                     min={18}
                     max={120}
                     onValue={(v) => bind("otherIncomeAge", setOtherIncomeAge)(v ?? otherIncomeAge)}
-                    info={`Counts from ${currentYear + Math.max(0, otherIncomeAge - Math.floor(planAge))}.`}
+                    info="When other income, like Social Security or a pension, starts."
+                    help={`From ${currentYear + Math.max(0, otherIncomeAge - Math.floor(planAge))}.`}
                   />
                   {early && lastKey ? (
                     <NumberField
@@ -934,6 +964,43 @@ function PaySources({ saveNow, onPick }: { saveNow: SaveNow | null; onPick: (v: 
         </button>
       ))}
     </span>
+  );
+}
+
+/**
+ * A partner's birthdate, asked for where their retire slider goes. It saves to the household, as Settings does, and the
+ * page comes back with the slider in its place.
+ */
+function BirthdateBox({ who, label, help, today }: { who: "A" | "B"; label: string; help: string; today: string }) {
+  const router = useRouter();
+  const [saving, setSaving] = useState(false);
+  const [refreshing, startRefresh] = useTransition();
+  async function save(day: string) {
+    setSaving(true);
+    try {
+      const res = await fetch("/api/household", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(who === "A" ? { birthdateA: day } : { birthdateB: day }),
+      });
+      if (!res.ok) throw new Error(String(res.status));
+      startRefresh(() => router.refresh());
+    } catch {
+      toast.error("Haus couldn't save the birthdate. Try again.");
+    } finally {
+      setSaving(false);
+    }
+  }
+  return (
+    <DateField
+      label={label}
+      value={null}
+      min="1900-01-01"
+      max={today}
+      check={(day) => (day > today ? "Enter a date in the past." : day < "1900-01-01" ? "Enter a year from 1900 on." : null)}
+      help={saving || refreshing ? "Saving…" : help}
+      onValue={(day) => void save(day)}
+    />
   );
 }
 

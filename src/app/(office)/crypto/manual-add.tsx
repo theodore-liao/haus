@@ -65,7 +65,7 @@ export function ManualAddBox({
                   owner: fd.get("owner"),
                 }),
               });
-              const data = await res.json();
+              const data = await res.json().catch(() => ({}));
               if (!res.ok) toast.error(data.error ?? "Could not save.");
               else {
                 toast.success(`${data.row?.symbol ?? "Coin"} added.`);

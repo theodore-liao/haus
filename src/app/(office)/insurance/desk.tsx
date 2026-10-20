@@ -7,7 +7,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { ConfirmButton } from "@/components/confirm-button";
-import { policyCoversMember } from "@/lib/insurance";
+import { CARD_UPLOAD_MAX_MB, policyCoversMember } from "@/lib/insurance";
 import { hasSpouse } from "@/lib/owners";
 import { InfoTip } from "@/components/info-tip";
 import { PremiumControl } from "./premium";
@@ -65,12 +65,16 @@ export function InsuranceDesk({
     const memberId = opts?.memberId;
     const vehicleId = opts?.vehicleId;
     const key = `${type}:${memberId ?? vehicleId ?? "joint"}`;
+    if (file.size > CARD_UPLOAD_MAX_MB * 1024 * 1024) {
+      toast.error(`That file is too big. Use one under ${CARD_UPLOAD_MAX_MB} MB.`);
+      return;
+    }
     setBusyKey(key);
     try {
       const fd = new FormData();
       fd.set("file", file);
       const up = await fetch("/api/insurance/parse", { method: "POST", body: fd });
-      const data = await up.json();
+      const data = await up.json().catch(() => ({}));
       if (!up.ok) {
         toast.error(data.error ?? "Could not upload.");
         return;
@@ -118,12 +122,16 @@ export function InsuranceDesk({
 
   async function addOtherImage(memberId: string, file: File) {
     const key = `other:${memberId}`;
+    if (file.size > CARD_UPLOAD_MAX_MB * 1024 * 1024) {
+      toast.error(`That file is too big. Use one under ${CARD_UPLOAD_MAX_MB} MB.`);
+      return;
+    }
     setBusyKey(key);
     try {
       const fd = new FormData();
       fd.set("file", file);
       const up = await fetch("/api/insurance/parse", { method: "POST", body: fd });
-      const data = await up.json();
+      const data = await up.json().catch(() => ({}));
       if (!up.ok) {
         toast.error(data.error ?? "Could not upload.");
         return;

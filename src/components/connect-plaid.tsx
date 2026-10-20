@@ -51,7 +51,7 @@ export function ConnectPlaid({
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ public_token: publicToken, itemId }),
         });
-        const data = await res.json();
+        const data = await res.json().catch(() => ({}));
         if (!res.ok) {
           toast.error(data.error ?? "Could not exchange token.");
           return;

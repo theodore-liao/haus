@@ -7,9 +7,14 @@ export function realReturn(nominal: number, inflation: number): number {
 }
 
 export function holderAge(birthdate: string, today: string): number {
-  const born = new Date(`${birthdate}T00:00:00Z`);
-  const at = new Date(`${today}T00:00:00Z`);
-  return (at.getTime() - born.getTime()) / (365.25 * 86400000);
+  // Whole years by the calendar, so a birthday counts from that day (a 365.25-day year put some birthdays a day late),
+  // plus how far through the current year of age today is. A 29 February birthday falls on 1 March in other years.
+  const [by, bm, bd] = birthdate.slice(0, 10).split("-").map(Number);
+  const [ty, tm, td] = today.slice(0, 10).split("-").map(Number);
+  const whole = ty - by - (tm < bm || (tm === bm && td < bd) ? 1 : 0);
+  const last = Date.UTC(by + whole, bm - 1, bd);
+  const next = Date.UTC(by + whole + 1, bm - 1, bd);
+  return whole + (Date.UTC(ty, tm - 1, td) - last) / (next - last);
 }
 
 export function moneyBecomes(amount: number, years: number, inflation: number, growth: number) {

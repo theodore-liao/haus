@@ -125,11 +125,14 @@ export function retireTiming(input: {
   const ageNow = holder?.birthdate ? holderAge(holder.birthdate, input.today) : null;
   const currentYear = Number(input.today.slice(0, 4));
   const minRetire = ageNow == null ? D.retireMin : Math.max(D.retireMin, Math.floor(ageNow) + 1);
-  const maxRetire = Math.max(D.retireMax, minRetire);
+  // A year kept when a birthdate is typed in or cleared can sit past 65 (or past 25 years with no birthdate).
+  // The slider's end moves out to that saved choice, the way an older partner stays pinned, until it is moved.
+  const maxRetire = Math.max(D.retireMax, minRetire, ageNow != null && prefs.retireAge != null ? prefs.retireAge : 0);
   const planAge = ageNow ?? D.assumedAge;
+  const years = Math.max(0, prefs.yearsFallback ?? D.yearsFallback);
   const single =
     ageNow == null
-      ? Math.min(D.retireMax, D.assumedAge + (prefs.yearsFallback ?? D.yearsFallback))
+      ? planAge + years
       : Math.min(maxRetire, Math.max(minRetire, prefs.retireAge ?? D.retireAge));
   // Whole years, as the plan counts them: someone 40 now is 60 twenty calendar years on.
   const singleYear = currentYear + Math.max(0, single - Math.floor(planAge));
@@ -182,8 +185,8 @@ export function keepRetireYear(input: {
   const currentYear = Number(input.today.slice(0, 4));
   const cleared: ProjectionPrefs = { retireAgeA: null, retireAgeB: null };
   if (!people.length) {
-    const D = PLAN_DEFAULTS;
-    return { ...cleared, yearsFallback: Math.min(D.retireMax - D.assumedAge, Math.max(1, year - currentYear)) };
+    // The years slider normally stops at 25. A later year is kept by letting this one choice sit past that end.
+    return { ...cleared, yearsFallback: Math.max(1, year - currentYear) };
   }
   // The timeline stays on the same person when they still have a birthdate, so the single slider means what it did.
   const wasHolder = retireTiming({ prefs: input.prefs, holders: input.before, today: input.today }).holderKey;

@@ -554,7 +554,7 @@ export function RetirementPlan({
                   <RetireSlider
                     value={yearsFallback}
                     min={1}
-                    max={RETIRE_MAX - ASSUMED_AGE}
+                    max={Math.max(RETIRE_MAX - ASSUMED_AGE, yearsFallback)}
                     label={`Retire in ${yearsFallback} ${yearsFallback === 1 ? "year" : "years"}`}
                     note={`In ${retireYear}. Ages assume you are ${Math.floor(planAge)} today.`}
                     onChange={bind("yearsFallback", setYearsFallback)}

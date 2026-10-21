@@ -1,5 +1,6 @@
 "use client";
 
+import { createElement } from "react";
 import type { LucideIcon } from "lucide-react";
 import {
   ArrowLeftRight,
@@ -92,8 +93,10 @@ export function CategoryIcon({
   category: string | null | undefined;
   className?: string;
 }) {
-  const Icon = iconForCategory(category);
-  return <Icon className={cn("h-3.5 w-3.5 shrink-0 text-muted-foreground", className)} aria-hidden />;
+  return createElement(iconForCategory(category), {
+    className: cn("h-3.5 w-3.5 shrink-0 text-muted-foreground", className),
+    "aria-hidden": true,
+  });
 }
 
 export function CategoryName({

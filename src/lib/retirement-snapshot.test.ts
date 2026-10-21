@@ -115,6 +115,55 @@ test("the first birthdate keeps the year the years slider chose, and clearing it
   assert.equal(retireTiming({ prefs: back, holders: none, today }).retireYear, 2036);
 });
 
+test("a first birthdate keeps a 25-year plan when that age is past 65", () => {
+  const today = "2026-10-21";
+  const none = [{ key: "A" as const, birthdate: null }];
+  // 50 this year. Retire in 25 years is 2051, which is age 75, past the slider's usual end.
+  const one = [{ key: "A" as const, birthdate: "1976-01-01" }];
+  const before = retireTiming({ prefs: { yearsFallback: 25 }, holders: none, today });
+  assert.equal(before.retireYear, 2051);
+  const kept = keepRetireYear({ prefs: { yearsFallback: 25 }, before: none, after: one, today })!;
+  assert.equal(kept.retireAge, 75);
+  const after = retireTiming({ prefs: { yearsFallback: 25, ...kept }, holders: one, today });
+  assert.equal(after.retireYear, 2051);
+  assert.equal(after.retireAge, 75);
+  assert.equal(after.maxRetire, 75);
+});
+
+test("a retire age of 60 still ends the slider at 65", () => {
+  const t = retireTiming({ prefs: { retireAge: 60 }, holders: [BOTH[0]], today: TODAY });
+  assert.equal(t.maxRetire, 65);
+  assert.equal(t.retireAge, 60);
+});
+
+test("clearing the last birthdate keeps a retirement more than 25 years away", () => {
+  const today = "2026-10-21";
+  // 30 this year, retiring at 65, which is 2061: 35 years out, past the no-birthdate slider's usual end.
+  const one = [{ key: "A" as const, birthdate: "1996-01-01" }];
+  const none = [{ key: "A" as const, birthdate: null }];
+  const prefs = { retireAge: 65 };
+  assert.equal(retireTiming({ prefs, holders: one, today }).retireYear, 2061);
+  const kept = keepRetireYear({ prefs, before: one, after: none, today })!;
+  assert.equal(kept.yearsFallback, 35);
+  assert.equal(retireTiming({ prefs: { ...prefs, ...kept }, holders: none, today }).retireYear, 2061);
+});
+
+test("the second birthdate keeps a year that puts the first partner past 65", () => {
+  const today = "2026-10-21";
+  const before = [
+    { key: "A" as const, birthdate: "1976-01-01" },
+    { key: "B" as const, birthdate: null },
+  ];
+  const after = [before[0], { key: "B" as const, birthdate: "1980-06-01" }];
+  // 75 and 55 are left over from an earlier time both birthdates were set; the plan on screen is age 75, year 2051.
+  const prefs = { retireAge: 75, retireAgeA: 60, retireAgeB: 55 };
+  const kept = keepRetireYear({ prefs, before, after, today })!;
+  const now = retireTiming({ prefs: { ...prefs, ...kept }, holders: after, today });
+  assert.equal(now.retireYear, 2051);
+  assert.deepEqual(now.partners?.map((p) => p.retireYear), [2051, 2051]);
+  assert.equal(now.early, null);
+});
+
 test("clearing one partner's birthdate keeps the year the household finishes working", () => {
   const today = "2026-10-20";
   const both = [

@@ -28,6 +28,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { clientId } from "@/lib/client-id";
 import { formatApprox, formatPct, formatWhole, roundApprox } from "@/lib/format";
 import { givenName, isPlaceholderName } from "@/lib/owners";
+import { inOrder } from "@/lib/in-order";
 import type { PlanChildPref, ProjectionPrefs } from "@/lib/projection-prefs";
 import { PLAN_DEFAULTS, mergeChildren, retireTiming } from "@/lib/retirement-snapshot";
 import type { EquityEvent, EquityYear } from "@/lib/equity-comp";
@@ -118,21 +119,33 @@ const SAVE_TOAST = "planner-save";
 function usePersist() {
   const pending = useRef<ProjectionPrefs>({});
   const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  // One save at a time. A birthdate waits until the slider request already on its way has been stored,
+  // so the year the server keeps is the one on screen.
+  const run = useRef(inOrder()).current;
   /** Sends what is waiting now; the promise settles once the server has answered. */
   const flush = useCallback(async () => {
     clearTimeout(timer.current);
     const body = pending.current;
-    if (Object.keys(body).length === 0) return;
+    if (Object.keys(body).length === 0) {
+      await run(() => Promise.resolve());
+      return;
+    }
     pending.current = {};
-    await fetch("/api/household", {
-      method: "PATCH",
-      keepalive: true,
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ projectionPrefs: body }),
-    })
-      .then((res) => (res.ok ? toast.dismiss(SAVE_TOAST) : saveFailed()))
-      .catch(saveFailed);
-  }, []);
+    await run(async () => {
+      try {
+        const res = await fetch("/api/household", {
+          method: "PATCH",
+          keepalive: true,
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ projectionPrefs: body }),
+        });
+        if (res.ok) toast.dismiss(SAVE_TOAST);
+        else saveFailed();
+      } catch {
+        saveFailed();
+      }
+    });
+  }, [run]);
   useEffect(() => {
     const leave = () => void flush();
     window.addEventListener("pagehide", leave);

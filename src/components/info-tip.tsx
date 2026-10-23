@@ -5,8 +5,21 @@ import { CircleHelp } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 
-/** A "?" beside a label that opens a longer explanation, so the page itself only carries the short version. */
-export function InfoTip({ label, children }: { label: string; children: ReactNode }) {
+/**
+ * A "?" beside a label that opens a longer explanation, so the page itself only carries the short version. `side` and
+ * `align` move it off what it explains, such as the rows of a list just under its label.
+ */
+export function InfoTip({
+  label,
+  children,
+  side,
+  align = "end",
+}: {
+  label: string;
+  children: ReactNode;
+  side?: "top" | "right" | "bottom" | "left";
+  align?: "start" | "center" | "end";
+}) {
   return (
     <Popover>
       <PopoverTrigger asChild>
@@ -14,7 +27,7 @@ export function InfoTip({ label, children }: { label: string; children: ReactNod
           <CircleHelp className="!size-3.5" />
         </Button>
       </PopoverTrigger>
-      <PopoverContent align="end" className="w-auto max-w-[min(26rem,var(--radix-popover-content-available-width))] prose-num leading-relaxed">
+      <PopoverContent side={side} align={align} className="w-auto max-w-[min(26rem,var(--radix-popover-content-available-width))] prose-num leading-relaxed">
         {children}
       </PopoverContent>
     </Popover>

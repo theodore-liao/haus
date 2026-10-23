@@ -11,18 +11,24 @@ import { connectionsStale, refreshPlan } from "@/lib/refresh-plan";
 
 export const dynamic = "force-dynamic";
 
+/** Automatic refreshes (not a press of Refresh all) sync at most this often, however many pages ask. */
+const AUTO_EVERY_MS = 60 * 60 * 1000;
+const lastAuto = globalThis as unknown as { hausAutoRefreshAt?: number };
+
 export async function POST(req: Request) {
   await requireSession();
   const body = (await req.json().catch(() => ({}))) as { force?: boolean };
   const items = await prisma.plaidItem.findMany();
   // The oldest connection decides: one bank that synced lately never hides another that stopped.
   const stale = connectionsStale(items, STALE_SYNC_HOURS);
-  const plan = refreshPlan({
-    itemCount: items.length,
-    plaidReady: plaidConfigured(),
-    stale,
-    force: Boolean(body.force),
-  });
+  const force = Boolean(body.force);
+  let plan = refreshPlan({ itemCount: items.length, plaidReady: plaidConfigured(), stale, force });
+  // Every open tab and reload asks when a connection is old; one automatic sync an hour answers them all, so a bank
+  // that keeps failing isn't retried (and reported) on every page.
+  if (plan === "sync" && !force) {
+    if (lastAuto.hausAutoRefreshAt && Date.now() - lastAuto.hausAutoRefreshAt < AUTO_EVERY_MS) plan = "skip";
+    else lastAuto.hausAutoRefreshAt = Date.now();
+  }
 
   if (plan === "local") {
     const held =

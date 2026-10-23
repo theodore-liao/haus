@@ -196,6 +196,11 @@ function lastKidAge(input: RetirementPlanInput, retire: number): number | null {
   return last;
 }
 
+/** What has to come out of savings for each dollar spent once retired, tax included. */
+function withdrawalGross(tax: number) {
+  return tax > 0 && tax < 1 ? 1 / (1 - tax) : 1;
+}
+
 function discount(yearsOut: number, ra: number) {
   if (yearsOut <= 0) return 1;
   return 1 / (1 + ra) ** yearsOut;
@@ -248,13 +253,14 @@ export function retirementNumber(input: RetirementPlanInput): RetirementPlanResu
     else if (tail > 0) living += ((tail * (1 + ra)) / ra) * discount(cursor - retire, ra);
   }
 
-  // Large expenses from retiring on are set aside at retirement, discounted at the return after retiring. Spending it
-  // down, one after the money is meant to run out is not planned for.
+  // Large expenses from retiring on are set aside at retirement, discounted at the return after retiring, with the tax
+  // on what is withdrawn to pay them, as for spending. Spending it down, one after the money is meant to run out is
+  // not planned for.
   let expenses = 0;
   if (!impossible && 1 + ra > 0) {
     for (const e of input.expenses ?? []) {
       if (e.amount > 0 && e.age >= retire && e.age >= current && (input.mode !== "down" || e.age < live)) {
-        expenses += e.amount * discount(e.age - retire, ra);
+        expenses += e.amount * withdrawalGross(input.tax) * discount(e.age - retire, ra);
       }
     }
   }
@@ -446,7 +452,7 @@ export function balancePath(input: RetirementPlanInput, saving: number): PathPoi
       }
     } else {
       const prev = age - 1;
-      const need = needAt(prev, input, scale).total + spentAt(prev, false);
+      const need = needAt(prev, input, scale).total + spentAt(prev, false) * withdrawalGross(input.tax);
       balance = (balance - need) * (1 + ra);
       flow = -need;
     }

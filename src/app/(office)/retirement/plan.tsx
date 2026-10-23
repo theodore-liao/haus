@@ -28,6 +28,7 @@ import { useScrollFits } from "@/lib/use-scroll-fits";
 import { Callout } from "@/components/callout";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { clientId } from "@/lib/client-id";
+import { niceTicks } from "@/lib/chart-ticks";
 import { formatApprox, formatPct, formatWhole, roundApprox } from "@/lib/format";
 import { givenName, isPlaceholderName } from "@/lib/owners";
 import { inOrder } from "@/lib/in-order";
@@ -198,6 +199,35 @@ function useNarrow() {
   );
 }
 
+/** An element's width, kept current as it resizes. Zero until it has been measured. */
+function useWidth(el: HTMLElement | null) {
+  const [width, setWidth] = useState(0);
+  useEffect(() => {
+    if (!el) return;
+    const watcher = new ResizeObserver(([entry]) => setWidth(entry.contentRect.width));
+    watcher.observe(el);
+    return () => watcher.disconnect();
+  }, [el]);
+  return width;
+}
+
+let textCanvas: CanvasRenderingContext2D | null | undefined;
+/** How wide a chart label draws, in pixels; an estimate where text can't be measured. */
+function textWidth(text: string, fontSize: number) {
+  if (textCanvas === undefined) textCanvas = typeof document === "undefined" ? null : document.createElement("canvas").getContext("2d");
+  if (!textCanvas) return text.length * fontSize * 0.6;
+  textCanvas.font = `${fontSize}px ${getComputedStyle(document.body).fontFamily}`;
+  return textCanvas.measureText(text).width;
+}
+
+/**
+ * A bar's width as a share of its track. Rounded, because the server and the browser can differ in a float's last digit
+ * (their pow differs), and an unrounded width would not match when the page hydrates.
+ */
+function barWidth(share: number) {
+  return `${(Math.min(1, Math.max(0, share)) * 100).toFixed(2)}%`;
+}
+
 function roundInvested(n: number) {
   return Math.round(n / 10_000) * 10_000;
 }
@@ -208,16 +238,6 @@ function fmtRate(n: number) {
 
 function compact(n: number) {
   return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", notation: "compact", maximumSignificantDigits: 3 }).format(n);
-}
-
-/** Round axis steps: 1, 2, 2.5, or 5 times a power of ten. */
-function niceTicks(max: number, count = 4): number[] {
-  if (!(max > 0)) return [0];
-  const raw = max / count;
-  const power = 10 ** Math.floor(Math.log10(raw));
-  const step = [1, 2, 2.5, 5, 10].map((m) => m * power).find((m) => m >= raw) ?? 10 * power;
-  const top = Math.ceil(max / step) * step;
-  return Array.from({ length: Math.round(top / step) + 1 }, (_, i) => i * step);
 }
 
 export function RetirementPlan({
@@ -250,6 +270,7 @@ export function RetirementPlan({
 }) {
   const { persist, flush: flushPrefs } = usePersist();
   useFreshOnBack();
+  const downId = useId();
   const withDob = holders.filter((holder) => holder.birthdate);
   const [holderKey, setHolderKey] = useState<"A" | "B">(
     saved.holderKey && withDob.some((holder) => holder.key === saved.holderKey) ? saved.holderKey : (withDob[0]?.key ?? "A"),
@@ -452,6 +473,18 @@ export function RetirementPlan({
   const kidAfter = Array.from({ length: 40 }, (_, i) => retireYear + i).filter((year) => kidCostIn(year, input) > 0.5);
   const kidAfterYears = kidAfter.length ? { from: kidAfter[0], to: kidAfter[kidAfter.length - 1] } : null;
 
+  // A large expense before retiring that leaves less than nothing saved, on your path (or the target's without one).
+  const shortExpenses = new Set(
+    expenses
+      .filter((e) => countable(e, currentYear) && e.year! < retireYear)
+      .filter((e) => {
+        const at = Math.max(Math.floor(planAge) + 1, ageIn(e.year!));
+        const point = (pacePath ?? planPath)?.find((p) => p.age === at);
+        return point != null && point.balance < 0;
+      })
+      .map((e) => e.id),
+  );
+
   const lastKidYear = kids.reduce<number | null>((last, kid) => (kid.birthYear == null ? last : Math.max(last ?? 0, kid.birthYear + 21)), null);
 
   return (
@@ -553,7 +586,7 @@ export function RetirementPlan({
                         </>
                       ) : (
                         // No paychecks of theirs known yet: say which box counts those years rather than "$0 less".
-                        `. Say which paychecks are ${whose(early.key)}, or enter ${isYou(early.key) ? "your" : "their"} take-home pay, under Assumptions to count those years.`
+                        `. Pick ${whose(early.key)} paychecks, or type ${isYou(early.key) ? "your" : "their"} take-home pay, under Assumptions to count those years.`
                       )}
                     </p>
                   ) : null}
@@ -683,7 +716,7 @@ export function RetirementPlan({
                     min={0}
                     max={1e7}
                     onValue={(v) => bind("annualSpend", setAnnualSpend)(v ?? 0)}
-                    info="What you expect to spend each year once retired, not counting kids or loans, in today's prices."
+                    info="What you expect to spend each year once retired, in today's prices, not counting kids. It starts at what you spend now, less loan payments; plan a home under Large expenses."
                     help={spendHelp(annualSpend, spendNow, inYear(annualSpend, retireYear), retireYear, (v) => bind("annualSpend", setAnnualSpend)(v))}
                   />
                   <div className="planner-health">
@@ -714,22 +747,35 @@ export function RetirementPlan({
                     onValue={(v) => bind("healthcareAnnual", setHealthcareAnnual)(v ?? 0)}
                   />
                   </div>
-                  <div className="planner-down">
-                    <label className="planner-down-check flex cursor-pointer items-start gap-2 text-sm">
-                      <Checkbox className="mt-0.5 h-6 w-6 sm:h-4 sm:w-4" checked={mode === "down"} onCheckedChange={(checked) => bind("spendMode", setMode)(checked === true ? "down" : "forever")} />
-                      Spend it down instead of making it last for good
-                    </label>
+                  {/* The age box opens on the checkbox's own line, so ticking it never adds a row. */}
+                  <div className="planner-down text-sm">
+                    <Checkbox
+                      id={downId}
+                      className="planner-down-box h-6 w-6 sm:h-4 sm:w-4"
+                      checked={mode === "down"}
+                      onCheckedChange={(checked) => bind("spendMode", setMode)(checked === true ? "down" : "forever")}
+                    />
                     {mode === "down" ? (
-                      <NumberField
-                        label="Spend it down by"
-                        suffix="age"
-                        integer
-                        value={liveTo}
-                        min={Math.min(120, retireAge + 1)}
-                        max={120}
-                        onValue={(v) => bind("liveTo", setLiveTo)(v ?? liveTo)}
-                      />
-                    ) : null}
+                      <div className="planner-down-by">
+                        <label htmlFor={downId} className="cursor-pointer whitespace-nowrap">
+                          Spend it down by
+                        </label>
+                        <NumberField
+                          className="planner-down-age"
+                          ariaLabel="Spend it down by age"
+                          prefix="age"
+                          integer
+                          value={liveTo}
+                          min={Math.min(120, retireAge + 1)}
+                          max={120}
+                          onValue={(v) => bind("liveTo", setLiveTo)(v ?? liveTo)}
+                        />
+                      </div>
+                    ) : (
+                      <label htmlFor={downId} className="planner-down-text cursor-pointer">
+                        Spend it down instead of making it last for good
+                      </label>
+                    )}
                   </div>
                   <ExpensesField
                     expenses={expenses}
@@ -740,6 +786,7 @@ export function RetirementPlan({
                     added={result.error == null && !result.impossible ? result.expenses * unit : null}
                     dollars={todayMoney ? "today's dollars" : `${retireYear} dollars`}
                     inYear={inYear}
+                    short={shortExpenses}
                     onChange={updateExpenses}
                   />
                 </div>
@@ -837,13 +884,7 @@ export function RetirementPlan({
                       setWageGrowth(v);
                       persist({ wageGrowth: v });
                     }}
-                    info={
-                      <>
-                        How fast pay rises each year until you retire, before inflation. What you save rises with it, so pay that outgrows prices means
-                        saving more each year.{" "}
-                        {wageGrowth == null ? "Blank keeps pay rising with inflation, so saving stays the same in today's money." : "This box is your own figure."}
-                      </>
-                    }
+                    info={`How fast pay rises each year until you retire, counting inflation, so ${fmtRate(inflation)} just keeps pace with prices. What you save rises with it. Blank keeps pace with inflation.`}
                   />
                   {early && lastKey ? (
                     <NumberField
@@ -852,16 +893,16 @@ export function RetirementPlan({
                       money
                       allowBlank
                       // Their own paychecks stand in until a figure is typed.
-                      placeholder={early.payFromPaychecks ? formatWhole(early.pay) : "None found"}
+                      placeholder={early.payFromPaychecks ? formatApprox(early.pay) : (saveNow?.paySources.length ?? 0) > 0 ? "Not chosen" : "None found"}
+                      infoLabel={`About ${whose(early.key)} take-home pay`}
                       value={early.payOwn ? early.pay : null}
                       min={0}
                       max={1e8}
                       onValue={(v) => setStopPay(early.key, v)}
                       info={
                         <>
-                          {capital(whose(early.key))} yearly pay after tax, in today&apos;s prices. It stops in {early.year}, when{" "}
-                          {isYou(early.key) ? "you retire" : `${nameOf(early.key)} retires`}; until {isYou(lastKey) ? "you retire" : `${nameOf(lastKey)} retires`} in{" "}
-                          {retireYear}, you save that much less a year, and draw on savings if spending is more than {whose(lastKey)} pay covers.
+                          {capital(whose(early.key))} yearly pay after tax, in today&apos;s prices. It stops when {isYou(early.key) ? "you retire" : `${nameOf(early.key)} retires`} in{" "}
+                          {early.year}, so until {retireYear} you save that much less a year, using savings if you need to.
                           <PayOwners
                             sources={saveNow?.paySources ?? []}
                             marks={payOwners}
@@ -967,7 +1008,7 @@ function PayHelp({
     ) : null;
   }
   if (theirs > 0) return <>From {whose} paychecks.</>;
-  if (unmarked) return <>Say which paychecks are {whose} in the ?, or enter it.</>;
+  if (unmarked) return <>Pick {whose} paychecks in the ?, or type {whose} pay.</>;
   return found ? <>None of the paychecks are {whose}. Enter {whose} pay.</> : <>No paychecks found. Enter {whose} pay.</>;
 }
 
@@ -988,10 +1029,11 @@ function PayOwners({
     <span className="mt-3 block">
       <span className="kicker block">Whose paychecks</span>
       {sources.slice(0, 6).map((source, i) => (
-        <span key={`${source.label}-${i}`} className="mt-2 flex items-center justify-between gap-4">
-          <span className="min-w-0">
-            <span className="block truncate">{source.label}</span>
-            <span className="block text-xs text-muted-foreground">
+        // The choice drops under the name when the popover is narrow (a phone), so the payer's name is never cut short.
+        <span key={`${source.label}-${i}`} className="mt-2.5 flex flex-wrap items-center justify-between gap-x-4 gap-y-1.5">
+          <span className="min-w-[min(100%,11rem)] flex-1">
+            <span className="block [overflow-wrap:anywhere]">{source.label}</span>
+            <span className="block whitespace-nowrap text-xs text-muted-foreground">
               <Money value={source.amount * source.perYear} approx /> a year
             </span>
           </span>
@@ -1432,7 +1474,7 @@ function PlannerAnswer({
             aria-valuemax={100}
             aria-label="Of the way there"
           >
-            <span style={{ width: `${Math.min(100, share * 100)}%` }} />
+            <span style={{ width: barWidth(share) }} />
           </div>
           <div className="prose-num mt-1.5 flex flex-wrap justify-between gap-x-3 text-sm">
             <span className="text-muted-foreground">
@@ -1446,7 +1488,7 @@ function PlannerAnswer({
             <div className="planner-number-parts">
               <div className="stack-bar" aria-hidden>
                 {parts.map((part) => (
-                  <span key={part.label} style={{ width: `${(part.value / number) * 100}%`, "--swatch": part.color } as CSSProperties} />
+                  <span key={part.label} style={{ width: barWidth(part.value / number), "--swatch": part.color } as CSSProperties} />
                 ))}
               </div>
               <ul className="mt-1.5">
@@ -1479,7 +1521,7 @@ function PlannerAnswer({
             <div className="save-compare-row">
               <span className="text-muted-foreground">Needed</span>
               <span className="save-compare-track" aria-hidden>
-                <span style={{ width: `${(needed / saveScale) * 100}%`, background: TARGET_LINE }} />
+                <span style={{ width: barWidth(needed / saveScale), background: TARGET_LINE }} />
               </span>
               <span className="save-compare-value">
                 <Money value={needed} approx />
@@ -1492,7 +1534,7 @@ function PlannerAnswer({
               </span>
               <span className="save-compare-track" aria-hidden>
                 {saving != null ? (
-                  <span style={{ width: `${(Math.max(0, saving) / saveScale) * 100}%`, background: onTrack ? "var(--positive)" : "var(--accent)" }} />
+                  <span style={{ width: barWidth(Math.max(0, saving) / saveScale), background: onTrack ? "var(--positive)" : "var(--accent)" }} />
                 ) : null}
               </span>
               <span className={`save-compare-value ${saving == null ? "text-muted-foreground" : onTrack ? "text-positive" : "text-accent"}`}>
@@ -1625,6 +1667,8 @@ function PlannerChart({
 }) {
   const start = target[0];
   const narrow = useNarrow();
+  const [plotEl, setPlotEl] = useState<HTMLDivElement | null>(null);
+  const plotWidth = useWidth(plotEl);
   const scale = useCallback((age: number) => (todayMoney ? 1 : (1 + inflation) ** (age - start.age)), [todayMoney, inflation, start.age]);
   const shown = useMemo(() => target.filter((point) => point.age <= endAge), [target, endAge]);
   // The point a large expense leaves the balance at, as the plan counts it: before retiring at the end of its year (this
@@ -1707,27 +1751,49 @@ function PlannerChart({
   const behind = yours != null && rows.some((r) => r.yours != null && r.yours < r.target - 1);
   const grows = yours != null && (rows[rows.length - 1].yours ?? 0) > (rows.find((r) => r.age === retireAge)?.yours ?? 0) * 1.05;
   // One marker for each year with large expenses, named by what they are; one in the retire year joins the retire marker.
-  const spendYears = new Map<number, string[]>();
+  const spendYears = new Map<number, { kinds: string[]; amount: number }>();
   for (const e of expenses) {
     if (!inRange(e.age)) continue;
-    const kinds = spendYears.get(e.age) ?? [];
-    if (!kinds.includes(e.label)) kinds.push(e.label);
-    spendYears.set(e.age, kinds);
+    const year = spendYears.get(e.age) ?? { kinds: [], amount: 0 };
+    if (!year.kinds.includes(e.label)) year.kinds.push(e.label);
+    year.amount += e.amount;
+    spendYears.set(e.age, year);
   }
-  const spendLabel = (kinds: string[]) => (kinds.length > 2 ? `${kinds.length} expenses` : kinds.join(" + "));
+  /** "Home", "Home + vehicle", "3 expenses". */
+  const spendLabel = (kinds: string[]) =>
+    kinds.length > 2 ? `${kinds.length} expenses` : kinds.map((kind, i) => (i ? kind.toLowerCase() : kind)).join(" + ");
   const atRetire = spendYears.get(retireAge);
-  const events = [
+  // Rank says whose label wins a crowded spot: retiring, then Medicare and income, then the biggest expenses.
+  const markers = [
     ...(firstStop && inRange(firstStop.age)
-      ? [{ age: firstStop.age, label: firstStop.you ? "You retire" : `${firstStop.name} retires`, color: "#cbb892" }]
+      ? [{ age: firstStop.age, label: firstStop.you ? "You retire" : `${firstStop.name} retires`, color: "#cbb892", rank: 0 }]
       : []),
-    { age: retireAge, label: atRetire ? `${retireLabel} + ${spendLabel(atRetire).toLowerCase()}` : retireLabel, color: "#cbb892" },
+    { age: retireAge, label: atRetire ? `${retireLabel} + ${spendLabel(atRetire.kinds).toLowerCase()}` : retireLabel, color: "#cbb892", rank: 0 },
     ...[...spendYears]
       .filter(([age]) => age !== retireAge)
-      .sort(([a], [b]) => a - b)
-      .map(([age, kinds]) => ({ age, label: spendLabel(kinds), color: EXPENSES })),
-    ...(inRange(incomeAge) ? [{ age: incomeAge!, label: "Income starts", color: "#8fa0b8" }] : []),
-    ...(inRange(medicare) && medicare !== retireAge ? [{ age: medicare!, label: "Medicare", color: HEALTH }] : []),
+      .map(([age, year]) => ({ age, label: spendLabel(year.kinds), color: EXPENSES, rank: 2 - year.amount / 1e12 })),
+    ...(inRange(incomeAge) ? [{ age: incomeAge!, label: "Income starts", color: "#8fa0b8", rank: 1 }] : []),
+    ...(inRange(medicare) && medicare !== retireAge ? [{ age: medicare!, label: "Medicare", color: HEALTH, rank: 1 }] : []),
   ];
+  // Each label takes the lowest row where it doesn't touch one already placed, two rows on a wide chart and three on a
+  // phone. A label with no room left keeps its dashed line; the tooltip still names that year's expenses.
+  const labelRows = narrow ? 3 : 2;
+  const plotLeft = 64;
+  const plotSpan = Math.max(1, (plotWidth || 800) - plotLeft - (narrow ? 12 : CHART_LABEL_MARGIN));
+  const placed: { left: number; right: number; row: number }[] = [];
+  const events = [...markers]
+    .sort((a, b) => a.rank - b.rank || a.age - b.age)
+    .map((marker) => {
+      const center = plotLeft + ((toX(marker.age) - first) / Math.max(1, last - first)) * plotSpan;
+      const half = textWidth(marker.label, 11) / 2 + 4;
+      let row: number | null = null;
+      for (let r = 0; r < labelRows && row == null; r++) {
+        if (!placed.some((p) => p.row === r && p.left < center + half && center - half < p.right)) row = r;
+      }
+      if (row != null) placed.push({ left: center - half, right: center + half, row });
+      return { ...marker, row };
+    });
+  const rowsUsed = Math.max(1, ...events.map((event) => (event.row ?? 0) + 1));
 
   return (
     <div className="planner-chart-body min-w-0">
@@ -1788,10 +1854,10 @@ function PlannerChart({
         </div>
       </div>
 
-      <div className="planner-plot relative w-full">
+      <div ref={setPlotEl} className="planner-plot relative w-full">
         <div className="absolute inset-0">
         <ResponsiveContainer>
-          <ComposedChart data={rows} margin={{ top: narrow ? Math.max(28, 14 + events.length * 12) : 28, right: narrow ? 12 : CHART_LABEL_MARGIN, left: 0, bottom: 0 }}>
+          <ComposedChart data={rows} margin={{ top: rowsUsed > 2 ? 40 : 28, right: narrow ? 12 : CHART_LABEL_MARGIN, left: 0, bottom: 0 }}>
             <CartesianGrid stroke={GRID} vertical={false} />
             <XAxis dataKey="x" type="number" domain={["dataMin", "dataMax"]} ticks={xTicks} tick={AXIS} axisLine={false} tickLine={false} />
             <YAxis allowDataOverflow domain={[0, yTicks[yTicks.length - 1]]} ticks={yTicks} tick={{ ...AXIS, className: "money" }} axisLine={false} tickLine={false} width={64} tickFormatter={(v) => compact(v)} />
@@ -1808,14 +1874,13 @@ function PlannerChart({
                 label={{ value: `Number ${compact(number)}`, position: narrow ? "insideTopLeft" : "right", fill: "#8fa0b8", fontSize: 11, className: "money" }}
               />
             ) : null}
-            {events.map((event, i) => (
+            {events.map((event) => (
               <ReferenceLine
                 key={`${event.age}-${event.label}`}
                 x={toX(event.age)}
                 stroke={event.color}
                 strokeDasharray="4 4"
-                // Wide charts alternate two rows of labels; a phone's markers sit close, so each gets its own row.
-                label={{ value: event.label, position: "top", offset: 6 + (narrow ? i : i % 2) * 12, fill: event.color, fontSize: 11 }}
+                label={event.row == null ? undefined : { value: event.label, position: "top", offset: 6 + event.row * 12, fill: event.color, fontSize: 11 }}
               />
             ))}
             <Area type="linear" dataKey="range" stroke="none" fill={YOUR_LINE} fillOpacity={0.07} isAnimationActive={false} activeDot={false} />
@@ -1913,15 +1978,26 @@ function ChartTip({
           <span className="money">{formatApprox(Math.abs(gap))}</span>
         </div>
       ) : null}
-      <div className="num text-muted-foreground">
-        {row.flow >= 0 ? "Saved that year: " : "Spent from savings: "}
-        <span className="money">{formatApprox(Math.abs(row.flow))}</span>
-      </div>
-      {row.spent ? (
-        <div className="num text-muted-foreground">
-          {row.spent.labels.join(", ")}: <span className="money">{formatApprox(row.spent.amount)}</span>
-        </div>
-      ) : null}
+      {(() => {
+        // Before retiring a large expense comes out of that year's saving, so the two show apart; after, it is part of
+        // what that year takes from savings.
+        const before = row.spent != null && row.age <= retireAge;
+        const flow = before ? row.flow + row.spent!.amount : row.flow;
+        return (
+          <>
+            <div className="num text-muted-foreground">
+              {flow >= 0 ? "Saved that year: " : "Spent from savings: "}
+              <span className="money">{formatApprox(Math.abs(flow))}</span>
+            </div>
+            {row.spent ? (
+              <div className="num text-muted-foreground">
+                {before ? `${row.spent.labels.join(", ")}: ` : `Including ${row.spent.labels.join(", ")}: `}
+                <span className="money">{formatApprox(before ? -row.spent.amount : row.spent.amount)}</span>
+              </div>
+            ) : null}
+          </>
+        );
+      })()}
       {row.age <= retireAge && Math.abs(row.kidCost) > 0.5 ? (
         <div className="num text-muted-foreground">
           Kid costs above today&apos;s: <span className="money">{formatApprox(row.kidCost)}</span>
@@ -2027,6 +2103,7 @@ function ExpensesField({
   added,
   dollars,
   inYear,
+  short,
   onChange,
 }: {
   expenses: PlanExpensePref[];
@@ -2041,9 +2118,31 @@ function ExpensesField({
   dollars: string;
   /** What an amount in today's prices becomes in a later year. */
   inYear: (amount: number, year: number) => number;
+  /** Expenses before retiring that are more than the savings there will be by their year. */
+  short: Set<string>;
   onChange: (next: PlanExpensePref[]) => void;
 }) {
-  const update = (id: string, patch: Partial<PlanExpensePref>) => onChange(expenses.map((row) => (row.id === id ? { ...row, ...patch } : row)));
+  // Rows sort by year as years are filled in, blank years last, so the list reads in the chart's order.
+  const update = (id: string, patch: Partial<PlanExpensePref>) => {
+    const next = expenses.map((row) => (row.id === id ? { ...row, ...patch } : row));
+    onChange("year" in patch ? next.slice().sort((a, b) => (a.year ?? Infinity) - (b.year ?? Infinity)) : next);
+  };
+  const fieldRef = useRef<HTMLDivElement>(null);
+  // Where the keyboard goes once the list changes: a new row's year, or the row after one removed (else Add).
+  const focusAfter = useRef<{ added: true } | { removed: number } | null>(null);
+  useEffect(() => {
+    const want = focusAfter.current;
+    const field = fieldRef.current;
+    focusAfter.current = null;
+    if (!want || !field) return;
+    const rows = field.querySelectorAll<HTMLElement>(".expense-row");
+    if ("added" in want) {
+      rows[rows.length - 1]?.querySelector<HTMLInputElement>(".expense-year input")?.focus();
+      return;
+    }
+    const next = rows[want.removed] ?? rows[want.removed - 1];
+    (next?.querySelector<HTMLElement>(".expense-remove") ?? field.querySelector<HTMLElement>(".expense-add"))?.focus();
+  }, [expenses.length]);
   const { setListEl, fits, moreAbove, moreBelow, measure } = useRowList(expenses.length);
   const labelId = useId();
   const counted = expenses
@@ -2064,12 +2163,12 @@ function ExpensesField({
     return null;
   };
   return (
-    <div className="field planner-expenses">
+    <div ref={fieldRef} className="field planner-expenses">
       <div className="flex min-h-6 items-center gap-1">
         <span id={labelId} className="kicker">
           Large expenses
         </span>
-        <InfoTip label="About large expenses">
+        <InfoTip label="About large expenses" side="top" align="start">
           One-off costs, like a home, a car, or a wedding, in today&apos;s prices. Before you retire, one comes out of savings the year
           it&apos;s paid, so you need to save more; from the year you retire on, it&apos;s part of your number.
           {counted.length > 0 && added != null ? (
@@ -2108,12 +2207,13 @@ function ExpensesField({
             className="expense-list soft-scroll pr-1"
             aria-labelledby={labelId}
           >
-            {expenses.map((e) => {
+            {expenses.map((e, i) => {
               // "this home expense", "this other expense": reads right for every kind.
               const name = `this ${expenseLabel(e.kind).toLowerCase()} expense`;
-              const note = why(e);
+              const uncounted = why(e);
+              const note = uncounted ?? (short.has(e.id) ? `More than you'll have saved by ${e.year}.` : null);
               return (
-                <li key={e.id} className="expense-row">
+                <li key={e.id} className="expense-row" data-uncounted={uncounted ? "" : undefined}>
                   <Select value={e.kind} onValueChange={(kind) => update(e.id, { kind: kind as ExpenseKind })}>
                     <SelectTrigger
                       // Dressed like the boxes beside it.
@@ -2161,7 +2261,10 @@ function ExpensesField({
                     size="icon"
                     className="expense-remove"
                     aria-label={`Remove ${name}`}
-                    onClick={() => onChange(expenses.filter((row) => row.id !== e.id))}
+                    onClick={() => {
+                      focusAfter.current = { removed: i };
+                      onChange(expenses.filter((row) => row.id !== e.id));
+                    }}
                   >
                     <X />
                   </Button>
@@ -2179,8 +2282,11 @@ function ExpensesField({
           type="button"
           variant="outline"
           size="sm"
-          className="mt-0.5 w-full border-dashed normal-case tracking-normal"
-          onClick={() => onChange([...expenses, { id: `expense-${clientId()}`, kind: nextKind, year: null, amount: null }])}
+          className="expense-add mt-0.5 w-full border-dashed normal-case tracking-normal"
+          onClick={() => {
+            focusAfter.current = { added: true };
+            onChange([...expenses, { id: `expense-${clientId()}`, kind: nextKind, year: null, amount: null }]);
+          }}
         >
           <Plus />
           Add a large expense

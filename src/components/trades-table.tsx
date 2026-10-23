@@ -8,7 +8,7 @@ import { SearchInput } from "./search-input";
 import { Money } from "./money";
 import { formatDate } from "@/lib/format";
 import { DiscreteFilter, nextSortDir, ResetFilters, SortMark, type SortDir } from "./excel-filter";
-import { BrandLabel } from "./brand-mark";
+import { BrandLabel, BrandMark } from "./brand-mark";
 
 type Trade = {
   id: string;
@@ -167,7 +167,44 @@ function TradesTable({
     return <p className="px-[var(--space-card)] py-6 text-sm text-muted-foreground">No investment transactions in this view.</p>;
 
   return (
-    <div className="max-h-72 overflow-y-auto">
+    <>
+    {/* Phones get a compact list (what, when, where, and the amount); the seven-column table needs a wider screen. */}
+    <ul className="max-h-72 overflow-y-auto md:hidden" aria-label="Trades">
+      {visible.length === 0 ? (
+        <li className="py-8 text-center text-sm text-muted-foreground">No trades match this filter.</li>
+      ) : (
+        visible.slice(0, 80).map((t) => (
+          <li key={t.id} className="flex items-center gap-3 border-b border-border px-4 py-2.5 last:border-0">
+            {t.symbol ? (
+              <BrandMark kind="security" symbol={t.symbol} name={t.name} size={22} />
+            ) : (
+              <BrandMark kind="institution" name={t.account} size={22} />
+            )}
+            <span className="min-w-0 flex-1">
+              <span className={t.symbol ? "block truncate text-sm font-medium text-primary" : "block truncate text-sm font-medium"}>
+                {t.symbol ?? t.name}
+              </span>
+              <span className="block truncate text-xs text-muted-foreground">
+                <span className="num">{formatDate(t.date)}</span> ·{" "}
+                <span className="capitalize">{t.subtype && t.subtype.toLowerCase() !== t.type.toLowerCase() ? `${t.type} · ${t.subtype}` : t.type}</span> ·{" "}
+                {t.account}
+              </span>
+            </span>
+            <span className="shrink-0 text-right">
+              <span className="num block text-sm">
+                <Money value={t.amount} />
+              </span>
+              {t.quantity != null && t.price != null ? (
+                <span className="num block text-xs text-muted-foreground">
+                  {t.quantity} × <Money value={t.price} />
+                </span>
+              ) : null}
+            </span>
+          </li>
+        ))
+      )}
+    </ul>
+    <div className="hidden max-h-72 overflow-y-auto md:block">
     <Table className="table-fixed">
       <colgroup>
         <col className="w-[12%]" />
@@ -245,5 +282,6 @@ function TradesTable({
       </TableBody>
     </Table>
     </div>
+    </>
   );
 }

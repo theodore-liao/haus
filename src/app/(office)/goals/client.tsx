@@ -241,7 +241,7 @@ export function GoalsClient({
         <div className="goal-section-head">
           <SectionLabel className="mb-0">Staying on track</SectionLabel>
         </div>
-        <div className="goal-grid">
+        <div className="goal-stack">
           {reserve ? (
             <InsightGoal insight={reserve} title="Emergency fund" />
           ) : (
@@ -288,20 +288,26 @@ function StatusChip({ tone, label }: { tone: string; label: string }) {
 
 function QuietGoal({ title, text, href, link }: { title: string; text: string; href: string; link: string }) {
   return (
-    <article className="chart-card insight-card">
-      <span className="kicker">{title}</span>
-      <p className="mt-3 flex-1 text-sm leading-relaxed text-muted-foreground">{text}</p>
-      <Link href={href} className="insight-link">
-        {link} <ArrowRight aria-hidden className="size-3.5" />
-      </Link>
+    <article className="chart-card insight-card goal-card">
+      <div className="goal-head">
+        <span className="kicker">{title}</span>
+      </div>
+      <div className="goal-next">
+        <p className="mt-3 flex-1 text-sm leading-relaxed text-muted-foreground">{text}</p>
+        <Link href={href} className="insight-link">
+          {link} <ArrowRight aria-hidden className="size-3.5" />
+        </Link>
+      </div>
     </article>
   );
 }
 
+/** One measure as a full-width card: the answer on the left and, with room, its figures beside it. */
 function InsightGoal({ insight, title }: { insight: Insight; title: string }) {
   const tone = INSIGHT_TONE[insight.status];
   return (
-    <article className="chart-card insight-card">
+    <article className={cn("chart-card insight-card goal-card", insight.breakdown && "goal-card-split")}>
+      <div className="goal-head">
       <div className="flex items-center justify-between gap-2">
         <span className="kicker inline-flex items-center gap-1">
           {title}
@@ -330,13 +336,20 @@ function InsightGoal({ insight, title }: { insight: Insight; title: string }) {
           <div className="footnote prose-num mt-1.5">{withBlurredMoney(insight.meter.label)}</div>
         </div>
       ) : null}
-      {insight.breakdown ? <InsightBreakdown rows={insight.breakdown} /> : null}
-      <p className="prose-num mt-3 flex-1 text-sm leading-relaxed text-muted-foreground">{withBlurredMoney(insight.next)}</p>
-      {insight.href ? (
-        <Link href={insight.href} className="insight-link">
-          Open {insight.href === "/retirement" ? "Retirement" : "Spending"} <ArrowRight aria-hidden className="size-3.5" />
-        </Link>
+      </div>
+      {insight.breakdown ? (
+        <div className="goal-figures">
+          <InsightBreakdown rows={insight.breakdown} />
+        </div>
       ) : null}
+      <div className="goal-next">
+        <p className="prose-num mt-3 flex-1 text-sm leading-relaxed text-muted-foreground">{withBlurredMoney(insight.next)}</p>
+        {insight.href ? (
+          <Link href={insight.href} className="insight-link">
+            Open {insight.href === "/retirement" ? "Retirement" : "Spending"} <ArrowRight aria-hidden className="size-3.5" />
+          </Link>
+        ) : null}
+      </div>
     </article>
   );
 }

@@ -129,6 +129,14 @@ test("a large expense before retiring comes out of savings that year, and the re
   close(balancePath(input, requiredSaving(input, number)).find((p) => p.age === 60)!.balance, number, 1);
 });
 
+test("a large expense after retiring carries the tax on what is withdrawn to pay it, as spending does", () => {
+  const taxed = plan({ tax: 0.15, expenses: [{ age: 65, amount: 40_000 }] });
+  close(retirementNumber(taxed).expenses, 40_000 / 0.85);
+  // Saving the required amount still lands on the number, and the money lasts, with the expense paid.
+  const number = retirementNumber(taxed).number!;
+  close(balancePath(taxed, requiredSaving(taxed, number)).find((p) => p.age === 65)!.balance, number, 1);
+});
+
 test("a large expense this year comes out with the first year's saving, and one from a past year is ignored", () => {
   const input = plan({ ageNow: 40, retireAge: 60, expenses: [{ age: 40, amount: 30_000 }, { age: 38, amount: 99_000 }] });
   const path = balancePath(input, 20_000);

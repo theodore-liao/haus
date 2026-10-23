@@ -114,6 +114,7 @@ export function RemoveCrypto({
       title={name ? `Remove ${name}?` : "Remove this entry?"}
       description={`It leaves your ${kind} total.`}
       ariaLabel={icon ? `Remove ${name ?? "this entry"}` : undefined}
+      hint={icon ? "Remove" : undefined}
       className={icon ? "h-7 w-7 px-0 text-muted-foreground hover:text-foreground" : undefined}
       onConfirm={async () => {
         try {

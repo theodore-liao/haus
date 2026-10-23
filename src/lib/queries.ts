@@ -1903,7 +1903,10 @@ export async function getInsights(filter: OwnerFilter) {
   const cashAccounts = accs
     .filter((a) => isCashType(a.hausType))
     .map((a) => ({
-      label: withHolder(accountLabel(a.name, a.item.institutionName), ownerLabel(a.owner, names)),
+      id: a.id,
+      name: accountLabel(a.name, a.item.institutionName),
+      institution: a.item.institutionName,
+      holder: ownerLabel(a.owner, names),
       value: a.currentBalance ?? 0,
     }))
     .filter((a) => Math.abs(a.value) >= 0.005)

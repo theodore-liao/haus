@@ -145,6 +145,12 @@ export async function loadCardPaymentFlags(): Promise<TransferMatchFlags> {
     where: { id: "haus" },
     select: { pairCardPayments: true },
   });
+  // Settings' "Auto label transfers and refunds" off: the bank's own labels stand, for transfers and refunds alike.
+  if (household?.pairCardPayments === false) {
+    const flags = { enabled: false, paired: new Set<string>(), refunds: new Map<string, string>() };
+    globalCache.hausTransferMatch = { at: Date.now(), flags };
+    return flags;
+  }
   const txns = await prisma.txn.findMany({
     select: {
       id: true,
@@ -162,11 +168,6 @@ export async function loadCardPaymentFlags(): Promise<TransferMatchFlags> {
     },
   });
   const refunds = merchantRefunds(txns);
-  if (household?.pairCardPayments === false) {
-    const flags = { enabled: false, paired: new Set<string>(), refunds };
-    globalCache.hausTransferMatch = { at: Date.now(), flags };
-    return flags;
-  }
   // A refund is never half of a transfer, however its amount lines up with a payment elsewhere.
   const flags = { enabled: true, paired: classifyTransfers(txns.filter((t) => !refunds.has(t.id))), refunds };
   globalCache.hausTransferMatch = { at: Date.now(), flags };

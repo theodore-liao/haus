@@ -56,7 +56,12 @@ function classKey(c: string | null) {
 
 function LastUpdated({ iso }: { iso?: string | null }) {
   if (!iso) return null;
-  return <span className="footnote block">Last updated: {formatDateTime(iso)}</span>;
+  // Short enough to fit under the asset's name in the table; the whole of it shows on hover.
+  return (
+    <span className="footnote block" title={`Last updated ${formatDateTime(iso)}`}>
+      Updated {formatDateTime(iso)}
+    </span>
+  );
 }
 
 /** A holding's page. Opened from Crypto it says so, so its back button returns there. */

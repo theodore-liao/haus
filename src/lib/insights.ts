@@ -30,7 +30,7 @@ export type Insight = {
   /** The working, behind a "?". */
   math: string;
   /** Figures behind the value, shown on the card: dollar amounts a month, with the total rows marked. */
-  breakdown?: { label: string; value: number; total?: boolean }[];
+  breakdown?: BreakdownRow[];
   href?: string;
   /** Rough yearly dollars at stake, to rank what to do first. */
   impact?: number;
@@ -38,10 +38,28 @@ export type Insight = {
 
 export type Debt = { name: string; balance: number; rate: number | null; kind: "card" | "mortgage" | "loan" };
 
+/** An account a cash total sits in: its name, its bank, and whose it is, drawn like the Overview's Cash list. */
+export type CashAccountRow = { id: string; name: string; institution: string | null; holder: string; value: number };
+
+export type BreakdownRow = {
+  label: string;
+  value: number;
+  total?: boolean;
+  /** The row is one account, shown with its bank's logo and its holder faded beside the name. */
+  account?: Omit<CashAccountRow, "value">;
+  /** A rule above the row, to set a group apart. */
+  rule?: boolean;
+};
+
+/** Account rows for a breakdown, the first under a rule when something comes before them. */
+function accountRows(accounts: CashAccountRow[] | undefined, rule: boolean): BreakdownRow[] {
+  return (accounts ?? []).map(({ value, ...account }, i) => ({ label: account.name, value, account, rule: rule && i === 0 }));
+}
+
 export type InsightInput = {
   cash: number;
   /** The accounts that make up `cash`, largest first, so a breakdown can say where it is. */
-  cashAccounts?: { label: string; value: number }[];
+  cashAccounts?: CashAccountRow[];
   /** Must-pay spending a month: every loan payment plus rent and utilities, groceries, medical, and transport (90-day average). */
   monthlyEssential: number;
   /** Each must-pay category's share of monthlyEssential, a month. */
@@ -140,7 +158,7 @@ export function buildInsights(x: InsightInput): Insight[] {
         ...(x.essentialParts ?? []).map((p) => ({ label: p.category, value: p.monthly })),
         { label: "Must-pay a month", value: x.monthlyEssential, total: true },
         { label: `${t.reserveMonths}-month buffer`, value: reserve, total: true },
-        ...(x.cashAccounts ?? []).map((a) => ({ label: a.label, value: a.value })),
+        ...accountRows(x.cashAccounts, true),
         { label: "Cash on hand", value: x.cash, total: true },
         { label: short > 0 ? "Short of the buffer" : "Above the buffer", value: Math.abs(short), total: true },
       ],
@@ -160,7 +178,7 @@ export function buildInsights(x: InsightInput): Insight[] {
         math: `${money(x.cash)} cash − ${money(reserve)} reserve (${t.reserveMonths} months of must-pay spending, loan payments included). Compares ${x.growthRate}% growth (the planner's rate) with ${x.cashRate != null ? `${x.cashRate.toFixed(2)}% on your cash` : "0% on cash that reports no rate"}.`,
         breakdown: x.cashAccounts?.length
           ? [
-              ...x.cashAccounts.map((a) => ({ label: a.label, value: a.value })),
+              ...accountRows(x.cashAccounts, false),
               { label: "Cash on hand", value: x.cash, total: true },
               { label: `${t.reserveMonths}-month reserve`, value: reserve, total: true },
               { label: "Beyond the reserve", value: idle, total: true },

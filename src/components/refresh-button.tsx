@@ -6,9 +6,28 @@ import { RefreshCw } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "./ui/button";
 
-// Automatic refreshes start at most once an hour, even when React mounts the shell twice in development.
+// Automatic refreshes start at most once an hour, across reloads and tabs too (the browser remembers the last try), and
+// even when React mounts the shell twice in development.
 let lastAuto = 0;
 const AUTO_EVERY_MS = 60 * 60 * 1000;
+const AUTO_KEY = "haus.autoRefreshAt";
+
+function lastAutoTry() {
+  try {
+    return Math.max(lastAuto, Number(localStorage.getItem(AUTO_KEY)) || 0);
+  } catch {
+    return lastAuto;
+  }
+}
+
+function markAutoTry(at: number) {
+  lastAuto = at;
+  try {
+    localStorage.setItem(AUTO_KEY, String(at));
+  } catch {
+    /* private windows can refuse storage; this page still waits an hour */
+  }
+}
 /** Connections older than this refresh by themselves while Haus is open. */
 const STALE_MS = 4 * 60 * 60 * 1000;
 
@@ -62,8 +81,8 @@ export function RefreshButton({
     const maybe = () => {
       const iso = synced.current;
       const due = !iso || Date.now() - Date.parse(iso) > STALE_MS;
-      if (!due || document.visibilityState !== "visible" || Date.now() - lastAuto < AUTO_EVERY_MS) return;
-      lastAuto = Date.now();
+      if (!due || document.visibilityState !== "visible" || Date.now() - lastAutoTry() < AUTO_EVERY_MS) return;
+      markAutoTry(Date.now());
       void refresh(false, true);
     };
     maybe();

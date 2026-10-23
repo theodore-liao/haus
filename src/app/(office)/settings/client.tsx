@@ -474,16 +474,17 @@ export function SettingsClient({
           </div>
           <div className="flex items-start justify-between gap-4">
             <div className="min-w-0 flex-1">
-              <div className="text-foreground">Auto label transfers</div>
+              <div className="text-foreground">Auto label transfers and refunds</div>
               <p className="mt-1 text-muted-foreground">
-                Automatically categorizes transactions as &quot;Transfer&quot; when money flows between connected accounts.
+                Labels money moving between your connected accounts as a transfer, and money back from a shop as a refund, even when the bank
+                labels it otherwise.
               </p>
             </div>
             <Switch
               checked={pairCards}
               onCheckedChange={(on) => void setCardPairing(on)}
               className="mt-0.5 shrink-0"
-              aria-label="Auto label transfers"
+              aria-label="Auto label transfers and refunds"
             />
           </div>
           <div className="space-y-2">

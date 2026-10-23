@@ -17,6 +17,7 @@ export function ConfirmButton({
   disabled,
   className,
   ariaLabel,
+  hint,
 }: {
   title: string;
   description: ReactNode;
@@ -31,6 +32,8 @@ export function ConfirmButton({
   className?: string;
   /** Needed when the visible label is only an icon. */
   ariaLabel?: string;
+  /** What an icon-only button does, shown on hover. */
+  hint?: string;
 }) {
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -54,6 +57,7 @@ export function ConfirmButton({
         disabled={disabled}
         className={className}
         aria-label={ariaLabel}
+        title={hint}
         onClick={() => setOpen(true)}
       >
         {children}

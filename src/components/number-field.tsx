@@ -104,10 +104,13 @@ export function NumberField({
   className,
   ariaLabel,
   info,
+  infoLabel,
 }: {
   label?: string;
   /** A longer explanation behind a "?" beside the label; keep `help` to one short line. */
   info?: ReactNode;
+  /** The "?" button's name, when "About" and the label in lower case would misspell it (a person's name). */
+  infoLabel?: string;
   value: number | null;
   onValue: (value: number | null) => void;
   prefix?: string;
@@ -171,7 +174,7 @@ export function NumberField({
           <label htmlFor={id} className="kicker">
             {label}
           </label>
-          {info ? <InfoTip label={`About ${label.toLowerCase()}`}>{info}</InfoTip> : null}
+          {info ? <InfoTip label={infoLabel ?? `About ${label.toLowerCase()}`}>{info}</InfoTip> : null}
         </div>
       ) : null}
       <div className="field-box" data-invalid={error ? "" : undefined} onClick={(e) => e.currentTarget.querySelector("input")?.focus()}>

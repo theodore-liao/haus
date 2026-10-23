@@ -9,6 +9,7 @@ import { Money } from "@/components/money";
 import { NumberField } from "@/components/number-field";
 import { amortize, loanLife, remainingFromPayment, yearLabel } from "@/lib/amortization";
 import { formatMoney } from "@/lib/format";
+import { niceTicks, yearTicks } from "@/lib/chart-ticks";
 
 const AXIS = { fontSize: 11, fill: "#8fa0b8", fontFamily: "var(--font-geist-sans)" };
 const GRID = "rgba(148,163,184,0.12)";
@@ -120,11 +121,12 @@ export function HomeLoan({
       extra: extra && faster && sinceToday >= 0 ? (sinceToday === 0 ? balance : Math.max(0, faster.months[sinceToday - 1]?.balance ?? 0)) : undefined,
     };
   });
-  const firstTick = Math.ceil(chart[0]?.x ?? todayX);
-  const lastTick = Math.floor(chart[chart.length - 1]?.x ?? todayX);
-  const years = lastTick - firstTick;
-  const step = years <= 6 ? 1 : years <= 12 ? 2 : years <= 40 ? 5 : 10;
-  const ticks = Array.from({ length: Math.floor((lastTick - firstTick) / step) + 1 }, (_, i) => firstTick + i * step);
+  const ticks = yearTicks(chart[0]?.x ?? todayX, chart[chart.length - 1]?.x ?? todayX);
+  // Round steps up the side, as the planner's chart has, from the tallest curve.
+  const yTicks = niceTicks(Math.max(0, ...chart.map((r) => Math.max(r.owed, r.principal, r.interest))));
+  // Without a start date the curves begin today, so what's paid counts from today.
+  const hasPast = life != null && life.todayIndex > 0;
+  const seriesLabel = (s: (typeof SERIES)[number]) => (s.key === "owed" || hasPast ? s.label : `${s.label} from today`);
 
   return (
     <div className="grid gap-5 xl:grid-cols-[minmax(0,5fr)_minmax(0,6fr)]">
@@ -205,13 +207,24 @@ export function HomeLoan({
             <ComposedChart data={chart} margin={{ top: 14, right: 12, left: 0, bottom: 0 }}>
               <CartesianGrid stroke={GRID} vertical={false} />
               <XAxis dataKey="x" type="number" domain={["dataMin", "dataMax"]} ticks={ticks} tick={AXIS} axisLine={false} tickLine={false} />
-              <YAxis tick={{ ...AXIS, className: "money" }} axisLine={false} tickLine={false} width={60} tickFormatter={compact} />
+              <YAxis
+                domain={[0, yTicks[yTicks.length - 1]]}
+                ticks={yTicks}
+                tick={{ ...AXIS, className: "money" }}
+                axisLine={false}
+                tickLine={false}
+                width={60}
+                tickFormatter={compact}
+              />
               <Tooltip
                 formatter={(v, key) => [
                   <span key="v" className="money">
                     {formatMoney(Number(v))}
                   </span>,
-                  key === "extra" ? "Owed with extra" : (SERIES.find((s) => s.key === key)?.label ?? String(key)),
+                  key === "extra" ? "Owed with extra" : (() => {
+                    const series = SERIES.find((s) => s.key === key);
+                    return series ? seriesLabel(series) : String(key);
+                  })(),
                 ]}
                 labelFormatter={(_, rows) => {
                   const at = rows?.[0]?.payload?.at as number | undefined;
@@ -243,7 +256,8 @@ export function HomeLoan({
                 />
               ))}
               {extra ? (
-                <Line type="monotone" dataKey="extra" stroke="var(--positive)" strokeWidth={2.25} strokeDasharray="6 4" dot={false} isAnimationActive={false} connectNulls />
+                // Dashed in the owed blue: it is what's owed, with the extra paid.
+                <Line type="monotone" dataKey="extra" stroke={OWED} strokeWidth={2.25} strokeDasharray="6 4" dot={false} isAnimationActive={false} connectNulls />
               ) : null}
               {/* Only a loan with a past needs telling where today is. */}
               {life && life.todayIndex > 0 ? (
@@ -260,12 +274,12 @@ export function HomeLoan({
         <div className="mt-2 flex flex-wrap gap-x-5 gap-y-1 text-xs text-muted-foreground">
           {SERIES.map((s) => (
             <span key={s.key} className="flex items-center gap-1.5">
-              <span className="inline-block h-0.5 w-4" style={{ background: s.color }} /> {s.label}
+              <span className="inline-block h-0.5 w-4" style={{ background: s.color }} /> {seriesLabel(s)}
             </span>
           ))}
           {extra ? (
             <span className="flex items-center gap-1.5">
-              <span className="inline-block h-0.5 w-4 border-t-2 border-dashed border-positive" /> Owed with extra payments
+              <span className="inline-block h-0.5 w-4 border-t-2 border-dashed" style={{ borderColor: OWED }} /> Owed with extra payments
             </span>
           ) : null}
         </div>

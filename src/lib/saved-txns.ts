@@ -46,7 +46,7 @@ async function keeping() {
   return Boolean(row?.keepTransactions);
 }
 
-function snapshot(t: LiveTxn, paired: boolean) {
+function snapshot(t: LiveTxn, paired: boolean, refundOf: string | null) {
   const merchant = ledgerMerchant(t);
   const fields = {
     userCategory: t.userCategory,
@@ -57,6 +57,7 @@ function snapshot(t: LiveTxn, paired: boolean) {
     userMerchant: t.userMerchant,
     name: t.name,
     pairedTransfer: paired,
+    refundOf,
     isTransfer: t.isTransfer,
     isCcPayment: t.isCcPayment,
   };
@@ -86,7 +87,7 @@ async function writeSnapshots(txns: LiveTxn[]) {
   const posted = txns.filter((t) => !t.pending && t.plaidTransactionId);
   if (!posted.length) return;
   const flags = await loadCardPaymentFlags();
-  const rows = posted.map((t) => snapshot(t, flags.enabled && flags.paired.has(t.id)));
+  const rows = posted.map((t) => snapshot(t, flags.enabled && flags.paired.has(t.id), flags.refunds.get(t.id) ?? null));
   for (let i = 0; i < rows.length; i += WRITE_CHUNK) {
     const chunk = rows.slice(i, i + WRITE_CHUNK);
     await prisma.$transaction(
@@ -212,7 +213,7 @@ type SavedRow = {
   memo: string | null;
 };
 
-function presentLive(t: LiveTxn, names: HouseholdNames, paired: boolean): TxnRow {
+function presentLive(t: LiveTxn, names: HouseholdNames, paired: boolean, refundOf: string | null): TxnRow {
   const merchant = ledgerMerchant(t);
   const fields = {
     userCategory: t.userCategory,
@@ -223,6 +224,7 @@ function presentLive(t: LiveTxn, names: HouseholdNames, paired: boolean): TxnRow
     userMerchant: t.userMerchant,
     name: t.name,
     pairedTransfer: paired,
+    refundOf,
     isTransfer: t.isTransfer,
     isCcPayment: t.isCcPayment,
   };
@@ -290,7 +292,7 @@ export async function listSavedTransactions(): Promise<TxnRow[]> {
   const liveByPlaid = new Map(live.map((t) => [t.plaidTransactionId, t]));
   return saved.map((s) => {
     const t = liveByPlaid.get(s.plaidTransactionId);
-    if (t) return presentLive(t, names, flags.enabled && flags.paired.has(t.id));
+    if (t) return presentLive(t, names, flags.enabled && flags.paired.has(t.id), flags.refunds.get(t.id) ?? null);
     return presentSaved({ ...s, owner: savedOwnerNow(s, ownerByAccount) }, names);
   });
 }

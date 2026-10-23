@@ -1,19 +1,23 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { RefreshCw } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "./ui/button";
 
-// One automatic refresh per page load, even when React mounts the shell twice in development.
-let autoStarted = false;
+// Automatic refreshes start at most once an hour, even when React mounts the shell twice in development.
+let lastAuto = 0;
+const AUTO_EVERY_MS = 60 * 60 * 1000;
+/** Connections older than this refresh by themselves while Haus is open. */
+const STALE_MS = 4 * 60 * 60 * 1000;
 
 export function RefreshButton({
   lastSynced,
   iconOnly,
   autoSync = true,
 }: {
+  /** For the automatic refresh: when the oldest connection last synced. Null refreshes (and refreshes quotes alone). */
   lastSynced?: string | null;
   iconOnly?: boolean;
   /** Only one mounted instance should own the stale-ledger auto refresh. */
@@ -47,15 +51,30 @@ export function RefreshButton({
     }
   }
 
+  // Refresh by itself once the oldest connection is over 4 hours old: on opening Haus, when it comes back into view,
+  // and hourly while it stays open. The server also refreshes connections a day old when no one is looking.
+  const synced = useRef(lastSynced);
   useEffect(() => {
-    if (!autoSync || autoStarted) return;
-    const stale =
-      !lastSynced || Date.now() - new Date(lastSynced).getTime() > 4 * 60 * 60 * 1000;
-    if (!stale) return;
-    autoStarted = true;
-    refresh(false, true);
+    synced.current = lastSynced;
+  }, [lastSynced]);
+  useEffect(() => {
+    if (!autoSync) return;
+    const maybe = () => {
+      const iso = synced.current;
+      const due = !iso || Date.now() - Date.parse(iso) > STALE_MS;
+      if (!due || document.visibilityState !== "visible" || Date.now() - lastAuto < AUTO_EVERY_MS) return;
+      lastAuto = Date.now();
+      void refresh(false, true);
+    };
+    maybe();
+    const timer = setInterval(maybe, AUTO_EVERY_MS / 4);
+    document.addEventListener("visibilitychange", maybe);
+    return () => {
+      clearInterval(timer);
+      document.removeEventListener("visibilitychange", maybe);
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [autoSync]);
 
   if (iconOnly) {
     return (

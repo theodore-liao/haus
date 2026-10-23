@@ -1,5 +1,6 @@
 import { prisma } from "./db";
 import { inOrder } from "./in-order";
+import { parseExpenses, type PlanExpensePref } from "./plan-expenses";
 
 export type PlanChildPref = {
   id: string;
@@ -51,6 +52,12 @@ export type ProjectionPrefs = {
   /** A partner's yearly take-home pay, which stops when they retire before the other. Null uses half the household's. */
   stopPayA?: number | null;
   stopPayB?: number | null;
+  /** Whose each paycheck is, by its payer as the planner lists it, where its account can't say (a joint account). */
+  payOwners?: Record<string, "A" | "B">;
+  /** Planned large expenses. Once saved, this list replaces housePrice, houseAge, and houseAtRetire. */
+  expenses?: PlanExpensePref[];
+  /** Yearly pay growth in percent. Unset keeps pace with inflation. */
+  wageGrowth?: number | null;
 };
 
 async function ensureColumn() {
@@ -167,6 +174,18 @@ function parse(raw: string | null | undefined): ProjectionPrefs {
     const retireAgeB = num(o.retireAgeB);
     if (retireAgeA !== undefined) out.retireAgeA = retireAgeA;
     if (retireAgeB !== undefined) out.retireAgeB = retireAgeB;
+    const expenses = parseExpenses(o.expenses);
+    if (expenses) out.expenses = expenses;
+    if ("wageGrowth" in o) {
+      const wageGrowth = numOrNull(o.wageGrowth);
+      if (wageGrowth !== undefined) out.wageGrowth = wageGrowth;
+    }
+    if (o.payOwners && typeof o.payOwners === "object" && !Array.isArray(o.payOwners)) {
+      const marks = Object.entries(o.payOwners as Record<string, unknown>).filter(
+        (entry): entry is [string, "A" | "B"] => entry[1] === "A" || entry[1] === "B",
+      );
+      out.payOwners = Object.fromEntries(marks.slice(0, 50));
+    }
     for (const key of ["stopPayA", "stopPayB"] as const) {
       if (!(key in o)) continue;
       const pay = numOrNull(o[key]);

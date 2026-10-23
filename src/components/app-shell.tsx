@@ -20,12 +20,15 @@ export function AppShell({
   nameA,
   nameB,
   lastSynced,
+  oldestSynced,
   tabs,
 }: {
   children: React.ReactNode;
   nameA: string;
   nameB: string;
   lastSynced?: string | null;
+  /** When the oldest connection that can sync last did; null when one never has, or there are none. */
+  oldestSynced?: string | null;
   tabs: TabVisibility;
 }) {
   const path = usePathname();
@@ -80,7 +83,7 @@ export function AppShell({
             Last sync
             <div className="num truncate text-xs text-foreground/80">{formatDateTime(lastSynced)}</div>
           </div>
-          <RefreshButton lastSynced={lastSynced} iconOnly />
+          <RefreshButton lastSynced={oldestSynced} iconOnly />
         </div>
       </aside>
 

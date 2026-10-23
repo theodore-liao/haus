@@ -12,6 +12,8 @@ export type FlowRow = {
   amount: number;
   /** Spending the household left out of budgets. It still counts everywhere else. */
   noBudget?: boolean;
+  /** Who holds the account money came into ("a", "b", "joint"), so pay can be told apart by partner. */
+  owner?: string;
 };
 
 /** Spending that counts toward budgets: everything but the charges the household left out. */

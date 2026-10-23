@@ -71,7 +71,7 @@ export { inferRecurring };
 import { listBudgets } from "./budgets";
 import { buildInsights, rankInsights, topActions, type Debt } from "./insights";
 import { readProjectionPrefs } from "./projection-prefs";
-import { PLAN_DEFAULTS, contributionsPriorQuarter, estimateSaving, mergeChildren, retirementSnapshot } from "./retirement-snapshot";
+import { PLAN_DEFAULTS, contributionsPriorQuarter, estimateSaving, mergeChildren, partnerPay, retirementSnapshot } from "./retirement-snapshot";
 import { EQUITY_ID_PREFIX, ESPP_LABEL, SAVE_FACTOR, SAVE_MONTHS, VEST_LABEL, dedupeEspp, equityKind, equityKindOfCategory, priorQuarter, trailingYear, type EquityEvent } from "./equity-comp";
 import { realReturn } from "./retirement-plan";
 import { mustPayMonthly } from "./emergency-fund";
@@ -115,11 +115,16 @@ export async function getNames() {
   };
 }
 
+/** One account holding cash, for the lists that say where a cash total sits. */
+export type CashAccount = { id: string; name: string; holder: string; institution: string | null; balance: number };
+
 async function withCardFlags<T extends { id: string }>(rows: T[]) {
   const flags = await loadCardPaymentFlags();
   return rows.map((t) => ({
     ...t,
     pairedTransfer: flags.enabled && flags.paired.has(t.id),
+    // Money back from a shop, whatever the bank filed it as: it counts as a refund, never a transfer.
+    refundOf: flags.refunds.get(t.id) ?? null,
   }));
 }
 
@@ -303,6 +308,8 @@ export async function getOverview(filter: OwnerFilter) {
   let investments = 0;
   let liabilities = 0;
   let otherAssets = 0;
+  /** Where the cash is: each checking, savings, or cash account, largest first. */
+  const cashAccounts: CashAccount[] = [];
   const liabilityIds = new Set<string>();
   const allocation = {
     cash: 0,
@@ -343,6 +350,7 @@ export async function getOverview(filter: OwnerFilter) {
     if (isCashType(a.hausType) && !asLiability) {
       cash += bal;
       allocation.cash += bal;
+      cashAccounts.push({ id: a.id, name: base, holder, institution: a.item.institutionName, balance: bal });
       if (Math.abs(bal) >= 10) allocationItems.cash.push({ label, value: bal, name: logoName, kind: "institution" });
     } else if (asLiability) {
       liabilities += Math.abs(bal);
@@ -731,6 +739,7 @@ export async function getOverview(filter: OwnerFilter) {
     },
     allocation,
     allocationItems,
+    cashAccounts: cashAccounts.sort((x, y) => y.balance - x.balance),
     path,
     moved: { accounts: movedAccounts, transactions: largeTxns, holdings: holdingMoves },
   };
@@ -1475,6 +1484,7 @@ export async function getReports(filter: OwnerFilter) {
         category: src,
         merchant: merch || src,
         amount: Math.abs(t.amount),
+        owner: t.account.owner,
       });
     } else if (isInvestFunding(t) && t.amount > 0) {
       flows.push({
@@ -1590,6 +1600,7 @@ export async function getReports(filter: OwnerFilter) {
         category: src,
         merchant: s.merchant || src,
         amount: Math.abs(s.amount),
+        owner,
       });
     } else if (s.amount > 0) {
       flows.push({
@@ -1857,7 +1868,7 @@ export async function getInsights(filter: OwnerFilter) {
           saveNow: estimate?.amount ?? null,
           childBalances,
           householdChildren: names.children.map((c) => ({ id: c.id, name: c.name })),
-          payAnnual: pay.annual,
+          partnerPay: partnerPay(pay.sources, prefs.payOwners),
         })
       : null;
   const roomKeys = new Set<string>();
@@ -1888,8 +1899,18 @@ export async function getInsights(filter: OwnerFilter) {
 
   const grossAssets = overview.netWorth + overview.tiles.liabilities;
   const mustPay = mustPayMonthly(reports.flows, now);
+  // The same accounts getCashflow totals, so the rows add up to the cash figure.
+  const cashAccounts = accs
+    .filter((a) => isCashType(a.hausType))
+    .map((a) => ({
+      label: withHolder(accountLabel(a.name, a.item.institutionName), ownerLabel(a.owner, names)),
+      value: a.currentBalance ?? 0,
+    }))
+    .filter((a) => Math.abs(a.value) >= 0.005)
+    .sort((x, y) => y.value - x.value);
   const insights = buildInsights({
     cash: cashflow.cash,
+    cashAccounts,
     monthlyEssential: mustPay.monthly,
     essentialParts: mustPay.parts,
     cashRate,
@@ -1955,7 +1976,7 @@ function formatShortDate(d: Date) {
   return d.toLocaleString("en-US", { month: "short", year: "numeric", timeZone: "UTC" });
 }
 
-type Flow = { date: string; month: string; kind: "spend" | "income" | "invest"; category: string; merchant: string; amount: number };
+type Flow = { date: string; month: string; kind: "spend" | "income" | "invest"; category: string; merchant: string; amount: number; owner?: string };
 
 function median(xs: number[]) {
   const s = [...xs].sort((a, b) => a - b);
@@ -1978,9 +1999,9 @@ export function isTakeHome(category: string) {
  * Cluster deposits that land within ~20% of each other. One employer can pay two
  * fixed streams that look unstable if they are lumped together.
  */
-function amountClusters(rows: { date: number; amount: number }[]) {
+function amountClusters<T extends { date: number; amount: number }>(rows: T[]) {
   const sorted = [...rows].sort((a, b) => a.amount - b.amount);
-  const clusters: { date: number; amount: number }[][] = [];
+  const clusters: T[][] = [];
   for (const row of sorted) {
     const last = clusters[clusters.length - 1];
     const pivot = last ? median(last.map((r) => r.amount)) : 0;
@@ -2008,18 +2029,21 @@ function cadenceOf(dates: number[]): { cadence: string; perYear: number } | null
   return null;
 }
 
+/** A regular paycheck: who pays it, how much each time, how often, and whose it is when the account says. */
+export type PaySource = { label: string; amount: number; cadence: string; perYear: number; partner: "A" | "B" | null };
+
 /** All holders' repeating take-home deposits, scaled to a year. Amount-clustered per merchant. */
 export function annualisedPaychecks(flows: Flow[]) {
-  const byMerchant = new Map<string, { label: string; rows: { date: number; amount: number }[] }>();
+  const byMerchant = new Map<string, { label: string; rows: { date: number; amount: number; owner?: string }[] }>();
   for (const f of flows) {
     if (f.kind !== "income" || !isTakeHome(f.category)) continue;
     const key = recurringMerchantKey(f.merchant);
     if (!key) continue;
     const g = byMerchant.get(key) ?? { label: f.merchant, rows: [] };
-    g.rows.push({ date: Date.parse(f.date), amount: f.amount });
+    g.rows.push({ date: Date.parse(f.date), amount: f.amount, owner: f.owner });
     byMerchant.set(key, g);
   }
-  const sources: { label: string; amount: number; cadence: string; perYear: number }[] = [];
+  const sources: PaySource[] = [];
   for (const g of byMerchant.values()) {
     for (const cluster of amountClusters(g.rows)) {
       // Drop one-off outliers (bonuses) that sit far from the cluster median.
@@ -2030,7 +2054,11 @@ export function annualisedPaychecks(flows: Flow[]) {
       if (!hit) continue;
       const amount = median(steady.map((r) => r.amount));
       if (amount <= 0) continue;
-      sources.push({ label: g.label, amount, cadence: hit.cadence, perYear: hit.perYear });
+      // Pay that only ever lands in one partner's own account is theirs; a joint account can't say whose it is.
+      const owners = new Set(steady.map((r) => r.owner));
+      const only = owners.size === 1 ? [...owners][0] : undefined;
+      const partner = only === "a" ? "A" : only === "b" ? "B" : null;
+      sources.push({ label: g.label, amount, cadence: hit.cadence, perYear: hit.perYear, partner });
     }
   }
   sources.sort((a, b) => b.amount * b.perYear - a.amount * a.perYear);

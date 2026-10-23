@@ -8,9 +8,12 @@ import type { TxnRow } from "@/lib/txn-row";
 import { RecurringPanel } from "./recurring";
 import { TransactionsTable } from "./table";
 
-/** A credit that is not pay, interest, or a transfer. Listed before spend is reduced by it. */
+/**
+ * A credit that is not pay, interest, or a transfer. Listed before spend is reduced by it. `internal` already settles
+ * transfers and card payments, including money back from a shop that the bank filed as one (it isn't internal).
+ */
 function isRefund(t: TxnRow) {
-  if (t.amount >= 0 || t.isTransfer || t.isCcPayment) return false;
+  if (t.amount >= 0 || t.internal) return false;
   const code = (t.category ?? "").toUpperCase();
   if (code === "TRANSFER" || code === "INCOME" || code.startsWith("INCOME_")) return false;
   return true;

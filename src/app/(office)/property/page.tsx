@@ -176,6 +176,8 @@ export default async function PropertyPage() {
                             estimate={p.estimate}
                             rent={p.rent}
                             savedExtra={p.extraPrincipal}
+                            originationDate={p.originationDate ? p.originationDate.toISOString().slice(0, 10) : null}
+                            originalTermMonths={p.originalTermMonths}
                           />
                         ) : p.loanBalance > 0 ? (
                           <Callout tone="info">

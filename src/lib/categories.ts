@@ -127,9 +127,13 @@ export function isInternalMove(t: {
   name?: string | null;
   /** Same amount moved between two linked accounts. */
   pairedTransfer?: boolean;
+  /** Money back from a shop that charged this account before, with that purchase's category (card-payments.ts). */
+  refundOf?: string | null;
 }) {
   // A category chosen on this transaction wins. Shopping stays shopping.
   if (t.userCategory && !isTransferCategory(t.userCategory)) return false;
+  // Money back from a shop is spending in reverse, whatever the bank filed it as.
+  if (t.refundOf) return false;
   if (t.pairedTransfer) return true;
   if (t.isTransfer || isCreditCardPayment(t)) return true;
   return isTransferCategory(effectiveCategory(t));
@@ -144,8 +148,10 @@ export function effectiveCategory(t: {
   userMerchant?: string | null;
   name?: string | null;
   pairedTransfer?: boolean;
+  refundOf?: string | null;
 }): string {
   if (t.userCategory && !isTransferCategory(t.userCategory)) return t.userCategory;
+  if (t.refundOf) return t.refundOf;
   if (t.pairedTransfer || (t.userCategory && isTransferCategory(t.userCategory))) return "TRANSFER";
   const merch = t.merchant || t.userMerchant || t.merchantName || t.name || "";
   const detailed = (t.categoryDetailed || "").toUpperCase();

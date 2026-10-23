@@ -47,8 +47,16 @@ export type RetirementPlanInput = {
   children: PlanChild[];
   /** Child-account balances, subtracted from total college cost. */
   childBalances: number;
-  housePrice: number | null;
-  houseAge: number | null;
+  /**
+   * Large one-off costs the household plans (a home, a car, a wedding), each at an age on the same scale as `ageNow`,
+   * in today's money. Before retiring one comes out of savings that year; from retiring on it is part of the number.
+   */
+  expenses?: PlanExpense[];
+  /**
+   * Yearly pay growth, nominal, as a decimal. Saving (and a partner's pay that stops early) grows with pay less inflation;
+   * left out, pay keeps pace with inflation and saving stays the same in today's money.
+   */
+  wageGrowth?: number;
   otherIncome: number;
   otherIncomeAge: number;
   /** Tax rate on withdrawals, as a decimal. */
@@ -62,6 +70,13 @@ export type RetirementPlanInput = {
    */
   earlyStop?: { age: number; pay: number } | null;
 };
+
+export type PlanExpense = { age: number; amount: number };
+
+/** How much pay (and so saving) grows a year in today's money: wage growth less inflation. */
+export function realWageGrowth(input: Pick<RetirementPlanInput, "wageGrowth" | "inflation">) {
+  return input.wageGrowth == null ? 0 : (1 + input.wageGrowth) / (1 + input.inflation) - 1;
+}
 
 /** Age Medicare starts: health cover before it is paid from savings. */
 export const MEDICARE_AGE = 65;
@@ -77,7 +92,8 @@ export type RetirementPlanResult = {
   kids: number;
   /** Health cover from retiring until Medicare. */
   health: number;
-  house: number;
+  /** Large expenses from retiring on, set aside at retirement. */
+  expenses: number;
   percent: number | null;
   firstYearNeed: number | null;
   /** First-year withdrawal divided by the number, or by invested money once retired. */
@@ -94,7 +110,7 @@ const EMPTY: RetirementPlanResult = {
   living: 0,
   kids: 0,
   health: 0,
-  house: 0,
+  expenses: 0,
   percent: null,
   firstYearNeed: null,
   withdrawalRate: null,
@@ -232,19 +248,18 @@ export function retirementNumber(input: RetirementPlanInput): RetirementPlanResu
     else if (tail > 0) living += ((tail * (1 + ra)) / ra) * discount(cursor - retire, ra);
   }
 
-  let house = 0;
-  if (
-    !impossible &&
-    input.housePrice != null &&
-    input.housePrice > 0 &&
-    input.houseAge != null &&
-    input.houseAge >= retire &&
-    1 + ra > 0
-  ) {
-    house = input.housePrice * discount(input.houseAge - retire, ra);
+  // Large expenses from retiring on are set aside at retirement, discounted at the return after retiring. Spending it
+  // down, one after the money is meant to run out is not planned for.
+  let expenses = 0;
+  if (!impossible && 1 + ra > 0) {
+    for (const e of input.expenses ?? []) {
+      if (e.amount > 0 && e.age >= retire && e.age >= current && (input.mode !== "down" || e.age < live)) {
+        expenses += e.amount * discount(e.age - retire, ra);
+      }
+    }
   }
 
-  const number = impossible ? null : living + kids + health + house;
+  const number = impossible ? null : living + kids + health + expenses;
   const firstAge = alreadyRetired ? current : retire;
   const firstYearNeed = needAt(firstAge, input, scale).total;
   const base = alreadyRetired ? input.invested : number;
@@ -275,7 +290,7 @@ export function retirementNumber(input: RetirementPlanInput): RetirementPlanResu
     living: impossible ? 0 : living,
     kids: impossible ? 0 : kids,
     health: impossible ? 0 : health,
-    house: impossible ? 0 : house,
+    expenses: impossible ? 0 : expenses,
     percent,
     firstYearNeed,
     withdrawalRate,
@@ -379,13 +394,13 @@ export type PathPoint = {
   balance: number;
   /** Invested money plus every saving so far, in today's money. */
   contributed: number;
-  /** Money in (+, saved that year) or out (−, spent from savings that year, a house included), in today's money. */
+  /** Money in (+, saved that year) or out (−, spent from savings that year, large expenses included), in today's money. */
   flow: number;
 };
 
 /**
  * Year-by-year balance in today's money, from now to the live-to age.
- * Before retiring: grows at the real return, `saving` lands at year end, and a house bought before retiring comes out that year
+ * Before retiring: grows at the real return, `saving` (growing with real wages) lands at year end, and a large expense comes out that year
  * (the same convention as milestones). From retirement on: each year's need comes out at the start of the year, then the rest grows
  * at the real return after retiring (the same convention as "how long it lasts"). Saving the required amount lands on the number.
  */
@@ -396,7 +411,16 @@ export function balancePath(input: RetirementPlanInput, saving: number): PathPoi
   const start = Math.floor(input.ageNow);
   const retire = Math.max(input.retireAge, start);
   const end = Math.max(retire + 1, input.liveTo);
-  const house = input.housePrice != null && input.housePrice > 0 && input.houseAge != null ? { age: input.houseAge, price: input.housePrice } : null;
+  const expenses = (input.expenses ?? []).filter((e) => e.amount > 0 && e.age >= start);
+  /**
+   * Large expenses paid in the year a person turns `age`. Before retiring they come out at the year's end, this year's
+   * with the first; from retiring on, at the start, with that year's spending.
+   */
+  const spentAt = (age: number, beforeRetiring: boolean) =>
+    expenses
+      .filter((e) => (e.age < retire) === beforeRetiring && (beforeRetiring ? Math.max(start + 1, Math.round(e.age)) : Math.round(e.age)) === age)
+      .reduce((sum, e) => sum + e.amount, 0);
+  const pay = 1 + realWageGrowth(input);
 
   let balance = input.invested;
   let contributed = input.invested;
@@ -408,18 +432,21 @@ export function balancePath(input: RetirementPlanInput, saving: number): PathPoi
     if (age <= retire) {
       // Kid costs above today's come out of what is saved that year; when a child leaves home, saving rises.
       // Once a partner has stopped working, their take-home pay no longer comes in.
-      const lostPay = input.earlyStop && age - 1 >= input.earlyStop.age ? Math.max(0, input.earlyStop.pay) : 0;
-      const saved = saving - (kidCostIn(year - 1, input) - kidNow) - lostPay;
+      // Pay, and so saving, grows with wages; the first year's saving is today's.
+      const grown = pay ** (age - start - 1);
+      const lostPay = input.earlyStop && age - 1 >= input.earlyStop.age ? Math.max(0, input.earlyStop.pay) * grown : 0;
+      const saved = saving * grown - (kidCostIn(year - 1, input) - kidNow) - lostPay;
       balance = balance * (1 + rb) + saved;
       contributed += saved;
       flow = saved;
-      if (house && Math.round(house.age) === age && house.age < retire) {
-        balance -= house.price;
-        flow -= house.price;
+      const spent = spentAt(age, true);
+      if (spent > 0) {
+        balance -= spent;
+        flow -= spent;
       }
     } else {
       const prev = age - 1;
-      const need = needAt(prev, input, scale).total + (house && house.age >= retire && Math.round(house.age) === prev ? house.price : 0);
+      const need = needAt(prev, input, scale).total + spentAt(prev, false);
       balance = (balance - need) * (1 + ra);
       flow = -need;
     }

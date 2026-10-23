@@ -3,6 +3,7 @@ import { EmptyLedger } from "@/components/states";
 import { Money } from "@/components/money";
 import { HeroCard } from "@/components/hero-card";
 import { Pills, Pill } from "@/components/pills";
+import { CashAccounts } from "@/components/cash-accounts";
 import { ChartCard } from "@/components/chart-card";
 import { AllocationChart, NetWorthChart } from "@/components/charts";
 import { CashFlowBlock } from "@/components/cash-flow-block";
@@ -101,7 +102,7 @@ export default async function OverviewPage() {
             <Pill kicker="Investments" accent="#D4BE7A">
               <Money value={pills.investments} />
             </Pill>
-            <Pill kicker="Cash" accent="#7DB8A4">
+            <Pill kicker="Cash" accent="#7DB8A4" info={<CashAccounts accounts={data.cashAccounts} />}>
               <Money value={pills.cash} />
             </Pill>
             <Pill kicker="Property" accent="#7EABD4">

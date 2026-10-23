@@ -9,6 +9,7 @@ import {
   type RetirementPlanInput,
 } from "./retirement-plan";
 import { SAVE_MONTHS } from "./equity-comp";
+import { expensesForPlan, plannedExpenses } from "./plan-expenses";
 import { inPriorMonths } from "./range";
 
 export const PLAN_DEFAULTS = {
@@ -103,8 +104,36 @@ export type RetireTiming = {
   /** Each partner's own retire age, when both birthdates are known. */
   partners: [PartnerRetire, PartnerRetire] | null;
   /** The partner who stops working first, when the two retire in different years. Age is on the timeline. */
-  early: { key: "A" | "B"; age: number; year: number; pay: number; payOwn: boolean } | null;
+  early: {
+    key: "A" | "B";
+    age: number;
+    year: number;
+    pay: number;
+    /** The household typed this partner's pay. */
+    payOwn: boolean;
+    /** Otherwise it is the paychecks that are theirs; false when none are known, and pay is 0 until some are. */
+    payFromPaychecks: boolean;
+  } | null;
 };
+
+/**
+ * Each partner's yearly take-home pay from the paychecks that are theirs: by what the household marked, or else by the
+ * partner whose own account they land in. Pay into a joint account is nobody's until it is marked.
+ */
+export function partnerPay(
+  sources: { label: string; amount: number; perYear: number; partner: "A" | "B" | null }[],
+  marks?: Record<string, "A" | "B"> | null,
+) {
+  const out = { A: 0, B: 0, unmarked: 0 };
+  for (const s of sources) {
+    const who = marks?.[s.label] ?? s.partner;
+    const yearly = s.amount * s.perYear;
+    if (who === "A") out.A += yearly;
+    else if (who === "B") out.B += yearly;
+    else out.unmarked += yearly;
+  }
+  return out;
+}
 
 /**
  * When each partner retires, worked out once for the planner and for every page that shows its verdict.
@@ -114,8 +143,8 @@ export function retireTiming(input: {
   prefs: ProjectionPrefs;
   holders: { key: "A" | "B"; birthdate: string | null }[];
   today: string;
-  /** Household take-home pay a year: half of it stands in for a partner's pay until one is entered. */
-  payAnnual?: number | null;
+  /** Each partner's take-home pay a year from their own paychecks (partnerPay), for one who stops first. */
+  partnerPay?: { A: number; B: number } | null;
 }): RetireTiming {
   const { prefs } = input;
   const D = PLAN_DEFAULTS;
@@ -159,8 +188,9 @@ export function retireTiming(input: {
   let early: RetireTiming["early"] = null;
   if (first.retireYear < last.retireYear) {
     const own = first.key === "A" ? prefs.stopPayA : prefs.stopPayB;
-    const pay = own ?? (input.payAnnual != null && input.payAnnual > 0 ? Math.round(input.payAnnual / 2) : 0);
-    early = { key: first.key, age: toTimeline(first.retireYear), year: first.retireYear, pay, payOwn: own != null };
+    const theirs = Math.round(input.partnerPay?.[first.key] ?? 0);
+    const pay = own ?? theirs;
+    early = { key: first.key, age: toTimeline(first.retireYear), year: first.retireYear, pay, payOwn: own != null, payFromPaychecks: own == null && theirs > 0 };
   }
   return { ...base, retireAge: toTimeline(retireYear), retireYear, partners, early };
 }
@@ -217,14 +247,13 @@ export function retirementSnapshot(input: {
   saveNow: number | null;
   childBalances: number;
   householdChildren: { id: string; name: string }[];
-  /** Household take-home pay a year, for a partner who stops first without their own figure. */
-  payAnnual?: number | null;
+  /** Each partner's take-home pay a year from their own paychecks, for one who stops first without a typed figure. */
+  partnerPay?: { A: number; B: number } | null;
 }): RetirementSnapshot {
   const { prefs } = input;
   const D = PLAN_DEFAULTS;
-  const timing = retireTiming({ prefs, holders: input.holders, today: input.today, payAnnual: input.payAnnual });
+  const timing = retireTiming({ prefs, holders: input.holders, today: input.today, partnerPay: input.partnerPay });
   const { ageNow, currentYear, retireAge, planAge } = timing;
-  const houseAtRetire = prefs.houseAtRetire !== false;
   const rate = prefs.rate ?? D.rate;
   const liveTo = prefs.liveTo ?? D.liveTo;
   const invested = prefs.invested != null ? Math.round(prefs.invested / 10_000) * 10_000 : Math.round(input.investedDefault / 10_000) * 10_000;
@@ -245,8 +274,8 @@ export function retirementSnapshot(input: {
     collegeAnnual: prefs.collegeAnnual ?? D.collegeAnnual,
     children: kids.map((k) => ({ birthYear: k.birthYear })),
     childBalances: input.childBalances,
-    housePrice: prefs.housePrice ?? null,
-    houseAge: houseAtRetire ? retireAge : (prefs.houseAge ?? null),
+    expenses: expensesForPlan(plannedExpenses(prefs, { retireYear: timing.retireYear, currentYear, planAge }), { currentYear, planAge }),
+    wageGrowth: prefs.wageGrowth != null ? prefs.wageGrowth / 100 : undefined,
     otherIncome: prefs.otherIncome ?? 0,
     otherIncomeAge: prefs.otherIncomeAge ?? D.otherIncomeAge,
     tax: (prefs.taxPct ?? D.taxPct) / 100,

@@ -195,3 +195,19 @@ test("stock mix is information only", () => {
   assert.equal(mix?.status, "info");
   assert.equal(mix?.value, "60%");
 });
+
+test("the cash cards say which accounts the cash is in", () => {
+  const cashAccounts = [
+    { label: "Harbor: High Yield Savings (Joint)", value: 50_000 },
+    { label: "Harbor: Everyday Checking (Joint)", value: 10_000 },
+  ];
+  const all = buildInsights(base({ cash: 60_000, monthlyEssential: 4_000, cashAccounts }));
+  const reserve = find(all, "reserve")!;
+  const rows = reserve.breakdown!.map((r) => r.label);
+  assert.deepEqual(rows.slice(rows.indexOf("6-month buffer") + 1, rows.indexOf("Cash on hand")), cashAccounts.map((a) => a.label));
+  const idle = find(all, "idle-cash")!;
+  assert.deepEqual(
+    idle.breakdown!.map((r) => [r.label, r.value]),
+    [...cashAccounts.map((a) => [a.label, a.value]), ["Cash on hand", 60_000], ["6-month reserve", 24_000], ["Beyond the reserve", 36_000]],
+  );
+});

@@ -14,6 +14,7 @@ import {
 import { readProjectionPrefs, updateProjectionPrefs } from "@/lib/projection-prefs";
 import { writeShowGoals } from "@/lib/goals";
 import { readJson } from "@/lib/api";
+import { EXPENSE_KINDS, MAX_EXPENSES, type ExpenseKind } from "@/lib/plan-expenses";
 import { isCalendarDay, localDayKey } from "@/lib/range";
 import { keepRetireYear } from "@/lib/retirement-snapshot";
 
@@ -89,6 +90,19 @@ const projectionPrefsSchema = z
     retireAgeB: z.number().finite().nullable().optional(),
     stopPayA: z.number().finite().nullable().optional(),
     stopPayB: z.number().finite().nullable().optional(),
+    payOwners: z.record(z.string().max(200), z.enum(["A", "B"])).optional(),
+    expenses: z
+      .array(
+        z.object({
+          id: z.string().min(1).max(64),
+          kind: z.enum(EXPENSE_KINDS.map((k) => k.value) as [ExpenseKind, ...ExpenseKind[]]),
+          year: z.number().int().min(1900).max(2200).nullable(),
+          amount: z.number().finite().min(0).max(1e10).nullable(),
+        }),
+      )
+      .max(MAX_EXPENSES)
+      .optional(),
+    wageGrowth: z.number().finite().min(-50).max(50).nullable().optional(),
   })
   .strict();
 

@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
+import { Trash2 } from "lucide-react";
 import { Button } from "./ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "./ui/dialog";
 import { Input } from "./ui/input";
@@ -94,12 +95,26 @@ export function AddCrypto({
   );
 }
 
-export function RemoveCrypto({ id }: { id: string }) {
+/** Removes an entry made by hand, after asking. `icon` shows a bin, for the end of a table row. */
+export function RemoveCrypto({
+  id,
+  kind = "crypto",
+  name,
+  icon = false,
+}: {
+  id: string;
+  /** Which total the entry leaves. Stocks entered by hand are stored the same way as coins. */
+  kind?: "crypto" | "stocks";
+  name?: string;
+  icon?: boolean;
+}) {
   const router = useRouter();
   return (
     <ConfirmButton
-      title="Remove this entry?"
-      description="It leaves your crypto total."
+      title={name ? `Remove ${name}?` : "Remove this entry?"}
+      description={`It leaves your ${kind} total.`}
+      ariaLabel={icon ? `Remove ${name ?? "this entry"}` : undefined}
+      className={icon ? "h-7 w-7 px-0 text-muted-foreground hover:text-foreground" : undefined}
       onConfirm={async () => {
         try {
           const res = await fetch("/api/manual-holdings", {
@@ -118,7 +133,7 @@ export function RemoveCrypto({ id }: { id: string }) {
         }
       }}
     >
-      Remove
+      {icon ? <Trash2 /> : "Remove"}
     </ConfirmButton>
   );
 }

@@ -728,7 +728,22 @@ export async function syncPlaidItem(itemDbId: string) {
   return { status, errors };
 }
 
-export async function syncAllItems() {
+const syncing = globalThis as unknown as { hausSyncAll?: ReturnType<typeof syncEveryItem> };
+
+/**
+ * Syncs every connection. A sync already running (Refresh all pressed twice, or the hourly check meeting a press)
+ * is joined rather than started again, so no bank is fetched twice at once.
+ */
+export function syncAllItems() {
+  if (!syncing.hausSyncAll) {
+    syncing.hausSyncAll = syncEveryItem().finally(() => {
+      syncing.hausSyncAll = undefined;
+    });
+  }
+  return syncing.hausSyncAll;
+}
+
+async function syncEveryItem() {
   const items = await prisma.plaidItem.findMany();
   const results = [];
   for (const item of items) {

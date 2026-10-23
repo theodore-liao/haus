@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { keepRetireYear, retireTiming, retirementSnapshot } from "./retirement-snapshot";
+import { keepRetireYear, partnerPay, retireTiming, retirementSnapshot } from "./retirement-snapshot";
 
 const TODAY = "2026-10-16";
 // A is 40 this year, B is 45.
@@ -32,19 +32,33 @@ test("partners retiring apart: the household retires with the later one, and the
     prefs: { holderKey: "A", retireAgeA: 55, retireAgeB: 65, stopPayA: 90_000 },
     holders: BOTH,
     today: TODAY,
-    payAnnual: 200_000,
+    partnerPay: { A: 120_000, B: 80_000 },
   });
   // A at 55 is 2041; B at 65 is 2046. On A's timeline, the household retires at 60.
   assert.equal(t.retireYear, 2046);
   assert.equal(t.retireAge, 60);
-  assert.deepEqual(t.early, { key: "A", age: 55, year: 2041, pay: 90_000, payOwn: true });
+  assert.deepEqual(t.early, { key: "A", age: 55, year: 2041, pay: 90_000, payOwn: true, payFromPaychecks: false });
 });
 
-test("without a partner's own pay, half the household's take-home pay stands in", () => {
-  const t = retireTiming({ prefs: { holderKey: "B", retireAgeA: 60, retireAgeB: 55 }, holders: BOTH, today: TODAY, payAnnual: 150_000 });
+test("without a figure typed in, the partner's own paychecks stand in, never half the household's", () => {
+  const prefs = { holderKey: "B" as const, retireAgeA: 60, retireAgeB: 55 };
+  const t = retireTiming({ prefs, holders: BOTH, today: TODAY, partnerPay: { A: 110_000, B: 64_000 } });
   // B at 55 is 2036; A at 60 is 2046. On B's timeline, the household retires at 65.
   assert.equal(t.retireAge, 65);
-  assert.deepEqual(t.early, { key: "B", age: 55, year: 2036, pay: 75_000, payOwn: false });
+  assert.deepEqual(t.early, { key: "B", age: 55, year: 2036, pay: 64_000, payOwn: false, payFromPaychecks: true });
+  // Nobody's paychecks known yet: nothing is guessed.
+  const unknown = retireTiming({ prefs, holders: BOTH, today: TODAY, partnerPay: { A: 0, B: 0 } });
+  assert.deepEqual(unknown.early, { key: "B", age: 55, year: 2036, pay: 0, payOwn: false, payFromPaychecks: false });
+});
+
+test("paychecks are a partner's by what the household marked, or by the account they land in", () => {
+  const sources = [
+    { label: "Acme Corp", amount: 3_000, perYear: 26, partner: null },
+    { label: "Globex", amount: 5_000, perYear: 12, partner: "B" as const },
+    { label: "Initech", amount: 1_000, perYear: 12, partner: null },
+  ];
+  assert.deepEqual(partnerPay(sources), { A: 0, B: 60_000, unmarked: 90_000 });
+  assert.deepEqual(partnerPay(sources, { "Acme Corp": "A", Globex: "A" }), { A: 138_000, B: 0, unmarked: 12_000 });
 });
 
 test("one birthdate, or none, keeps the single retire age", () => {
@@ -65,7 +79,7 @@ test("the verdict needs more saving when one partner stops earlier", () => {
     saveNow: 60_000,
     childBalances: 0,
     householdChildren: [],
-    payAnnual: 200_000,
+    partnerPay: { A: 100_000, B: 100_000 },
   };
   const together = retirementSnapshot({ ...common, prefs: { holderKey: "A", retireAgeA: 60, retireAgeB: 65, annualSpend: 80_000 } });
   const apart = retirementSnapshot({ ...common, prefs: { holderKey: "A", retireAgeA: 55, retireAgeB: 65, annualSpend: 80_000 } });

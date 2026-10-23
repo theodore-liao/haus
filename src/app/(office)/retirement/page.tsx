@@ -7,7 +7,7 @@ import { getOwnerFilter } from "@/lib/request";
 import { givenName, hasSpouse, isPlaceholderName } from "@/lib/owners";
 import { hausTypeLabel, isChildAccountType } from "@/lib/account-types";
 import { readProjectionPrefs } from "@/lib/projection-prefs";
-import { contributionsPriorQuarter, estimateSaving, retirementSnapshot } from "@/lib/retirement-snapshot";
+import { contributionsPriorQuarter, estimateSaving, partnerPay, retirementSnapshot } from "@/lib/retirement-snapshot";
 import { Pill, Pills } from "@/components/pills";
 import { formatApprox } from "@/lib/format";
 import { localDayKey } from "@/lib/range";
@@ -64,6 +64,7 @@ export default async function RetirementPage() {
             amount: source.amount,
             cadence: source.cadence,
             perYear: source.perYear,
+            partner: source.partner,
           })),
           spend: run.total * run.factor,
           spendPeriod: run.total,
@@ -98,7 +99,7 @@ export default async function RetirementPage() {
     saveNow: saveNow?.amount ?? null,
     childBalances: custodial.reduce((sum, row) => sum + row.balance, 0),
     householdChildren: data.names.children.map((child) => ({ id: child.id, name: child.name })),
-    payAnnual: pay,
+    partnerPay: partnerPay(paychecks.sources, projectionPrefs.payOwners),
   });
   // Partners retiring in different years: the header names both, as the planner does.
   const nameOfKey = (key: "A" | "B") => {

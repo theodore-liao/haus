@@ -7,7 +7,7 @@ import { plaidConfigured } from "@/lib/env";
 import { enrichHoldingsQuotes, ensurePriceHistory } from "@/lib/quotes";
 import { syncAllWallets } from "@/lib/crypto-wallets";
 import { invalidateNetWorthPath } from "@/lib/history";
-import { refreshPlan } from "@/lib/refresh-plan";
+import { connectionsStale, refreshPlan } from "@/lib/refresh-plan";
 
 export const dynamic = "force-dynamic";
 
@@ -15,12 +15,8 @@ export async function POST(req: Request) {
   await requireSession();
   const body = (await req.json().catch(() => ({}))) as { force?: boolean };
   const items = await prisma.plaidItem.findMany();
-  const newest = items.reduce<Date | null>((acc, i) => {
-    if (!i.lastSyncedAt) return acc;
-    if (!acc || i.lastSyncedAt > acc) return i.lastSyncedAt;
-    return acc;
-  }, null);
-  const stale = !newest || Date.now() - newest.getTime() > STALE_SYNC_HOURS * 3600 * 1000;
+  // The oldest connection decides: one bank that synced lately never hides another that stopped.
+  const stale = connectionsStale(items, STALE_SYNC_HOURS);
   const plan = refreshPlan({
     itemCount: items.length,
     plaidReady: plaidConfigured(),

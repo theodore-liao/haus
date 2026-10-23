@@ -3,6 +3,7 @@
 import {
   useCallback,
   useEffect,
+  useId,
   useLayoutEffect,
   useMemo,
   useRef,
@@ -21,6 +22,7 @@ import { DateField, NumberField, Segmented } from "@/components/number-field";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { InfoTip } from "@/components/info-tip";
 import { useScrollFits } from "@/lib/use-scroll-fits";
 import { Callout } from "@/components/callout";
@@ -30,7 +32,17 @@ import { formatApprox, formatPct, formatWhole, roundApprox } from "@/lib/format"
 import { givenName, isPlaceholderName } from "@/lib/owners";
 import { inOrder } from "@/lib/in-order";
 import type { PlanChildPref, ProjectionPrefs } from "@/lib/projection-prefs";
-import { PLAN_DEFAULTS, mergeChildren, retireTiming } from "@/lib/retirement-snapshot";
+import {
+  EXPENSE_KINDS,
+  MAX_EXPENSES,
+  countable,
+  expenseLabel,
+  expensesForPlan,
+  plannedExpenses,
+  type ExpenseKind,
+  type PlanExpensePref,
+} from "@/lib/plan-expenses";
+import { PLAN_DEFAULTS, mergeChildren, partnerPay, retireTiming } from "@/lib/retirement-snapshot";
 import type { EquityEvent, EquityYear } from "@/lib/equity-comp";
 import {
   affordableSpend,
@@ -52,7 +64,8 @@ export type SaveNow = {
   amount: number;
   /** Regular take-home pay a year, bonuses dropped. */
   pay: number;
-  paySources: { label: string; amount: number; cadence: string; perYear: number }[];
+  /** `partner` says whose a paycheck is when it only lands in that partner's own account. */
+  paySources: { label: string; amount: number; cadence: string; perYear: number; partner: "A" | "B" | null }[];
   /** All spending a year, loan payments included. */
   spend: number;
   /** Spending over `basis`, before scaling to a year by `factor`. */
@@ -72,7 +85,7 @@ export type SaveNow = {
 
 const LIVING = "#7EABD4";
 const KIDS = "#D4BE7A";
-const HOUSE = "#C99AB0";
+const EXPENSES = "#C99AB0";
 const HEALTH = "#8FC7A0";
 /** Target path: the least saving that lands on the number. Your path: what you save now. */
 const TARGET_LINE = "#D4BE7A";
@@ -260,9 +273,9 @@ export function RetirementPlan({
   const [childAnnual, setChildAnnual] = useState<number>(saved.childAnnual ?? PLAN_DEFAULTS.childAnnual);
   const [collegeAnnual, setCollegeAnnual] = useState<number>(saved.collegeAnnual ?? PLAN_DEFAULTS.collegeAnnual);
   const [kids, setKids] = useState<PlanChildPref[]>(() => mergeChildren(saved.planChildren, householdChildren));
-  const [housePrice, setHousePrice] = useState<number | null>(saved.housePrice ?? null);
-  const [houseAgeSaved, setHouseAge] = useState<number | null>(saved.houseAge ?? null);
-  const [houseAtRetire, setHouseAtRetire] = useState(saved.houseAtRetire !== false);
+  // Large expenses as saved. A plan from before the list keeps its house, bought the year it said, until the list is edited.
+  const [expensesSaved, setExpensesSaved] = useState<PlanExpensePref[] | null>(saved.expenses ?? null);
+  const [wageGrowth, setWageGrowth] = useState<number | null>(saved.wageGrowth ?? null);
   const [otherIncome, setOtherIncome] = useState(saved.otherIncome ?? 0);
   const [otherIncomeAge, setOtherIncomeAge] = useState<number>(saved.otherIncomeAge ?? PLAN_DEFAULTS.otherIncomeAge);
   const [taxPct, setTaxPct] = useState<number>(saved.taxPct ?? PLAN_DEFAULTS.taxPct);
@@ -274,6 +287,9 @@ export function RetirementPlan({
   const [retireAgeB, setRetireAgeB] = useState<number | undefined>(saved.retireAgeB ?? undefined);
   const [stopPayA, setStopPayA] = useState<number | null>(saved.stopPayA ?? null);
   const [stopPayB, setStopPayB] = useState<number | null>(saved.stopPayB ?? null);
+  // Whose each paycheck is, where its account can't say (pay into a joint account).
+  const [payOwners, setPayOwners] = useState<Record<string, "A" | "B">>(saved.payOwners ?? {});
+  const pay = saveNow ? partnerPay(saveNow.paySources, payOwners) : null;
 
   /** One setter per saved value: update the page now, save shortly after. */
   function bind<K extends keyof ProjectionPrefs>(key: K, set: (v: NonNullable<ProjectionPrefs[K]>) => void) {
@@ -288,7 +304,7 @@ export function RetirementPlan({
     prefs: { holderKey, retireAge: retireAgeSaved, yearsFallback, retireAgeA, retireAgeB, stopPayA, stopPayB },
     holders,
     today,
-    payAnnual: saveNow?.pay ?? null,
+    partnerPay: pay,
   });
   const { ageNow, currentYear, minRetire, maxRetire, retireAge, retireYear, planAge, partners, early } = timing;
   // Whose age the axis uses, as the timing settled it: a saved choice whose birthdate is gone falls back to the other.
@@ -337,8 +353,16 @@ export function RetirementPlan({
     else setStopPayB(v);
     persist(key === "A" ? { stopPayA: v } : { stopPayB: v });
   }
-  // By default the house is bought the year you retire, and moves with the slider.
-  const houseAge = houseAtRetire ? retireAge : houseAgeSaved;
+  function markPay(label: string, who: "A" | "B") {
+    const next = { ...payOwners, [label]: who };
+    setPayOwners(next);
+    persist({ payOwners: next });
+  }
+  const expenses = expensesSaved ?? plannedExpenses(saved, { retireYear, currentYear, planAge });
+  function updateExpenses(next: PlanExpensePref[]) {
+    setExpensesSaved(next);
+    persist({ expenses: next });
+  }
   const returnShown = returnAfter ?? rate - 2;
 
   const input: RetirementPlanInput = {
@@ -356,8 +380,8 @@ export function RetirementPlan({
     collegeAnnual,
     children: kids.map((kid) => ({ birthYear: kid.birthYear })),
     childBalances,
-    housePrice,
-    houseAge,
+    expenses: expensesForPlan(expenses, { currentYear, planAge }),
+    wageGrowth: wageGrowth != null ? wageGrowth / 100 : undefined,
     otherIncome,
     otherIncomeAge,
     tax: taxPct / 100,
@@ -393,7 +417,8 @@ export function RetirementPlan({
   const paceNumber = paceAge != null && paceAge < retireAge ? retirementNumber({ ...input, retireAge: paceAge }).number : null;
   // Amounts are entered in today's prices; this is what one becomes in the dollars of a later year.
   const inYear = (amount: number, year: number) => amount * (1 + inflation / 100) ** Math.max(0, year - currentYear);
-  const houseYear = houseAge != null ? currentYear + (houseAge - Math.floor(planAge)) : null;
+  /** The age a calendar year falls at, on the planner's age scale. */
+  const ageIn = (year: number) => Math.floor(planAge) + (year - currentYear);
   const firstCollege = kids
     .filter((kid): kid is PlanChildPref & { birthYear: number } => kid.birthYear != null && kid.birthYear + 18 >= currentYear)
     .sort((a, b) => a.birthYear - b.birthYear)[0];
@@ -485,6 +510,7 @@ export function RetirementPlan({
             liveTo={liveTo}
             rate={rate}
             inflation={inflation}
+            wageGrowth={wageGrowth}
             kidsChange={kidsChange}
             todayMoney={todayMoney}
             retireYear={retireYear}
@@ -526,8 +552,8 @@ export function RetirementPlan({
                           , so you save about <Money value={early.pay} approx /> a year less ({whose(early.key)} take-home pay, under Assumptions).
                         </>
                       ) : (
-                        // No paychecks to take half of: say which box counts those years rather than "$0 less".
-                        `. Enter ${whose(early.key)} take-home pay under Assumptions to count those years.`
+                        // No paychecks of theirs known yet: say which box counts those years rather than "$0 less".
+                        `. Say which paychecks are ${whose(early.key)}, or enter ${isYou(early.key) ? "your" : "their"} take-home pay, under Assumptions to count those years.`
                       )}
                     </p>
                   ) : null}
@@ -593,7 +619,9 @@ export function RetirementPlan({
                 retireAge={retireAge}
                 retireLabel={early && lastKey ? retires(lastKey) : "Retire"}
                 firstStop={early && lastKey ? { age: early.age, name: nameOf(early.key), you: isYou(early.key), pay: early.pay } : null}
-                houseAge={housePrice != null && houseAge != null && houseAge > planAge ? houseAge : null}
+                expenses={expenses
+                  .filter((e) => countable(e, currentYear))
+                  .map((e) => ({ age: ageIn(e.year!), label: expenseLabel(e.kind), amount: e.amount! }))}
                 kids={kids
                   .filter((kid): kid is PlanChildPref & { birthYear: number } => kid.birthYear != null)
                   .map((kid) => ({ name: kid.name || "Planned child", birthYear: kid.birthYear }))}
@@ -686,98 +714,34 @@ export function RetirementPlan({
                     onValue={(v) => bind("healthcareAnnual", setHealthcareAnnual)(v ?? 0)}
                   />
                   </div>
-                  <div className="planner-house">
-                    <NumberField
-                      label="House, cash price"
-                      prefix="$"
-                      money
-                      allowBlank
-                      placeholder="None"
-                      value={housePrice}
-                      min={0}
-                      max={1e10}
-                      onValue={(v) => {
-                        const next = v == null || v <= 0 ? null : v;
-                        setHousePrice(next);
-                        persist({ housePrice: next });
-                      }}
-                      info={
-                        housePrice == null ? (
-                          "Leave blank for no house. Paid in cash, in today's prices."
-                        ) : (
-                          <>
-                            Paid in cash, in today&apos;s prices.{" "}
-                            {houseAtRetire
-                              ? houseHelp(housePrice, houseAge, retireAge, planAge, result.house)
-                              : houseAge == null
-                                ? "Enter the age you'll buy it at."
-                                : null}
-                          </>
-                        )
-                      }
-                      help={
-                        housePrice != null && houseYear != null && houseYear > currentYear ? (
-                          <>
-                            About <Money value={inYear(housePrice, houseYear)} approx /> in {houseYear}.
-                          </>
-                        ) : undefined
-                      }
-                    />
-                  </div>
-                  <div className="planner-switch-row">
-                    <label className="flex min-h-9 cursor-pointer items-start gap-2 text-sm">
+                  <div className="planner-down">
+                    <label className="planner-down-check flex cursor-pointer items-start gap-2 text-sm">
                       <Checkbox className="mt-0.5 h-6 w-6 sm:h-4 sm:w-4" checked={mode === "down"} onCheckedChange={(checked) => bind("spendMode", setMode)(checked === true ? "down" : "forever")} />
                       Spend it down instead of making it last for good
                     </label>
-                    {housePrice != null ? (
-                      <label className="flex min-h-9 cursor-pointer items-start gap-2 text-sm">
-                        <Checkbox
-                          className="mt-0.5 h-6 w-6 sm:h-4 sm:w-4"
-                          checked={houseAtRetire}
-                          onCheckedChange={(checked) => {
-                            const next = checked === true;
-                            setHouseAtRetire(next);
-                            persist({ houseAtRetire: next });
-                          }}
-                        />
-                        {early ? "Buy the house the year we're both retired" : "Buy the house the year I retire"}
-                      </label>
+                    {mode === "down" ? (
+                      <NumberField
+                        label="Spend it down by"
+                        suffix="age"
+                        integer
+                        value={liveTo}
+                        min={Math.min(120, retireAge + 1)}
+                        max={120}
+                        onValue={(v) => bind("liveTo", setLiveTo)(v ?? liveTo)}
+                      />
                     ) : null}
                   </div>
-                  {mode === "down" || (housePrice != null && !houseAtRetire) ? (
-                    <div className="planner-reveal-row">
-                      {mode === "down" ? (
-                        <NumberField
-                          className="planner-reveal-spend"
-                          label="Spend it down by"
-                          suffix="age"
-                          integer
-                          value={liveTo}
-                          min={Math.min(120, retireAge + 1)}
-                          max={120}
-                          onValue={(v) => bind("liveTo", setLiveTo)(v ?? liveTo)}
-                        />
-                      ) : null}
-                      {housePrice != null && !houseAtRetire ? (
-                        <NumberField
-                          className="planner-reveal-house"
-                          label="Buy the house at"
-                          suffix="age"
-                          integer
-                          allowBlank
-                          value={houseAgeSaved}
-                          min={18}
-                          max={120}
-                          onValue={(v) => {
-                            setHouseAge(v);
-                            persist({ houseAge: v });
-                          }}
-                          info={houseHelp(housePrice, houseAge, retireAge, planAge, result.house)}
-                          help={houseAgeSaved == null ? "Not counted until you enter an age." : undefined}
-                        />
-                      ) : null}
-                    </div>
-                  ) : null}
+                  <ExpensesField
+                    expenses={expenses}
+                    currentYear={currentYear}
+                    retireYear={retireYear}
+                    endYear={mode === "down" ? currentYear + (liveTo - Math.floor(planAge)) : null}
+                    liveTo={liveTo}
+                    added={result.error == null && !result.impossible ? result.expenses * unit : null}
+                    dollars={todayMoney ? "today's dollars" : `${retireYear} dollars`}
+                    inYear={inYear}
+                    onChange={updateExpenses}
+                  />
                 </div>
               </section>
             </div>
@@ -861,13 +825,34 @@ export function RetirementPlan({
                     info="When other income, like Social Security or a pension, starts."
                     help={`From ${currentYear + Math.max(0, otherIncomeAge - Math.floor(planAge))}.`}
                   />
+                  <NumberField
+                    label="Wage growth"
+                    suffix="%"
+                    allowBlank
+                    placeholder={String(inflation)}
+                    value={wageGrowth}
+                    min={-50}
+                    max={50}
+                    onValue={(v) => {
+                      setWageGrowth(v);
+                      persist({ wageGrowth: v });
+                    }}
+                    info={
+                      <>
+                        How fast pay rises each year until you retire, before inflation. What you save rises with it, so pay that outgrows prices means
+                        saving more each year.{" "}
+                        {wageGrowth == null ? "Blank keeps pay rising with inflation, so saving stays the same in today's money." : "This box is your own figure."}
+                      </>
+                    }
+                  />
                   {early && lastKey ? (
                     <NumberField
                       label={`${capital(whose(early.key))} take-home pay`}
                       prefix="$"
                       money
                       allowBlank
-                      placeholder="Estimate"
+                      // Their own paychecks stand in until a figure is typed.
+                      placeholder={early.payFromPaychecks ? formatWhole(early.pay) : "None found"}
                       value={early.payOwn ? early.pay : null}
                       min={0}
                       max={1e8}
@@ -877,10 +862,24 @@ export function RetirementPlan({
                           {capital(whose(early.key))} yearly pay after tax, in today&apos;s prices. It stops in {early.year}, when{" "}
                           {isYou(early.key) ? "you retire" : `${nameOf(early.key)} retires`}; until {isYou(lastKey) ? "you retire" : `${nameOf(lastKey)} retires`} in{" "}
                           {retireYear}, you save that much less a year, and draw on savings if spending is more than {whose(lastKey)} pay covers.
-                          <PaySources saveNow={saveNow} onPick={(v) => setStopPay(early.key, v)} />
+                          <PayOwners
+                            sources={saveNow?.paySources ?? []}
+                            marks={payOwners}
+                            names={{ A: capital(nameOf("A")), B: capital(nameOf("B")) }}
+                            onMark={markPay}
+                          />
                         </>
                       }
-                      help={<PayHelp own={early.payOwn} pay={early.pay} saveNow={saveNow} whose={whose(early.key)} onPick={(v) => setStopPay(early.key, v)} />}
+                      help={
+                        <PayHelp
+                          own={early.payOwn}
+                          theirs={Math.round(pay?.[early.key] ?? 0)}
+                          unmarked={(pay?.unmarked ?? 0) > 0}
+                          found={(saveNow?.paySources.length ?? 0) > 0}
+                          whose={whose(early.key)}
+                          onPick={(v) => setStopPay(early.key, v)}
+                        />
+                      }
                     />
                   ) : null}
                 </div>
@@ -940,61 +939,72 @@ function spendHelp(annualSpend: number, spendNow: number | null, later: number, 
   );
 }
 
-function houseHelp(price: number | null, age: number | null, retireAge: number, ageNow: number, added: number): ReactNode {
-  if (price == null) return undefined;
-  if (age == null) return "Add an age to count the house.";
-  if (age <= ageNow) return "That age has passed. Pick a later one.";
-  if (age < retireAge) return "Before retiring, it comes out of savings, so you need to save more.";
-  return (
-    <>
-      Adds <Money value={added} approx /> to your number.
-    </>
-  );
-}
-
-
 /** Where a partner's pay figure comes from, in one line. */
 function PayHelp({
   own,
-  pay,
-  saveNow,
+  theirs,
+  unmarked,
+  found,
   whose,
   onPick,
 }: {
   own: boolean;
-  pay: number;
-  saveNow: SaveNow | null;
+  /** Their paychecks, a year. */
+  theirs: number;
+  /** Some paychecks land in a joint account and nobody has said whose they are. */
+  unmarked: boolean;
+  /** Any regular paychecks at all. */
+  found: boolean;
   /** "Sam's", or "your". */
   whose: string;
   onPick: (v: number | null) => void;
 }) {
   if (own) {
-    return saveNow != null && saveNow.pay > 0 ? (
+    return theirs > 0 ? (
       <button type="button" className="cursor-pointer py-0.5 text-left underline" onClick={() => onPick(null)}>
-        Use half your household&apos;s, <Money value={saveNow.pay / 2} approx />
+        Use {whose} paychecks, <Money value={theirs} approx />
       </button>
     ) : null;
   }
-  return pay > 0 ? (
-    <>
-      Using half your household&apos;s, <Money value={pay} approx />. Enter {whose} own.
-    </>
-  ) : (
-    <>Enter {whose} pay to count the years only one of you works.</>
-  );
+  if (theirs > 0) return <>From {whose} paychecks.</>;
+  if (unmarked) return <>Say which paychecks are {whose} in the ?, or enter it.</>;
+  return found ? <>None of the paychecks are {whose}. Enter {whose} pay.</> : <>No paychecks found. Enter {whose} pay.</>;
 }
 
-/** The household's regular paychecks, each a click away from filling a partner's pay. */
-function PaySources({ saveNow, onPick }: { saveNow: SaveNow | null; onPick: (v: number) => void }) {
-  const sources = (saveNow?.paySources ?? []).slice(0, 4).map((source) => ({ label: source.label, annual: Math.round(source.amount * source.perYear) }));
+/** The household's regular paychecks, each with whose it is: set by its account, or chosen here for a joint account. */
+function PayOwners({
+  sources,
+  marks,
+  names,
+  onMark,
+}: {
+  sources: SaveNow["paySources"];
+  marks: Record<string, "A" | "B">;
+  names: { A: string; B: string };
+  onMark: (label: string, who: "A" | "B") => void;
+}) {
   if (sources.length === 0) return null;
   return (
-    <span className="mt-2 block">
-      Your paychecks, a year:
-      {sources.map((source, i) => (
-        <button key={`${source.label}-${i}`} type="button" className="block cursor-pointer py-0.5 text-left underline" onClick={() => onPick(source.annual)}>
-          {source.label}, <Money value={source.annual} approx />
-        </button>
+    <span className="mt-3 block">
+      <span className="kicker block">Whose paychecks</span>
+      {sources.slice(0, 6).map((source, i) => (
+        <span key={`${source.label}-${i}`} className="mt-2 flex items-center justify-between gap-4">
+          <span className="min-w-0">
+            <span className="block truncate">{source.label}</span>
+            <span className="block text-xs text-muted-foreground">
+              <Money value={source.amount * source.perYear} approx /> a year
+            </span>
+          </span>
+          <Segmented
+            label={`Whose pay is ${source.label}`}
+            value={marks[source.label] ?? source.partner ?? ("" as "A" | "B")}
+            onChange={(who) => onMark(source.label, who)}
+            options={[
+              { value: "A", label: names.A },
+              { value: "B", label: names.B },
+            ]}
+          />
+        </span>
       ))}
     </span>
   );
@@ -1272,6 +1282,7 @@ function PlannerAnswer({
   liveTo,
   rate,
   inflation,
+  wageGrowth,
   kidsChange,
   todayMoney,
   retireYear,
@@ -1295,6 +1306,8 @@ function PlannerAnswer({
   liveTo: number;
   rate: number;
   inflation: number;
+  /** Yearly pay growth in percent; null when pay keeps pace with inflation. */
+  wageGrowth: number | null;
   todayMoney: boolean;
   retireYear: number;
   /** Prices at retirement against today's: turns the number into the dollars of the retire year. */
@@ -1330,7 +1343,7 @@ function PlannerAnswer({
     { label: "Living", value: result.living, color: LIVING },
     { label: "Kids and college", value: result.kids, color: KIDS },
     { label: `Health cover to ${MEDICARE_AGE}`, value: result.health, color: HEALTH },
-    { label: "House", value: result.house, color: HOUSE },
+    { label: "Large expenses", value: result.expenses, color: EXPENSES },
   ].filter((part) => part.value > 0.005);
   const onTrack = saving != null && saving >= needed - 0.5;
   const saveScale = Math.max(1, needed, saving ?? 0);
@@ -1453,7 +1466,7 @@ function PlannerAnswer({
             <span className="kicker">{todayMoney ? "Yearly saving" : "Yearly saving, in today's dollars"}</span>
             <InfoTip label="How the saving is worked out">
               Both figures are in today&apos;s dollars at {fmtRate(rate)} growth and {fmtRate(inflation)} inflation, so the dollar amount you actually save rises
-              with prices each year.
+              {wageGrowth == null ? " with prices each year." : ` ${fmtRate(wageGrowth)} a year, with your pay; these are this year's amounts.`}
               {kidsChange ? " In years a child is born or starts college, you'll save less than this; when one leaves home, more." : ""}{" "}
               {needed >= 1 ? (
                 <>
@@ -1550,6 +1563,8 @@ type ChartRow = {
   /** Money in (+) or out (−) that year on your path. */
   flow: number;
   kidCost: number;
+  /** Large expenses inside that year's money out: what they are and their total. */
+  spent: { labels: string[]; amount: number } | null;
 };
 
 function PlannerChart({
@@ -1566,7 +1581,7 @@ function PlannerChart({
   retireAge,
   retireLabel,
   firstStop,
-  houseAge,
+  expenses,
   incomeAge,
   medicare,
   kids,
@@ -1594,7 +1609,8 @@ function PlannerChart({
   retireLabel: string;
   /** A partner who stops working before that, when the two retire apart. */
   firstStop: { age: number; name: string; you: boolean; pay: number } | null;
-  houseAge: number | null;
+  /** Large expenses the plan counts, each at the age it's paid. */
+  expenses: { age: number; label: string; amount: number }[];
   /** Age other income (Social Security, a pension) starts, when there is any. */
   incomeAge: number | null;
   /** Health cover stops at Medicare, when it is being paid for. */
@@ -1611,10 +1627,23 @@ function PlannerChart({
   const narrow = useNarrow();
   const scale = useCallback((age: number) => (todayMoney ? 1 : (1 + inflation) ** (age - start.age)), [todayMoney, inflation, start.age]);
   const shown = useMemo(() => target.filter((point) => point.age <= endAge), [target, endAge]);
+  // The point a large expense leaves the balance at, as the plan counts it: before retiring at the end of its year (this
+  // year's with the first), from retiring on at the start, so it shows in the next point. One from another year says which.
+  const spentIn = useCallback(
+    (age: number) => {
+      const paid = expenses.filter((e) => (e.age < retireAge ? Math.max(start.age + 1, e.age) : e.age + 1) === age);
+      if (!paid.length) return null;
+      const yearOf = (e: { age: number }) => start.year + (e.age - start.age);
+      const labels = paid.map((e) => (e.age === age ? e.label : `${e.label} (${yearOf(e)})`));
+      return { labels: [...new Set(labels)], amount: paid.reduce((sum, e) => sum + e.amount, 0) };
+    },
+    [expenses, retireAge, start.age, start.year],
+  );
   const rows: ChartRow[] = useMemo(
     () =>
       shown.map((point, i) => {
         const k = scale(point.age);
+        const spent = spentIn(point.age);
         const t = Math.max(0, point.balance) * k;
         const y = yours ? Math.max(0, yours[i]?.balance ?? 0) * k : null;
         return {
@@ -1628,9 +1657,10 @@ function PlannerChart({
           range: weak && strong ? [Math.max(0, weak[i]?.balance ?? 0) * k, Math.max(0, strong[i]?.balance ?? 0) * k] : null,
           flow: ((yours ?? target)[i]?.flow ?? 0) * k,
           kidCost: kidCost(point.year) * k,
+          spent: spent ? { labels: spent.labels, amount: spent.amount * k } : null,
         };
       }),
-    [shown, target, yours, weak, strong, byAge, scale, kidCost],
+    [shown, target, yours, weak, strong, byAge, scale, kidCost, spentIn],
   );
   const toX = (age: number) => (byAge ? age : start.year + (age - start.age));
   const yearToX = (year: number) => (byAge ? start.age + (year - start.year) : year);
@@ -1676,13 +1706,25 @@ function PlannerChart({
   const ahead = yours != null && rows.some((r) => r.yours != null && r.yours > r.target + 1);
   const behind = yours != null && rows.some((r) => r.yours != null && r.yours < r.target - 1);
   const grows = yours != null && (rows[rows.length - 1].yours ?? 0) > (rows.find((r) => r.age === retireAge)?.yours ?? 0) * 1.05;
-  const houseAtRetire = houseAge != null && houseAge === retireAge;
+  // One marker for each year with large expenses, named by what they are; one in the retire year joins the retire marker.
+  const spendYears = new Map<number, string[]>();
+  for (const e of expenses) {
+    if (!inRange(e.age)) continue;
+    const kinds = spendYears.get(e.age) ?? [];
+    if (!kinds.includes(e.label)) kinds.push(e.label);
+    spendYears.set(e.age, kinds);
+  }
+  const spendLabel = (kinds: string[]) => (kinds.length > 2 ? `${kinds.length} expenses` : kinds.join(" + "));
+  const atRetire = spendYears.get(retireAge);
   const events = [
     ...(firstStop && inRange(firstStop.age)
       ? [{ age: firstStop.age, label: firstStop.you ? "You retire" : `${firstStop.name} retires`, color: "#cbb892" }]
       : []),
-    { age: retireAge, label: houseAtRetire ? `${retireLabel} + house` : retireLabel, color: "#cbb892" },
-    ...(inRange(houseAge) && !houseAtRetire ? [{ age: houseAge!, label: "House", color: HOUSE }] : []),
+    { age: retireAge, label: atRetire ? `${retireLabel} + ${spendLabel(atRetire).toLowerCase()}` : retireLabel, color: "#cbb892" },
+    ...[...spendYears]
+      .filter(([age]) => age !== retireAge)
+      .sort(([a], [b]) => a - b)
+      .map(([age, kinds]) => ({ age, label: spendLabel(kinds), color: EXPENSES })),
     ...(inRange(incomeAge) ? [{ age: incomeAge!, label: "Income starts", color: "#8fa0b8" }] : []),
     ...(inRange(medicare) && medicare !== retireAge ? [{ age: medicare!, label: "Medicare", color: HEALTH }] : []),
   ];
@@ -1753,7 +1795,11 @@ function PlannerChart({
             <CartesianGrid stroke={GRID} vertical={false} />
             <XAxis dataKey="x" type="number" domain={["dataMin", "dataMax"]} ticks={xTicks} tick={AXIS} axisLine={false} tickLine={false} />
             <YAxis allowDataOverflow domain={[0, yTicks[yTicks.length - 1]]} ticks={yTicks} tick={{ ...AXIS, className: "money" }} axisLine={false} tickLine={false} width={64} tickFormatter={(v) => compact(v)} />
-            <Tooltip content={<ChartTip byAge={byAge} yourSaving={yourSaving} retireAge={retireAge} firstStop={firstStop} />} />
+            <Tooltip
+              content={<ChartTip byAge={byAge} yourSaving={yourSaving} retireAge={retireAge} firstStop={firstStop} />}
+              // No wider than the plot (the chart less its axis), so on a phone it wraps and stays on screen.
+              wrapperStyle={{ maxWidth: "calc(100% - 64px)" }}
+            />
             {number != null && todayMoney ? (
               <ReferenceLine
                 y={number}
@@ -1764,7 +1810,7 @@ function PlannerChart({
             ) : null}
             {events.map((event, i) => (
               <ReferenceLine
-                key={event.label}
+                key={`${event.age}-${event.label}`}
                 x={toX(event.age)}
                 stroke={event.color}
                 strokeDasharray="4 4"
@@ -1871,6 +1917,11 @@ function ChartTip({
         {row.flow >= 0 ? "Saved that year: " : "Spent from savings: "}
         <span className="money">{formatApprox(Math.abs(row.flow))}</span>
       </div>
+      {row.spent ? (
+        <div className="num text-muted-foreground">
+          {row.spent.labels.join(", ")}: <span className="money">{formatApprox(row.spent.amount)}</span>
+        </div>
+      ) : null}
       {row.age <= retireAge && Math.abs(row.kidCost) > 0.5 ? (
         <div className="num text-muted-foreground">
           Kid costs above today&apos;s: <span className="money">{formatApprox(row.kidCost)}</span>
@@ -1898,6 +1949,247 @@ function Figure({ value }: { value: number }) {
 function span(from: number | null, to: number | null) {
   if (from == null) return "";
   return ` (${from}${to != null && to !== from ? `–${to}` : ""})`;
+}
+
+/**
+ * A list of rows that scrolls after a few: whether more rows sit above or below (for its fades), the newest row brought
+ * into view when one is added, and a box's error message scrolled clear of the fade.
+ */
+function useRowList(count: number) {
+  const [listEl, setListEl] = useState<HTMLUListElement | null>(null);
+  const fits = useScrollFits(listEl);
+  const [moreBelow, setMoreBelow] = useState(false);
+  const [moreAbove, setMoreAbove] = useState(false);
+  const measure = useCallback(() => {
+    if (!listEl) return;
+    setMoreBelow(listEl.scrollHeight - listEl.scrollTop - listEl.clientHeight > 4);
+    setMoreAbove(listEl.scrollTop > 4);
+  }, [listEl]);
+  const revealClipped = useCallback(() => {
+    if (!listEl) return;
+    const error = listEl.querySelector(".field-note[data-error]");
+    if (!error) return;
+    const er = error.getBoundingClientRect();
+    const lr = listEl.getBoundingClientRect();
+    // The fade covers the bottom of the list, so the message has to clear that as well as the edge.
+    const limit = lr.bottom - 36;
+    if (er.bottom > limit) listEl.scrollTop += er.bottom - limit;
+    else if (er.top < lr.top) listEl.scrollTop -= lr.top - er.top;
+  }, [listEl]);
+  const seen = useRef(count);
+  useLayoutEffect(() => {
+    if (!listEl) return;
+    if (count > seen.current) listEl.scrollTop = listEl.scrollHeight;
+    seen.current = count;
+    measure();
+    revealClipped();
+    const watcher = new ResizeObserver(() => {
+      measure();
+      revealClipped();
+    });
+    watcher.observe(listEl);
+    for (const child of listEl.children) watcher.observe(child);
+    const changes = new MutationObserver(() => {
+      for (const child of listEl.children) watcher.observe(child);
+      measure();
+      revealClipped();
+    });
+    changes.observe(listEl, { childList: true, subtree: true });
+    return () => {
+      watcher.disconnect();
+      changes.disconnect();
+    };
+  }, [listEl, measure, revealClipped, count]);
+  return { setListEl, fits, moreAbove, moreBelow, measure };
+}
+
+/** Fades the edge of a scrolling list that has more rows past it. */
+function ListFade({ edge }: { edge: "top" | "bottom" }) {
+  return (
+    <div
+      aria-hidden
+      className={`pointer-events-none absolute inset-x-0 h-8 ${edge === "top" ? "top-0" : "bottom-0"}`}
+      style={{ background: `linear-gradient(to ${edge}, transparent, var(--card))` }}
+    />
+  );
+}
+
+/**
+ * Large one-off costs, a row each: what it is, the year it's paid, and its cost in today's prices. It sits in Spend as
+ * one more field, across the whole row.
+ */
+function ExpensesField({
+  expenses,
+  currentYear,
+  retireYear,
+  endYear,
+  liveTo,
+  added,
+  dollars,
+  inYear,
+  onChange,
+}: {
+  expenses: PlanExpensePref[];
+  currentYear: number;
+  /** The year the household is fully retired: a cost before it comes out of saving, one from then on is in the number. */
+  retireYear: number;
+  /** When spending it down, the year the money runs out; a cost from then on isn't planned for. */
+  endYear: number | null;
+  liveTo: number;
+  /** What the costs from retiring on add to the number, in `dollars`; null while the plan can't be worked out. */
+  added: number | null;
+  dollars: string;
+  /** What an amount in today's prices becomes in a later year. */
+  inYear: (amount: number, year: number) => number;
+  onChange: (next: PlanExpensePref[]) => void;
+}) {
+  const update = (id: string, patch: Partial<PlanExpensePref>) => onChange(expenses.map((row) => (row.id === id ? { ...row, ...patch } : row)));
+  const { setListEl, fits, moreAbove, moreBelow, measure } = useRowList(expenses.length);
+  const labelId = useId();
+  const counted = expenses
+    .filter((e) => countable(e, currentYear) && (endYear == null || e.year! < endYear))
+    .map((e) => ({ ...e, year: e.year!, amount: e.amount! }))
+    .sort((a, b) => a.year - b.year);
+  const before = counted.filter((e) => e.year < retireYear);
+  const after = counted.filter((e) => e.year >= retireYear);
+  // A sensible first guess for a new row: the home, then a vehicle, then anything else.
+  const nextKind: ExpenseKind = !expenses.some((e) => e.kind === "home") ? "home" : !expenses.some((e) => e.kind === "vehicle") ? "vehicle" : "other";
+  /** Why a row isn't counted, or nothing when it is. */
+  const why = (e: PlanExpensePref) => {
+    if (e.year == null && e.amount == null) return "Add a year and a cost to count it.";
+    if (e.year == null) return "Add a year to count it.";
+    if (e.amount == null) return "Add a cost to count it.";
+    if (e.year < currentYear) return `${e.year} has passed, so it isn't counted.`;
+    if (endYear != null && e.year >= endYear) return `It falls after you spend it down at ${liveTo}, so it isn't counted.`;
+    return null;
+  };
+  return (
+    <div className="field planner-expenses">
+      <div className="flex min-h-6 items-center gap-1">
+        <span id={labelId} className="kicker">
+          Large expenses
+        </span>
+        <InfoTip label="About large expenses">
+          One-off costs, like a home, a car, or a wedding, in today&apos;s prices. Before you retire, one comes out of savings the year
+          it&apos;s paid, so you need to save more; from the year you retire on, it&apos;s part of your number.
+          {counted.length > 0 && added != null ? (
+            <ul className="kid-facts mt-2 space-y-1">
+              {before.length > 0 ? (
+                <li>
+                  <span className="font-medium">Before retiring:</span> <Figure value={before.reduce((sum, e) => sum + e.amount, 0)} /> comes out
+                  of savings{span(before[0].year, before[before.length - 1].year)}, today&apos;s dollars.
+                </li>
+              ) : null}
+              {after.length > 0 ? (
+                <li>
+                  <span className="font-medium">After retiring:</span> <Figure value={added} /> of your number, {dollars}.
+                </li>
+              ) : null}
+              {counted
+                .filter((e) => e.year > currentYear)
+                .map((e) => (
+                  <li key={e.id}>
+                    <span className="font-medium">
+                      {expenseLabel(e.kind)}, {e.year}:
+                    </span>{" "}
+                    about <Figure value={inYear(e.amount, e.year)} /> by then.
+                  </li>
+                ))}
+            </ul>
+          ) : null}
+        </InfoTip>
+      </div>
+      {expenses.length > 0 ? (
+        <div className="expense-list-wrap">
+          <ul
+            ref={setListEl}
+            onScroll={measure}
+            data-scroll-fits={fits || undefined}
+            className="expense-list soft-scroll pr-1"
+            aria-labelledby={labelId}
+          >
+            {expenses.map((e) => {
+              // "this home expense", "this other expense": reads right for every kind.
+              const name = `this ${expenseLabel(e.kind).toLowerCase()} expense`;
+              const note = why(e);
+              return (
+                <li key={e.id} className="expense-row">
+                  <Select value={e.kind} onValueChange={(kind) => update(e.id, { kind: kind as ExpenseKind })}>
+                    <SelectTrigger
+                      // Dressed like the boxes beside it.
+                      className="expense-kind gap-2 border-input bg-[color-mix(in_srgb,var(--background)_45%,var(--card))] px-2.5"
+                      aria-label="Kind of expense"
+                    >
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {EXPENSE_KINDS.map((k) => (
+                        <SelectItem key={k.value} value={k.value}>
+                          {k.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <NumberField
+                    className="expense-year"
+                    ariaLabel={`Year of ${name}`}
+                    integer
+                    allowBlank
+                    grouping={false}
+                    prefix="In"
+                    placeholder="year"
+                    value={e.year}
+                    min={currentYear}
+                    max={currentYear + 100}
+                    onValue={(v) => update(e.id, { year: v })}
+                  />
+                  <NumberField
+                    className="expense-amount"
+                    ariaLabel={`Cost of ${name}, in today's prices`}
+                    prefix="$"
+                    money
+                    allowBlank
+                    placeholder="cost"
+                    value={e.amount}
+                    min={0}
+                    max={1e10}
+                    onValue={(v) => update(e.id, { amount: v != null && v > 0 ? v : null })}
+                  />
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    className="expense-remove"
+                    aria-label={`Remove ${name}`}
+                    onClick={() => onChange(expenses.filter((row) => row.id !== e.id))}
+                  >
+                    <X />
+                  </Button>
+                  {note ? <p className="expense-note field-note">{note}</p> : null}
+                </li>
+              );
+            })}
+          </ul>
+          {moreAbove ? <ListFade edge="top" /> : null}
+          {moreBelow ? <ListFade edge="bottom" /> : null}
+        </div>
+      ) : null}
+      {expenses.length < MAX_EXPENSES ? (
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          className="mt-0.5 w-full border-dashed normal-case tracking-normal"
+          onClick={() => onChange([...expenses, { id: `expense-${clientId()}`, kind: nextKind, year: null, amount: null }])}
+        >
+          <Plus />
+          Add a large expense
+        </Button>
+      ) : (
+        <span className="block text-sm text-muted-foreground">The planner holds up to {MAX_EXPENSES} large expenses.</span>
+      )}
+    </div>
+  );
 }
 
 function KidsSection({
@@ -1939,48 +2231,7 @@ function KidsSection({
 }) {
   const update = (id: string, patch: Partial<PlanChildPref>) => onKids(kids.map((row) => (row.id === id ? { ...row, ...patch } : row)));
   const counted = kids.some((kid) => kid.birthYear != null);
-  const [listEl, setListEl] = useState<HTMLUListElement | null>(null);
-  const listFits = useScrollFits(listEl);
-  const [moreBelow, setMoreBelow] = useState(false);
-  const measureList = useCallback(() => {
-    if (!listEl) return;
-    setMoreBelow(listEl.scrollHeight - listEl.scrollTop - listEl.clientHeight > 4);
-  }, [listEl]);
-  const revealClipped = useCallback(() => {
-    if (!listEl) return;
-    const error = listEl.querySelector(".field-note[data-error]");
-    if (!error) return;
-    const er = error.getBoundingClientRect();
-    const lr = listEl.getBoundingClientRect();
-    // The fade covers the bottom of the list, so the message has to clear that as well as the edge.
-    const limit = lr.bottom - 36;
-    if (er.bottom > limit) listEl.scrollTop += er.bottom - limit;
-    else if (er.top < lr.top) listEl.scrollTop -= lr.top - er.top;
-  }, [listEl]);
-  const kidCount = useRef(kids.length);
-  useLayoutEffect(() => {
-    if (!listEl) return;
-    if (kids.length > kidCount.current) listEl.scrollTop = listEl.scrollHeight;
-    kidCount.current = kids.length;
-    measureList();
-    revealClipped();
-    const watcher = new ResizeObserver(() => {
-      measureList();
-      revealClipped();
-    });
-    watcher.observe(listEl);
-    for (const child of listEl.children) watcher.observe(child);
-    const changes = new MutationObserver(() => {
-      for (const child of listEl.children) watcher.observe(child);
-      measureList();
-      revealClipped();
-    });
-    changes.observe(listEl, { childList: true, subtree: true });
-    return () => {
-      watcher.disconnect();
-      changes.disconnect();
-    };
-  }, [listEl, measureList, revealClipped, kids]);
+  const { setListEl, fits, moreAbove, moreBelow, measure } = useRowList(kids.length);
   return (
     <section className="form-section">
       <div className="kicker flex items-center gap-1">
@@ -2051,8 +2302,8 @@ function KidsSection({
       <div className="kids-list-wrap">
       <ul
         ref={setListEl}
-        onScroll={measureList}
-        data-scroll-fits={listFits || undefined}
+        onScroll={measure}
+        data-scroll-fits={fits || undefined}
         className="kids-list soft-scroll pr-1"
         aria-label="Children"
       >
@@ -2123,13 +2374,8 @@ function KidsSection({
             );
           })}
       </ul>
-      {moreBelow ? (
-        <div
-          aria-hidden
-          className="pointer-events-none absolute inset-x-0 bottom-0 h-8"
-          style={{ background: "linear-gradient(to top, var(--card), transparent)" }}
-        />
-      ) : null}
+      {moreAbove ? <ListFade edge="top" /> : null}
+      {moreBelow ? <ListFade edge="bottom" /> : null}
       </div>
       {kids.length < MAX_CHILDREN ? (
         <Button

@@ -38,8 +38,7 @@ function plan(over: Partial<RetirementPlanInput> = {}): RetirementPlanInput {
     collegeAnnual: 70_000,
     children: [],
     childBalances: 0,
-    housePrice: null,
-    houseAge: null,
+    expenses: [],
     otherIncome: 0,
     otherIncomeAge: 67,
     tax: 0,
@@ -106,15 +105,61 @@ test("child-account balances offset college", () => {
   close(half.kids, full.kids / 2);
 });
 
-test("a house after retirement is added, and one before retirement is not", () => {
+test("large expenses after retirement are added to the number, and ones before retirement are not", () => {
   const plain = retirementNumber(plan());
-  const after = retirementNumber(plan({ housePrice: 500_000, houseAge: 70 }));
-  const before = retirementNumber(plan({ housePrice: 200_000, houseAge: 50 }));
+  const after = retirementNumber(plan({ expenses: [{ age: 70, amount: 500_000 }, { age: 66, amount: 40_000 }] }));
+  const before = retirementNumber(plan({ expenses: [{ age: 50, amount: 200_000 }] }));
   const ra = realReturn(0.05, 0.03);
-  close(after.house, 500_000 / (1 + ra) ** 5);
-  close((after.number ?? 0) - (plain.number ?? 0), after.house);
+  close(after.expenses, 500_000 / (1 + ra) ** 5 + 40_000 / (1 + ra));
+  close((after.number ?? 0) - (plain.number ?? 0), after.expenses);
   assert.equal(before.number, plain.number);
-  assert.equal(before.house, 0);
+  assert.equal(before.expenses, 0);
+});
+
+test("a large expense before retiring comes out of savings that year, and the required saving still lands on the number", () => {
+  const input = plan({ ageNow: 40, retireAge: 60, expenses: [{ age: 45, amount: 50_000 }, { age: 52, amount: 30_000 }] });
+  const without = plan({ ageNow: 40, retireAge: 60 });
+  const number = retirementNumber(input).number!;
+  assert.equal(number, retirementNumber(without).number);
+  const path = balancePath(input, 20_000);
+  const plainPath = balancePath(without, 20_000);
+  assert.equal(path.find((p) => p.age === 45)!.flow, 20_000 - 50_000);
+  assert.ok(path.find((p) => p.age === 60)!.balance < plainPath.find((p) => p.age === 60)!.balance);
+  assert.ok(requiredSaving(input, number) > requiredSaving(without, number));
+  close(balancePath(input, requiredSaving(input, number)).find((p) => p.age === 60)!.balance, number, 1);
+});
+
+test("a large expense this year comes out with the first year's saving, and one from a past year is ignored", () => {
+  const input = plan({ ageNow: 40, retireAge: 60, expenses: [{ age: 40, amount: 30_000 }, { age: 38, amount: 99_000 }] });
+  const path = balancePath(input, 20_000);
+  assert.equal(path.find((p) => p.age === 41)!.flow, 20_000 - 30_000);
+  assert.deepEqual(path, balancePath(plan({ ageNow: 40, retireAge: 60, expenses: [{ age: 40, amount: 30_000 }] }), 20_000));
+  assert.equal(retirementNumber(plan({ ageNow: 70, retireAge: 65, expenses: [{ age: 68, amount: 50_000 }] })).expenses, 0);
+});
+
+test("spending it down, a large expense after the money runs out is not planned for", () => {
+  const down = { mode: "down" as const, liveTo: 90 };
+  const inside = retirementNumber(plan({ ...down, expenses: [{ age: 80, amount: 100_000 }] }));
+  const outside = retirementNumber(plan({ ...down, expenses: [{ age: 92, amount: 100_000 }] }));
+  assert.ok(inside.expenses > 0);
+  assert.equal(outside.expenses, 0);
+  assert.equal(outside.number, retirementNumber(plan(down)).number);
+  // Lasting for good, it still counts.
+  assert.ok(retirementNumber(plan({ expenses: [{ age: 92, amount: 100_000 }] })).expenses > 0);
+});
+
+test("wage growth raises each year's saving in today's money, so less is needed to start", () => {
+  // Pay rising 5% a year against 3% inflation grows saving about 1.94% a year in today's money.
+  const flat = plan({ ageNow: 40, retireAge: 60 });
+  const rising = plan({ ageNow: 40, retireAge: 60, wageGrowth: 0.05 });
+  const path = balancePath(rising, 10_000);
+  close(path[1].flow, 10_000, 0.01);
+  close(path[2].flow, 10_000 * (1.05 / 1.03), 0.01);
+  const number = retirementNumber(flat).number!;
+  assert.ok(requiredSaving(rising, number) < requiredSaving(flat, number));
+  close(balancePath(rising, requiredSaving(rising, number)).find((p) => p.age === 60)!.balance, number, 1);
+  // Pay that only keeps up with inflation changes nothing.
+  close(requiredSaving(plan({ ageNow: 40, retireAge: 60, wageGrowth: 0.03 }), number), requiredSaving(flat, number), 0.01);
 });
 
 test("a house bought before retirement raises the saving a milestone needs", () => {
@@ -194,7 +239,7 @@ test("a past target age is past even when the amount is already reached", () => 
 });
 
 test("saving the required amount lands on the retirement number at the retire age", () => {
-  const input = plan({ ageNow: 40, retireAge: 60, housePrice: 300_000, houseAge: 50 });
+  const input = plan({ ageNow: 40, retireAge: 60, expenses: [{ age: 50, amount: 300_000 }] });
   const number = retirementNumber(input).number!;
   const saving = requiredSaving(input, number);
   const path = balancePath(input, saving);
@@ -229,7 +274,7 @@ test("earliest retire age at a saving rate, and the age a path reaches an amount
 });
 
 test("with a part-year age, saving the required amount still lands on the number", () => {
-  const input = plan({ ageNow: 31.6, retireAge: 49, liveTo: 100, children: [{ birthYear: 2028 }], housePrice: 400_000, houseAge: 37 });
+  const input = plan({ ageNow: 31.6, retireAge: 49, liveTo: 100, children: [{ birthYear: 2028 }], expenses: [{ age: 37, amount: 400_000 }] });
   const number = retirementNumber(input).number!;
   const path = balancePath(input, requiredSaving(input, number));
   close(path.find((p) => p.age === 49)!.balance, number, 1);

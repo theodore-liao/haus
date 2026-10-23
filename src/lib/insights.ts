@@ -40,6 +40,8 @@ export type Debt = { name: string; balance: number; rate: number | null; kind: "
 
 export type InsightInput = {
   cash: number;
+  /** The accounts that make up `cash`, largest first, so a breakdown can say where it is. */
+  cashAccounts?: { label: string; value: number }[];
   /** Must-pay spending a month: every loan payment plus rent and utilities, groceries, medical, and transport (90-day average). */
   monthlyEssential: number;
   /** Each must-pay category's share of monthlyEssential, a month. */
@@ -138,6 +140,7 @@ export function buildInsights(x: InsightInput): Insight[] {
         ...(x.essentialParts ?? []).map((p) => ({ label: p.category, value: p.monthly })),
         { label: "Must-pay a month", value: x.monthlyEssential, total: true },
         { label: `${t.reserveMonths}-month buffer`, value: reserve, total: true },
+        ...(x.cashAccounts ?? []).map((a) => ({ label: a.label, value: a.value })),
         { label: "Cash on hand", value: x.cash, total: true },
         { label: short > 0 ? "Short of the buffer" : "Above the buffer", value: Math.abs(short), total: true },
       ],
@@ -155,6 +158,14 @@ export function buildInsights(x: InsightInput): Insight[] {
         status: "watch",
         next: `Investing it could earn about ${whole(idle * gap)} more a year.`,
         math: `${money(x.cash)} cash − ${money(reserve)} reserve (${t.reserveMonths} months of must-pay spending, loan payments included). Compares ${x.growthRate}% growth (the planner's rate) with ${x.cashRate != null ? `${x.cashRate.toFixed(2)}% on your cash` : "0% on cash that reports no rate"}.`,
+        breakdown: x.cashAccounts?.length
+          ? [
+              ...x.cashAccounts.map((a) => ({ label: a.label, value: a.value })),
+              { label: "Cash on hand", value: x.cash, total: true },
+              { label: `${t.reserveMonths}-month reserve`, value: reserve, total: true },
+              { label: "Beyond the reserve", value: idle, total: true },
+            ]
+          : undefined,
         href: "/investments",
         impact: idle * gap,
       });

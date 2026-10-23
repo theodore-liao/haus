@@ -12,6 +12,7 @@ import { formatDateTime, formatHoldingClass, formatPct } from "@/lib/format";
 import { DiscreteFilter, nextSortDir, ResetFilters, SortMark, type SortDir } from "./excel-filter";
 import { BrandMark } from "./brand-mark";
 import type { BrandKind } from "@/lib/logos";
+import { Pencil } from "lucide-react";
 import { RemoveCrypto } from "./add-crypto";
 import { AllocationChart } from "./charts";
 import { Button } from "./ui/button";
@@ -123,6 +124,8 @@ export function InvestmentsBoard({
     () => (tableRows ?? rows).filter((r) => Math.abs(r.value) >= minValue),
     [tableRows, rows, minValue],
   );
+  // The Edit/Remove column is there whenever any entry was made by hand, so filtering never makes the table jump.
+  const withActions = tableMaterial.some((r) => r.manual);
   const [classSel, setClassSel] = useState<Set<string> | null>(null);
   // One filter for the Account column: options are "Account - Holder", matching what the cell shows.
   const [acctSel, setAcctSel] = useState<Set<string> | null>(null);
@@ -333,7 +336,7 @@ export function InvestmentsBoard({
                           <Button type="button" size="sm" variant="outline" className="h-7 px-2" onClick={() => onEditManual(r.id)}>
                             Edit
                           </Button>
-                          <RemoveCrypto id={r.id} />
+                          <RemoveCrypto id={r.id} kind={r.class === "crypto" ? "crypto" : "stocks"} name={r.symbol ?? r.name} />
                         </span>
                       </div>
                     ) : r.symbol ? (
@@ -355,17 +358,19 @@ export function InvestmentsBoard({
             scrollFits={tableFits}
           >
             <colgroup>
-              {/* Text columns take what the figures leave; figures never wrap. Day P/L waits for a 2xl viewport. */}
-              <col className="w-[14%]" />
+              {/* Text columns take what the figures leave; figures never wrap. Day P/L waits for a 2xl viewport. The Edit/Remove
+                  column takes its room from Qty, so a table without one keeps its widths. */}
+              <col className={withActions ? "w-[15%]" : "w-[14%]"} />
               <col className="w-[8%]" />
-              <col className="w-[16%]" />
-              <col className="w-[9%]" />
+              <col className={withActions ? "w-[17%]" : "w-[16%]"} />
+              <col className={withActions ? "w-[7%]" : "w-[9%]"} />
               <col className="w-[9%]" />
               <col className="w-[10%]" />
               {hideCostTotal ? null : <col className="w-[9%]" />}
               <col className={DAY_COL} />
               {hideCostTotal ? null : <col className="w-[10%]" />}
               <col className="w-[7%]" />
+              {withActions ? <col className="w-20" /> : null}
             </colgroup>
             <TableHeader className="sticky top-0 z-10 bg-card [&_th]:bg-card">
               <TableRow>
@@ -393,12 +398,17 @@ export function InvestmentsBoard({
                 {head("dayPl", "Day", undefined, true, DAY_CELL)}
                 {hideCostTotal ? null : head("totalPl", "Total", undefined, true)}
                 {head("weight", "Wt", undefined, true)}
+                {withActions ? (
+                  <TableHead>
+                    <span className="sr-only">Edit or remove</span>
+                  </TableHead>
+                ) : null}
               </TableRow>
             </TableHeader>
             <TableBody>
               {visible.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={hideCostTotal ? 8 : 10} className="py-8 text-center text-muted-foreground">
+                  <TableCell colSpan={(hideCostTotal ? 8 : 10) + (withActions ? 1 : 0)} className="py-8 text-center text-muted-foreground">
                     No holdings match this filter.
                   </TableCell>
                 </TableRow>
@@ -443,22 +453,6 @@ export function InvestmentsBoard({
                             <span>{r.account}</span>
                             <span>{r.ownerLabel}</span>
                           </span>
-                          {r.manual ? (
-                            <span className="ml-auto flex shrink-0 items-center gap-1.5">
-                              {onEditManual ? (
-                                <Button
-                                  type="button"
-                                  size="sm"
-                                  variant="outline"
-                                  className="h-7 px-2"
-                                  onClick={() => onEditManual(r.id)}
-                                >
-                                  Edit
-                                </Button>
-                              ) : null}
-                              <RemoveCrypto id={r.id} />
-                            </span>
-                          ) : null}
                         </span>
                       </TableCell>
                       <TableCell className="num" title={String(r.qty)}>
@@ -485,6 +479,29 @@ export function InvestmentsBoard({
                         </TableCell>
                       )}
                       <TableCell className="num text-muted-foreground">{formatPct(r.weight * 100, 1, false)}</TableCell>
+                      {/* Entries made by hand end with Edit and Remove, where they never cover the row's words. */}
+                      {withActions ? (
+                        <TableCell className="px-2">
+                          {r.manual ? (
+                            <span className="flex items-center justify-end gap-0.5">
+                              {onEditManual ? (
+                                <Button
+                                  type="button"
+                                  size="icon"
+                                  variant="ghost"
+                                  className="h-7 w-7 text-muted-foreground hover:text-foreground"
+                                  aria-label={`Edit ${r.symbol ?? r.name}`}
+                                  title="Edit"
+                                  onClick={() => onEditManual(r.id)}
+                                >
+                                  <Pencil />
+                                </Button>
+                              ) : null}
+                              <RemoveCrypto id={r.id} kind={r.class === "crypto" ? "crypto" : "stocks"} name={r.symbol ?? r.name} icon />
+                            </span>
+                          ) : null}
+                        </TableCell>
+                      ) : null}
                     </TableRow>
                   );
                 })

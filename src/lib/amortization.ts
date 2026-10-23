@@ -127,6 +127,54 @@ export function amortize(opts: {
   };
 }
 
+export type LoanPoint = {
+  /** First of the month, after that month's payment. */
+  at: Date;
+  balance: number;
+  /** Principal and interest paid since the loan began (or since today when its start isn't known). */
+  principalPaid: number;
+  interestPaid: number;
+};
+
+/**
+ * The whole life of a loan for the Property chart, month by month to payoff: what's still owed, and the principal and
+ * interest paid so far. The past is rebuilt from today's balance by undoing the same payment month by month, back to the
+ * origination date, or to the original term's start when only that is known; without either it starts today.
+ */
+export function loanLife(opts: {
+  balance: number;
+  aprPct: number;
+  /** Monthly principal and interest. */
+  pi: number;
+  originationDate?: Date | null;
+  originalTermMonths?: number | null;
+  today?: Date;
+}): { points: LoanPoint[]; todayIndex: number } | null {
+  const today = opts.today ?? new Date();
+  const left = remainingFromPayment(opts.balance, opts.aprPct, opts.pi);
+  const future = left > 0 ? amortize({ principal: opts.balance, aprPct: opts.aprPct, remainingMonths: left, start: addMonths(today, 1) }) : null;
+  if (!future) return null;
+  const r = monthlyRate(opts.aprPct);
+  const sinceStart = opts.originationDate
+    ? monthsBetween(opts.originationDate, today)
+    : opts.originalTermMonths && opts.originalTermMonths > left
+      ? opts.originalTermMonths - left
+      : 0;
+  const elapsed = Math.min(600, Math.max(0, sinceStart));
+  // Balances before today, newest first: each month back adds the payment and removes that month's interest.
+  const back = [opts.balance];
+  for (let k = 1; k <= elapsed; k++) back.push((back[k - 1] + opts.pi) / (1 + r));
+  const balances = [...back].reverse().concat(future.months.map((m) => m.balance));
+  const start = addMonths(today, -elapsed);
+  const points: LoanPoint[] = [];
+  let interestPaid = 0;
+  for (let i = 0; i < balances.length; i++) {
+    if (i > 0) interestPaid += balances[i - 1] * r;
+    points.push({ at: addMonths(start, i), balance: balances[i], principalPaid: balances[0] - balances[i], interestPaid });
+  }
+  return { points, todayIndex: elapsed };
+}
+
 export function yearLabel(d: Date) {
   return `${d.toLocaleString("en-US", { month: "short" })} ${d.getFullYear()}`;
 }

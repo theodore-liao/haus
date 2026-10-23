@@ -408,6 +408,18 @@ html.privacy .amort-chart .ytick text:hover {
   padding-left: calc(var(--space-card) + 0.25rem);
 }
 
+/* A pill's label with a "?" beside it: the button overlaps the line's padding so the label keeps its height. */
+.pill-label {
+  display: flex;
+  align-items: center;
+  gap: 0.125rem;
+  min-width: 0;
+}
+
+.pill-label > button {
+  margin-block: -0.375rem;
+}
+
 .pill-accent {
   position: absolute;
   top: 0;
@@ -1557,22 +1569,33 @@ input[type="date"][data-empty]:not(:focus) {
   container-type: inline-size;
 }
 
-.planner-health,
-.planner-house {
+.planner-health {
   min-width: 0;
 }
 
-/* Spend it down on the left, buy the house on the right. The boxes they open sit on the next row, so clicking one does not move it. */
-.planner-switch-row,
-.planner-reveal-row {
-  grid-column: 1 / -1;
-  display: flex;
-  flex-direction: column;
-  gap: 0.375rem;
+/* The Spend column is a container: Spend it down and the large expense rows fit its width, not the window's. */
+.planner-spend {
+  container-type: inline-size;
 }
 
-.planner-reveal-row {
+/* Spend it down takes the box beside Health cover, and the age box it opens sits right under it, so clicking moves nothing. */
+.planner-down {
+  display: flex;
+  flex-direction: column;
   gap: 0.875rem;
+  min-width: 0;
+}
+
+/* Its first line sits level with the middle of a box. */
+.planner-down-check {
+  padding-top: 0.5rem;
+}
+
+/* Two boxes across: below the label row of the box beside it. One across (a phone), it simply follows Health cover. */
+@container (min-width: 23rem) {
+  .planner-down {
+    padding-top: 1.875rem;
+  }
 }
 
 @media (min-width: 1280px) {
@@ -1596,21 +1619,6 @@ input[type="date"][data-empty]:not(:focus) {
   .planner-spend .field-grid,
   .planner-assume .field-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-  /* Spend it down on the left, buy the house on the right, so Spend loses a stacked row. */
-  .planner-switch-row,
-  .planner-reveal-row {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-    gap: 0.5rem 1rem;
-    align-items: start;
-  }
-  .planner-reveal-spend {
-    grid-column: 1;
-  }
-  .planner-reveal-house {
-    grid-column: 2;
-    grid-row: 1;
   }
 }
 
@@ -1801,6 +1809,82 @@ input[type="date"][data-empty]:not(:focus) {
 
 .kids-remove {
   grid-area: remove;
+}
+
+/* Large expenses: the last field in Spend, across the whole row. One row each (kind, year, cost, remove). About three
+   rows, then the list scrolls, as Kids does. */
+.planner-expenses {
+  grid-column: 1 / -1;
+}
+
+.expense-list-wrap {
+  position: relative;
+  min-width: 0;
+}
+
+.expense-list {
+  display: grid;
+  gap: 0.5rem;
+  align-content: start;
+  max-height: calc(3 * 2.25rem + 2 * 0.5rem);
+}
+
+.expense-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 6.5rem minmax(0, 1.25fr) 2.25rem;
+  grid-template-areas: "kind year amount remove" "note note note note";
+  align-items: start;
+  gap: 0 0.5rem;
+}
+
+.expense-kind {
+  grid-area: kind;
+  min-width: 0;
+}
+
+.expense-year {
+  grid-area: year;
+}
+
+/* "In" and the four digits stay on one line inside the year box. */
+.expense-year .field-box {
+  flex-wrap: nowrap;
+}
+
+.expense-year .field-box input {
+  min-width: 4ch;
+}
+
+.expense-amount {
+  grid-area: amount;
+}
+
+.expense-remove {
+  grid-area: remove;
+}
+
+.expense-note {
+  grid-area: note;
+  padding-top: 0.25rem;
+}
+
+/* A phone-width Spend column: the kind and remove on one line, the year and cost under them, framed so each pair reads as one. */
+@container (max-width: 26rem) {
+  .expense-row {
+    grid-template-columns: 6.5rem minmax(0, 1fr) 2.25rem;
+    grid-template-areas: "kind kind remove" "year amount amount" "note note note";
+    gap: 0 0.375rem;
+    padding: 0.375rem;
+    border: 1px solid var(--border);
+    border-radius: 0.375rem;
+  }
+  .expense-year,
+  .expense-amount {
+    margin-top: 0.375rem;
+  }
+  .expense-list {
+    max-height: calc(3 * (4.875rem + 0.75rem + 2px) + 2 * 0.5rem);
+  }
 }
 
 /* Where the planner chart will be, while an input it needs is still blank. */

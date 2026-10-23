@@ -1,4 +1,5 @@
 import { prisma } from "./db";
+import { inOrder } from "./in-order";
 
 export type PlanChildPref = {
   id: string;
@@ -189,17 +190,36 @@ export async function readProjectionPrefs(): Promise<ProjectionPrefs> {
   return parse(rows[0]?.projectionPrefs);
 }
 
+// Two saves read the whole JSON, change their own field, and write it back. Without a queue the second
+// write puts back a copy that never saw the first, so one planner input disappears.
+const oneAtATime = inOrder();
+
 /** Merge-patch into the stored JSON; other household columns are untouched. */
-export async function writeProjectionPrefs(patch: ProjectionPrefs): Promise<ProjectionPrefs> {
-  await ensureColumn();
-  const current = await readProjectionPrefs();
-  const next: ProjectionPrefs = { ...current };
-  for (const [key, value] of Object.entries(patch)) {
-    if (value !== undefined) (next as Record<string, unknown>)[key] = value;
-  }
-  const json = JSON.stringify(next);
-  await prisma.$executeRaw`
-    UPDATE "Household" SET "projectionPrefs" = ${json} WHERE "id" = 'haus'
-  `;
-  return next;
+export function writeProjectionPrefs(patch: ProjectionPrefs): Promise<ProjectionPrefs> {
+  return updateProjectionPrefs(() => patch);
+}
+
+/**
+ * Read the saved planner inputs, change them, and write them back as one step.
+ * Overlapping saves wait their turn, so each one sees what the previous save stored.
+ * A null change leaves the stored inputs alone.
+ */
+export function updateProjectionPrefs(
+  change: (current: ProjectionPrefs) => ProjectionPrefs | null,
+): Promise<ProjectionPrefs> {
+  return oneAtATime(async () => {
+    await ensureColumn();
+    const current = await readProjectionPrefs();
+    const patch = change(current);
+    if (!patch) return current;
+    const next: ProjectionPrefs = { ...current };
+    for (const [key, value] of Object.entries(patch)) {
+      if (value !== undefined) (next as Record<string, unknown>)[key] = value;
+    }
+    const json = JSON.stringify(next);
+    await prisma.$executeRaw`
+      UPDATE "Household" SET "projectionPrefs" = ${json} WHERE "id" = 'haus'
+    `;
+    return next;
+  });
 }

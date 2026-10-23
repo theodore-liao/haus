@@ -11,7 +11,7 @@ import {
   markTransactionsStoredSince,
   readTransactionsStoredSince,
 } from "@/lib/saved-txns";
-import { readProjectionPrefs, writeProjectionPrefs } from "@/lib/projection-prefs";
+import { readProjectionPrefs, updateProjectionPrefs } from "@/lib/projection-prefs";
 import { writeShowGoals } from "@/lib/goals";
 import { readJson } from "@/lib/api";
 import { isCalendarDay, localDayKey } from "@/lib/range";
@@ -136,13 +136,19 @@ export async function PATCH(req: Request) {
       })
     : previous;
   // A birthdate typed in or cleared (here or in the planner) keeps the retire year the planner showed before it.
+  // That read happens with the write, so a slider save still in flight is stored before the year is kept.
   const people = (h: { nameB: string; birthdateA: Date | null; birthdateB: Date | null }) => [
     { key: "A" as const, birthdate: h.birthdateA?.toISOString().slice(0, 10) ?? null },
     ...(hasSpouse(h) ? [{ key: "B" as const, birthdate: h.birthdateB?.toISOString().slice(0, 10) ?? null }] : []),
   ];
-  const kept = keepRetireYear({ prefs: await readProjectionPrefs(), before: people(previous), after: people(household), today: localDayKey() });
-  const prefsPatch = kept || projectionPatch ? { ...kept, ...projectionPatch } : null;
-  const projectionPrefs = prefsPatch ? await writeProjectionPrefs(prefsPatch) : await readProjectionPrefs();
+  const before = people(previous);
+  const after = people(household);
+  const today = localDayKey();
+  const projectionPrefs = await updateProjectionPrefs((current) => {
+    const kept = keepRetireYear({ prefs: current, before, after, today });
+    if (!kept && !projectionPatch) return null;
+    return { ...(kept ?? {}), ...projectionPatch };
+  });
   const turnedOn = parsed.data.keepTransactions === true && !previous.keepTransactions;
   const pairingChanged =
     parsed.data.pairCardPayments !== undefined && parsed.data.pairCardPayments !== previous.pairCardPayments;

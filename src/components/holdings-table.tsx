@@ -8,7 +8,7 @@ import { SearchInput } from "./search-input";
 import { Money, Delta } from "./money";
 import { HeroCard } from "./hero-card";
 import { ChartCard } from "./chart-card";
-import { formatDateTime, formatHoldingClass, formatPct } from "@/lib/format";
+import { formatDateTime, formatDateTimeShort, formatHoldingClass, formatPct } from "@/lib/format";
 import { DiscreteFilter, nextSortDir, ResetFilters, SortMark, type SortDir } from "./excel-filter";
 import { BrandMark } from "./brand-mark";
 import type { BrandKind } from "@/lib/logos";
@@ -59,7 +59,7 @@ function LastUpdated({ iso }: { iso?: string | null }) {
   // Short enough to fit under the asset's name in the table; the whole of it shows on hover.
   return (
     <span className="footnote block" title={`Last updated ${formatDateTime(iso)}`}>
-      Updated {formatDateTime(iso)}
+      Updated {formatDateTimeShort(iso)}
     </span>
   );
 }

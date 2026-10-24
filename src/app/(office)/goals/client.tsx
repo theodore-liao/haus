@@ -289,7 +289,7 @@ function StatusChip({ tone, label }: { tone: string; label: string }) {
 function QuietGoal({ title, text, href, link }: { title: string; text: string; href: string; link: string }) {
   return (
     <article className="chart-card insight-card goal-card">
-      <div className="goal-head">
+      <div className="goal-top">
         <span className="kicker">{title}</span>
       </div>
       <div className="goal-next">
@@ -307,14 +307,14 @@ function InsightGoal({ insight, title }: { insight: Insight; title: string }) {
   const tone = INSIGHT_TONE[insight.status];
   return (
     <article className={cn("chart-card insight-card goal-card", insight.breakdown && "goal-card-split")}>
-      <div className="goal-head">
-      <div className="flex items-center justify-between gap-2">
+      <div className="goal-top flex items-center justify-between gap-2">
         <span className="kicker inline-flex items-center gap-1">
           {title}
           <InfoTip label={`How this is worked out: ${title}`}>{withBlurredMoney(insight.math)}</InfoTip>
         </span>
         <StatusChip tone={tone} label={insight.status === "act" ? "Act" : insight.status === "watch" ? "Watch" : insight.status === "good" ? "On track" : "For reference"} />
       </div>
+      <div className="goal-head">
       <div
         className={cn(
           "display-number mt-3",

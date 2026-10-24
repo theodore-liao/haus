@@ -44,7 +44,7 @@ export function InsightBreakdown({
             <dt className="min-w-0 truncate">{r.label}</dt>
           )}
           <dd>
-            <Money value={r.value} />
+            <Money value={r.value} approx={r.approx} />
           </dd>
         </div>
       ))}

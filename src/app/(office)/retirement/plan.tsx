@@ -36,6 +36,7 @@ import type { PlanChildPref, ProjectionPrefs } from "@/lib/projection-prefs";
 import {
   EXPENSE_KINDS,
   MAX_EXPENSES,
+  byYear,
   countable,
   expenseLabel,
   expensesForPlan,
@@ -478,9 +479,10 @@ export function RetirementPlan({
     expenses
       .filter((e) => countable(e, currentYear) && e.year! < retireYear)
       .filter((e) => {
+        const path = pacePath ?? planPath;
         const at = Math.max(Math.floor(planAge) + 1, ageIn(e.year!));
-        const point = (pacePath ?? planPath)?.find((p) => p.age === at);
-        return point != null && point.balance < 0;
+        const i = path ? path.findIndex((p) => p.age === at) : -1;
+        return i > 0 && path![i].balance < 0 && path![i - 1].balance >= 0;
       })
       .map((e) => e.id),
   );
@@ -655,6 +657,7 @@ export function RetirementPlan({
                 expenses={expenses
                   .filter((e) => countable(e, currentYear))
                   .map((e) => ({ age: ageIn(e.year!), label: expenseLabel(e.kind), amount: e.amount! }))}
+                withdrawalTax={taxPct / 100}
                 kids={kids
                   .filter((kid): kid is PlanChildPref & { birthYear: number } => kid.birthYear != null)
                   .map((kid) => ({ name: kid.name || "Planned child", birthYear: kid.birthYear }))}
@@ -752,14 +755,14 @@ export function RetirementPlan({
                     <Checkbox
                       id={downId}
                       className="planner-down-box h-6 w-6 sm:h-4 sm:w-4"
+                      aria-label={mode === "down" ? "Spend it down" : undefined}
                       checked={mode === "down"}
                       onCheckedChange={(checked) => bind("spendMode", setMode)(checked === true ? "down" : "forever")}
                     />
                     {mode === "down" ? (
                       <div className="planner-down-by">
-                        <label htmlFor={downId} className="cursor-pointer whitespace-nowrap">
-                          Spend it down by
-                        </label>
+                        {/* Words for the age box beside them; clicking them must not untick spend-down. */}
+                        <span className="planner-down-words whitespace-nowrap">Spend it down by</span>
                         <NumberField
                           className="planner-down-age"
                           ariaLabel="Spend it down by age"
@@ -1605,8 +1608,8 @@ type ChartRow = {
   /** Money in (+) or out (−) that year on your path. */
   flow: number;
   kidCost: number;
-  /** Large expenses inside that year's money out: what they are and their total. */
-  spent: { labels: string[]; amount: number } | null;
+  /** Large expenses inside that year's money out: what they are and their total (with tax, once retired). */
+  spent: { labels: string[]; amount: number; taxed: boolean } | null;
 };
 
 function PlannerChart({
@@ -1624,6 +1627,7 @@ function PlannerChart({
   retireLabel,
   firstStop,
   expenses,
+  withdrawalTax,
   incomeAge,
   medicare,
   kids,
@@ -1653,6 +1657,8 @@ function PlannerChart({
   firstStop: { age: number; name: string; you: boolean; pay: number } | null;
   /** Large expenses the plan counts, each at the age it's paid. */
   expenses: { age: number; label: string; amount: number }[];
+  /** Tax on withdrawals, as a decimal: an expense after retiring takes that much more from savings. */
+  withdrawalTax: number;
   /** Age other income (Social Security, a pension) starts, when there is any. */
   incomeAge: number | null;
   /** Health cover stops at Medicare, when it is being paid for. */
@@ -1679,9 +1685,11 @@ function PlannerChart({
       if (!paid.length) return null;
       const yearOf = (e: { age: number }) => start.year + (e.age - start.age);
       const labels = paid.map((e) => (e.age === age ? e.label : `${e.label} (${yearOf(e)})`));
-      return { labels: [...new Set(labels)], amount: paid.reduce((sum, e) => sum + e.amount, 0) };
+      const gross = withdrawalTax > 0 && withdrawalTax < 1 ? 1 / (1 - withdrawalTax) : 1;
+      const amount = paid.reduce((sum, e) => sum + e.amount * (e.age < retireAge ? 1 : gross), 0);
+      return { labels: [...new Set(labels)], amount, taxed: gross > 1 && paid.some((e) => e.age >= retireAge) };
     },
-    [expenses, retireAge, start.age, start.year],
+    [expenses, retireAge, start.age, start.year, withdrawalTax],
   );
   const rows: ChartRow[] = useMemo(
     () =>
@@ -1701,7 +1709,7 @@ function PlannerChart({
           range: weak && strong ? [Math.max(0, weak[i]?.balance ?? 0) * k, Math.max(0, strong[i]?.balance ?? 0) * k] : null,
           flow: ((yours ?? target)[i]?.flow ?? 0) * k,
           kidCost: kidCost(point.year) * k,
-          spent: spent ? { labels: spent.labels, amount: spent.amount * k } : null,
+          spent: spent ? { labels: spent.labels, amount: spent.amount * k, taxed: spent.taxed } : null,
         };
       }),
     [shown, target, yours, weak, strong, byAge, scale, kidCost, spentIn],
@@ -1991,7 +1999,9 @@ function ChartTip({
             </div>
             {row.spent ? (
               <div className="num text-muted-foreground">
-                {before ? `${row.spent.labels.join(", ")}: ` : `Including ${row.spent.labels.join(", ")}: `}
+                {before
+                  ? `${row.spent.labels.join(", ")}: `
+                  : `Including ${row.spent.labels.join(", ")}${row.spent.taxed ? " with tax" : ""}: `}
                 <span className="money">{formatApprox(before ? -row.spent.amount : row.spent.amount)}</span>
               </div>
             ) : null}
@@ -2125,7 +2135,7 @@ function ExpensesField({
   // Rows sort by year as years are filled in, blank years last, so the list reads in the chart's order.
   const update = (id: string, patch: Partial<PlanExpensePref>) => {
     const next = expenses.map((row) => (row.id === id ? { ...row, ...patch } : row));
-    onChange("year" in patch ? next.slice().sort((a, b) => (a.year ?? Infinity) - (b.year ?? Infinity)) : next);
+    onChange("year" in patch ? byYear(next) : next);
   };
   const fieldRef = useRef<HTMLDivElement>(null);
   // Where the keyboard goes once the list changes: a new row's year, or the row after one removed (else Add).

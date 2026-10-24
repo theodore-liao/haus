@@ -184,10 +184,12 @@ function TradesTable({
               <span className={t.symbol ? "block truncate text-sm font-medium text-primary" : "block truncate text-sm font-medium"}>
                 {t.symbol ?? t.name}
               </span>
+              {/* What it was first, then when; the account only when there is more than one to tell apart. */}
               <span className="block truncate text-xs text-muted-foreground">
-                <span className="num">{formatDate(t.date)}</span> ·{" "}
-                <span className="capitalize">{t.subtype && t.subtype.toLowerCase() !== t.type.toLowerCase() ? `${t.type} · ${t.subtype}` : t.type}</span> ·{" "}
-                {t.account}
+                {/* The more specific word ("Contribution" over "Transfer"), so the date still fits on a phone. */}
+                <span className="capitalize">{t.subtype && t.subtype.toLowerCase() !== t.type.toLowerCase() ? t.subtype : t.type}</span> ·{" "}
+                <span className="num">{formatDate(t.date)}</span>
+                {acctOpts.length > 1 ? ` · ${t.account}` : null}
               </span>
             </span>
             <span className="shrink-0 text-right">

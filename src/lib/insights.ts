@@ -1,6 +1,6 @@
 // A planner's checkup: each measure against a common rule of thumb, with what to do next.
 // Pure, so it can be tested without a database. getInsights in queries.ts gathers the inputs.
-import { formatMoney } from "./format";
+import { formatApprox, formatMoney, roundApprox } from "./format";
 
 /** The rules of thumb each measure is judged against. */
 export const BENCHMARKS = {
@@ -49,6 +49,8 @@ export type BreakdownRow = {
   account?: Omit<CashAccountRow, "value">;
   /** A rule above the row, to set a group apart. */
   rule?: boolean;
+  /** A planner forecast, rounded as the Retirement planner shows it. */
+  approx?: boolean;
 };
 
 /** Account rows for a breakdown, the first under a rule when something comes before them. */
@@ -124,6 +126,8 @@ export type InsightInput = {
 
 const money = (n: number) => formatMoney(n);
 const whole = (n: number) => formatMoney(Math.round(n)).replace(/\.00$/, "");
+/** A planner forecast, rounded as the Retirement planner shows it ($56,000, $2.62M). */
+const approx = (n: number) => formatApprox(n);
 const pct = (ratio: number, digits = 0) => `${(ratio * 100).toFixed(digits)}%`;
 const clamp = (n: number) => Math.max(0, Math.min(1, n));
 /** Where the target sits on every meter. */
@@ -247,14 +251,16 @@ export function buildInsights(x: InsightInput): Insight[] {
     const when = apart ? `by ${r.retireYear}` : r.ageKnown ? `at ${r.retireAge}` : `in ${r.retireYear}`;
     const retire = apart ? "both retire" : "retire";
     const gap = r.needed - r.saving;
+    // Taken between the figures as shown, as the planner does, so a short or ahead figure matches the two beside it.
+    const shownGap = roundApprox(r.needed) - roundApprox(r.saving);
     const sooner = r.paceAge != null ? r.retireAge - r.paceAge : 0;
     out.push({
       id: "retirement",
       area: "Retirement",
       title: "Retirement plan",
-      value: gap <= 0 ? "On track" : `${whole(gap)} a year short`,
+      value: gap <= 0 ? "On track" : `${approx(shownGap)} a year short`,
       status: gap <= 0 ? "good" : gap > r.needed * 0.25 ? "act" : "watch",
-      meter: r.needed > 0 ? against(Math.max(0, r.saving), r.needed, `Target ${whole(r.needed)} a year · you save ${whole(r.saving)}`) : undefined,
+      meter: r.needed > 0 ? against(Math.max(0, r.saving), r.needed, `Target ${approx(r.needed)} a year · you save ${approx(r.saving)}`) : undefined,
       next:
         gap <= 0
           ? r.paceAge != null && sooner > 0 && r.ageKnown
@@ -264,10 +270,16 @@ export function buildInsights(x: InsightInput): Insight[] {
             : `What you save now reaches your number ${when}.`
           : r.paceAge != null && r.ageKnown
             ? apart
-              ? `Save ${whole(gap)} more a year to ${retire} ${when}, or plan on ${-sooner} ${-sooner === 1 ? "year" : "years"} later.`
-              : `Save ${whole(gap)} more a year to retire ${when}, or plan on ${r.paceAge}.`
-            : `Save ${whole(gap)} more a year to ${retire} ${when}.`,
+              ? `Save ${approx(shownGap)} more a year to ${retire} ${when}, or plan on ${-sooner} ${-sooner === 1 ? "year" : "years"} later.`
+              : `Save ${approx(shownGap)} more a year to retire ${when}, or plan on ${r.paceAge}.`
+            : `Save ${approx(shownGap)} more a year to ${retire} ${when}.`,
       math: `You save about ${whole(r.saving)} a year; ${apart ? "both retiring" : "retiring"} ${when} needs ${whole(r.needed)} a year to reach a retirement number of ${whole(r.number)} in today's dollars. From the Retirement planner.`,
+      breakdown: [
+        { label: "Retirement number", value: r.number, approx: true },
+        { label: "Needed a year", value: r.needed, approx: true },
+        { label: "You save a year", value: r.saving, approx: true },
+        { label: gap <= 0 ? "Ahead by, a year" : "Short by, a year", value: Math.abs(shownGap), total: true, approx: true },
+      ],
       href: "/retirement",
       impact: gap > 0 ? gap : undefined,
     });

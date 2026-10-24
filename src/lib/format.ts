@@ -142,6 +142,14 @@ export function formatDateTime(d: Date | string | null | undefined): string {
   return format(date, "d MMM yyyy HH:mm");
 }
 
+/** Date and time, leaving out the year when it is this year: "23 Sep 14:05", "23 Sep 2025 14:05". */
+export function formatDateTimeShort(d: Date | string | null | undefined): string {
+  if (!d) return "Never";
+  const date = typeof d === "string" ? new Date(d) : d;
+  if (Number.isNaN(date.getTime())) return "Never";
+  return format(date, date.getFullYear() === new Date().getFullYear() ? "d MMM HH:mm" : "d MMM yyyy HH:mm");
+}
+
 export function startOfDay(d = new Date()) {
   const x = new Date(d);
   x.setHours(0, 0, 0, 0);

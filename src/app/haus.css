@@ -89,11 +89,12 @@ main.page-stack textarea {
   .page-title > div:not(.page-title-desc) {
     flex-basis: 100%;
     justify-content: flex-start;
+    margin-left: 0;
   }
 }
 
 .page-title h1 {
-  margin: 0 auto 0 0;
+  margin: 0;
   padding-left: 0.75rem;
   border-left: 3px solid transparent;
   border-image: linear-gradient(180deg, var(--accent), color-mix(in srgb, var(--primary) 80%, transparent)) 1;
@@ -104,11 +105,13 @@ main.page-stack textarea {
   color: var(--foreground);
 }
 
+/* Actions keep to the right, beside the title or, when they don't fit there, on their own line. */
 .page-title > div:not(.page-title-desc) {
   display: flex;
   flex-wrap: wrap;
   justify-content: flex-end;
   gap: 0.5rem;
+  margin-left: auto;
 }
 
 .page-title p {
@@ -1612,7 +1615,7 @@ input[type="date"][data-empty]:not(:focus) {
 }
 
 /* Level with the box beside it, even when an error opens under the box. */
-.planner-down-by > label {
+.planner-down-words {
   padding-top: 0.5rem;
 }
 
@@ -2210,11 +2213,17 @@ input[type="date"][data-empty]:not(:focus) {
   gap: 1rem;
 }
 
-/* A measure card: its answer, then its figures, then what to do next. From 1024px the figures sit beside the answer. */
+/* A measure card: its title row (status chip at the right), its answer, its figures, then what to do next. From 1024px
+   the figures sit beside the answer, under a title row that spans the card. */
 .goal-card {
   display: grid;
-  grid-template-areas: "head" "figures" "next";
-  grid-template-rows: auto auto 1fr;
+  grid-template-areas: "top" "head" "figures" "next";
+  grid-template-rows: auto auto auto 1fr;
+}
+
+.goal-top {
+  grid-area: top;
+  min-width: 0;
 }
 
 .goal-head {
@@ -2242,8 +2251,8 @@ input[type="date"][data-empty]:not(:focus) {
 @media (min-width: 1024px) {
   .goal-card-split {
     grid-template-columns: minmax(0, 1fr) minmax(20rem, 30rem);
-    grid-template-areas: "head figures" "next figures";
-    grid-template-rows: auto 1fr;
+    grid-template-areas: "top top" "head figures" "next figures";
+    grid-template-rows: auto auto 1fr;
     column-gap: 3rem;
   }
 }

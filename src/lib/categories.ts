@@ -80,12 +80,16 @@ function paymentBlob(t: {
 
 export function isCreditCardPayment(t: {
   isCcPayment?: boolean;
+  /** Plaid's detailed category; a card payment says so there even on rows saved without the flag. */
+  categoryDetailed?: string | null;
   merchant?: string | null;
   merchantName?: string | null;
   userMerchant?: string | null;
   name?: string | null;
 }) {
   if (t.isCcPayment) return true;
+  // The same test a sync uses to set the flag, so a row without it (an older one, or saved history) agrees.
+  if ((t.categoryDetailed ?? "").toUpperCase().includes("CREDIT_CARD_PAYMENT")) return true;
   const blob = paymentBlob(t);
   if (/credit card payment|cc payment|payment to (your )?credit/.test(blob)) return true;
   return false;

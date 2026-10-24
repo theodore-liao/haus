@@ -14,8 +14,10 @@ test("a saved list keeps well-formed entries only, up to the most the planner ho
   ];
   const list = parseExpenses(raw)!;
   assert.equal(list.length, MAX_EXPENSES);
-  assert.deepEqual(list[0], { id: "a", kind: "home", year: 2040, amount: 600_000 });
-  assert.deepEqual(list[1], { id: "c", kind: "vehicle", year: null, amount: null });
+  assert.deepEqual(list.find((e) => e.id === "a"), { id: "a", kind: "home", year: 2040, amount: 600_000 });
+  assert.deepEqual(list.find((e) => e.id === "c"), { id: "c", kind: "vehicle", year: null, amount: null });
+  // In year order, blank years last.
+  assert.deepEqual(list.map((e) => e.year), [...Array(10).fill(2030), 2040, null]);
   assert.equal(parseExpenses("nope"), undefined);
 });
 

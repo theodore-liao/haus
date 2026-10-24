@@ -24,16 +24,23 @@ export function expenseLabel(kind: string) {
   return EXPENSE_KINDS.find((k) => k.value === kind)?.label ?? "Other";
 }
 
-/** A saved list as it comes back, keeping only well-formed entries. */
+/** Year order, blank years last; the order the planner lists them in. */
+export function byYear(list: PlanExpensePref[]) {
+  return list.slice().sort((a, b) => (a.year ?? Infinity) - (b.year ?? Infinity));
+}
+
+/** A saved list as it comes back, keeping only well-formed entries, in year order. */
 export function parseExpenses(raw: unknown): PlanExpensePref[] | undefined {
   if (!Array.isArray(raw)) return undefined;
   const kinds = new Set<string>(EXPENSE_KINDS.map((k) => k.value));
   const num = (v: unknown) => (typeof v === "number" && Number.isFinite(v) ? v : null);
-  return raw
-    .filter((e): e is Record<string, unknown> => Boolean(e) && typeof e === "object")
-    .filter((e) => typeof e.id === "string" && typeof e.kind === "string" && kinds.has(e.kind))
-    .slice(0, MAX_EXPENSES)
-    .map((e) => ({ id: e.id as string, kind: e.kind as ExpenseKind, year: num(e.year), amount: num(e.amount) }));
+  return byYear(
+    raw
+      .filter((e): e is Record<string, unknown> => Boolean(e) && typeof e === "object")
+      .filter((e) => typeof e.id === "string" && typeof e.kind === "string" && kinds.has(e.kind))
+      .slice(0, MAX_EXPENSES)
+      .map((e) => ({ id: e.id as string, kind: e.kind as ExpenseKind, year: num(e.year), amount: num(e.amount) })),
+  );
 }
 
 /**

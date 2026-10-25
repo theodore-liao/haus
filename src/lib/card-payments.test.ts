@@ -60,6 +60,16 @@ test("card payments, pay, payment apps, a chosen category, and credits with no e
   assert.equal(merchantRefunds(rows).size, 0);
 });
 
+test("a merchant repeated in the name and the merchant field is counted once", () => {
+  // Banks often put the same merchant in both fields. Counting it twice would treat this credit as a refund.
+  const rows = [
+    txn("checking", 30, "Google", 2500, "GENERAL_SERVICES", "GENERAL_SERVICES_OTHER_GENERAL_SERVICES"),
+    txn("checking", 14, "Google", -4200, "TRANSFER_IN", "TRANSFER_IN_DEPOSIT"),
+  ];
+  assert.equal(rows[0].merchantName, rows[0].name);
+  assert.equal(merchantRefunds(rows).size, 0);
+});
+
 test("a credit bigger than everything bought there, or worded as pay, is not money back", () => {
   const rows = [
     // Works where they shop, and the bank filed the paycheck as a transfer in.

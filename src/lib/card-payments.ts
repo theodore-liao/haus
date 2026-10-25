@@ -37,7 +37,9 @@ const PAY_WORDS = /\b(payroll|salary|paycheck|wages|direct dep(osit)?|dir dep)\b
 const REFUND_LOOKBACK_DAYS = 548;
 
 function merchantKeys(t: Pick<RefundTxn, "name" | "merchantName" | "userMerchant">) {
-  return [t.userMerchant, t.merchantName, t.name].map((v) => recurringMerchantKey(v)).filter(Boolean);
+  // A bank row often repeats the merchant in the name and the merchant field. Counting that twice would let a credit
+  // up to twice what was spent there pass as a refund.
+  return [...new Set([t.userMerchant, t.merchantName, t.name].map((v) => recurringMerchantKey(v)).filter(Boolean))];
 }
 
 /**

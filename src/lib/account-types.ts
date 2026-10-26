@@ -211,8 +211,3 @@ export function taxTreatmentOf(a: { hausType: string; retirementKind?: string | 
   if (kind === "robo") return "brokerage";
   return TAX_TREATMENTS.some((t) => t.value === kind) ? kind : "brokerage";
 }
-
-export function taxGroupOf(a: { hausType: string; retirementKind?: string | null }): TaxGroup {
-  const value = taxTreatmentOf(a);
-  return TAX_TREATMENTS.find((t) => t.value === value)?.group ?? "taxable";
-}

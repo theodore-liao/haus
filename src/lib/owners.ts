@@ -9,10 +9,6 @@ export type HouseholdNames = {
 
 export const OWNER_COOKIE = "haus_owner";
 
-export function isOwnerFilter(v: string | undefined | null): v is OwnerFilter {
-  return v === "all" || v === "a" || v === "b" || v === "children";
-}
-
 export function matchesOwner(owner: string, filter: OwnerFilter): boolean {
   if (filter === "all") return true;
   if (filter === "a") return owner === "a" || owner === "joint";

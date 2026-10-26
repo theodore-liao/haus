@@ -205,11 +205,6 @@ export type MerchantScope = {
   displayName: string | null;
 };
 
-/** How many extra constraints a scoped rule carries. Higher wins over a looser match. */
-export function scopeScore(rule: { accountId: string; nameContains: string }) {
-  return (rule.accountId ? 2 : 0) + (rule.nameContains ? 1 : 0);
-}
-
 /**
  * A scoped merchant rule matches when the merchant lines up and every constraint that
  * was set (this account, a phrase in the description) holds. Used so two payments that

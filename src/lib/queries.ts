@@ -1037,6 +1037,16 @@ export async function getInvestments(filter: OwnerFilter) {
   };
 }
 
+/**
+ * Id for one institution's crypto held by one person.
+ * The name is kept in full, so two institutions that differ only by punctuation,
+ * spacing, or an emoji stay two cards. A slug of the letters would give them one id
+ * and React would drop a card.
+ */
+export function brokerageCryptoGroupId(institution: string, owner: string): string {
+  return `brokerage:${encodeURIComponent(institution.toLowerCase())}:${encodeURIComponent(owner)}`;
+}
+
 export async function getBrokerageCrypto(filter: OwnerFilter) {
   const names = await getNames();
   const holdings = await prisma.holding.findMany({
@@ -1070,9 +1080,8 @@ export async function getBrokerageCrypto(filter: OwnerFilter) {
     const key = `${institution.toLowerCase()}\0${h.account.owner}`;
     let g = groups.get(key);
     if (!g) {
-      const slug = institution.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "brokerage";
       g = {
-        id: `brokerage:${slug}:${h.account.owner}`,
+        id: brokerageCryptoGroupId(institution, h.account.owner),
         institution,
         owner: h.account.owner,
         ownerLabel: ownerLabel(h.account.owner, names),

@@ -272,7 +272,8 @@ export function InvestmentsBoard({
             <SearchInput placeholder="Search symbol, name, account" value={q} onChange={setQ} />
           </div>
           <div className="flex flex-wrap items-center justify-end gap-2">
-            {headerAction}
+            {/* A slot passed from a server page is a lazy element. Sitting in this row's child list, it resolves without a key and React warns. The wrapper is one child, so the buttons still share this row. */}
+            {headerAction ? <div className="contents">{headerAction}</div> : null}
             <ResetFilters
               dirty={filtersOn}
               onReset={() => {
